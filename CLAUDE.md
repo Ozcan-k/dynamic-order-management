@@ -1,31 +1,38 @@
 # Claude Code — Proje Kuralları
 
-## GitHub — Her Değişiklikte Yapılacaklar (ZORUNLU)
+## Branch Yapısı
+
+| Branch | Amaç |
+|---|---|
+| `test` | Tüm yeni kodlar buraya push edilir |
+| `main` | Sadece test'te onaylanan kod gelir — kullanıcı izniyle |
+
+---
+
+## GitHub Workflow — Her Değişiklikte (ZORUNLU)
 
 **Remote URL:** `https://github.com/Ozcan-k/dynamic-order-management`
 Bu URL'i her seferinde sormadan direkt kullan.
 
-### Adım adım push süreci:
+### Adım adım:
 
-1. Değişiklikleri stage et:
-   ```bash
-   git add <değişen dosyalar>
-   ```
+**1. Kodu `test` branch'ine push et:**
+```bash
+git checkout test
+git add <dosyalar>
+git commit -m "feat/fix: açıklama"
+git tag vX.Y.Z-test
+git push origin test --tags
+```
 
-2. Commit yap (açıklayıcı mesajla):
-   ```bash
-   git commit -m "feat/fix/chore: açıklama"
-   ```
+**2. Kullanıcıdan `main`'e merge izni iste.**
 
-3. Yeni bir semantic version tag ekle:
-   ```bash
-   git tag vX.Y.Z
-   ```
-
-4. Main + tag'leri birlikte push et:
-   ```bash
-   git push origin main --tags
-   ```
+**3. İzin gelince `main`'e merge et:**
+```bash
+git checkout main
+git merge test
+git push origin main --tags
+```
 
 ### Versioning kuralı (Semantic Versioning):
 
@@ -35,10 +42,10 @@ Bu URL'i her seferinde sormadan direkt kullan.
 | Yeni özellik, phase tamamlandı | MINOR → v1.1.0 |
 | Büyük mimari değişiklik | MAJOR → v2.0.0 |
 
-**Mevcut versiyon:** `v1.0.0` (Phase 1 tamamlandı)
+**Mevcut versiyon:** `v1.0.1`
 
 ### Kesinlikle commit edilmeyecekler:
-- `.env` (gizli bilgiler — `.gitignore`'da)
+- `.env`
 - `node_modules/`
 - `dist/` ve `build/`
 - `.claude/`
@@ -49,5 +56,5 @@ Bu URL'i her seferinde sormadan direkt kullan.
 
 - Değişiklik yapmadan önce kullanıcıdan izin al.
 - Phase'leri sırayla yap: Phase 1 → 2 → ... → 11 (ARCHITECTURE.md Section 15).
-- Her phase bitiminde commit + versioned push yap.
-- Her push'tan önce `git pull origin main --rebase` ile remote'u kontrol et.
+- Her phase kodu önce `test`'e gider, kullanıcı onayı sonrası `main`'e geçer.
+- Her push öncesi `git pull origin <branch> --rebase` ile remote'u kontrol et.
