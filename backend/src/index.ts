@@ -1,0 +1,43 @@
+import 'dotenv/config'
+import Fastify from 'fastify'
+import corsPlugin from './plugins/cors'
+import rateLimitPlugin from './plugins/rateLimit'
+import authPlugin from './plugins/auth'
+import { redis } from './lib/redis'
+import { prisma } from './lib/prisma'
+import authRoutes from './routes/auth'
+import userRoutes from './routes/users'
+
+const fastify = Fastify({
+  logger: {
+    level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
+    transport:
+      process.env.NODE_ENV !== 'production'
+        ? { target: 'pino-pretty', options: { colorize: true } }
+        : undefined,
+  },
+})
+
+async function start() {
+  await fastify.register(corsPlugin)
+  await fastify.register(rateLimitPlugin)
+  await fastify.register(authPlugin)
+
+  await fastify.register(authRoutes, { prefix: '/auth' })
+  await fastify.register(userRoutes, { prefix: '/users' })
+
+  fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
+
+  fastify.addHook('onClose', async () => {
+    await prisma.$disconnect()
+    redis.disconnect()
+  })
+
+  const port = Number(process.env.PORT) || 3000
+  await fastify.listen({ port, host: '0.0.0.0' })
+}
+
+start().catch((err) => {
+  fastify.log.error(err)
+  process.exit(1)
+})

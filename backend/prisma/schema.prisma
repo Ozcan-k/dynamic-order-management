@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  INBOUND_ADMIN
+  PICKER_ADMIN
+  PACKER_ADMIN
+  PICKER
+  PACKER
+}
+
+enum OrderStatus {
+  INBOUND
+  PICKER_ASSIGNED
+  PICKING
+  PICKER_COMPLETE
+  PACKER_ASSIGNED
+  PACKING
+  PACKER_COMPLETE
+  OUTBOUND
+}
+
+enum Platform {
+  SHOPEE
+  LAZADA
+  TIKTOK
+  OTHER
+}
+
+// ─── Tables ───────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users  User[]
+  orders Order[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  username     String
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  isActive     Boolean  @default(true) @map("is_active")
+  createdById  String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id])
+  createdBy  User?  @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers User[] @relation("UserCreatedBy")
+
+  scannedOrders        Order[]           @relation("ScannedBy")
+  pickerAssignments    PickerAssignment[] @relation("PickerUser")
+  pickerAssignedByMe   PickerAssignment[] @relation("PickerAssignedBy")
+  packerAssignments    PackerAssignment[] @relation("PackerUser")
+  packerAssignedByMe   PackerAssignment[] @relation("PackerAssignedBy")
+  statusHistoryChanges OrderStatusHistory[]
+
+  @@unique([tenantId, username])
+  @@map("users")
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  tenantId       String      @map("tenant_id")
+  trackingNumber String      @map("tracking_number")
+  platform       Platform
+  status         OrderStatus @default(INBOUND)
+  priority       Int         @default(0)
+  delayLevel     Int         @default(0) @map("delay_level")
+  slaStartedAt   DateTime    @default(now()) @map("sla_started_at")
+  slaCompletedAt DateTime?   @map("sla_completed_at")
+  d4NotifiedAt   DateTime?   @map("d4_notified_at")
+  scannedById    String      @map("scanned_by")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  scannedBy         User               @relation("ScannedBy", fields: [scannedById], references: [id])
+  statusHistory     OrderStatusHistory[]
+  pickerAssignments PickerAssignment[]
+  packerAssignments PackerAssignment[]
+  slaEscalations    SlaEscalation[]
+
+  @@unique([tenantId, trackingNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, priority(sort: Desc), createdAt(sort: Asc)])
+  @@map("orders")
+}
+
+model OrderStatusHistory {
+  id          String       @id @default(uuid())
+  orderId     String       @map("order_id")
+  fromStatus  OrderStatus? @map("from_status")
+  toStatus    OrderStatus  @map("to_status")
+  changedById String       @map("changed_by")
+  changedAt   DateTime     @default(now()) @map("changed_at")
+
+  order     Order @relation(fields: [orderId], references: [id])
+  changedBy User  @relation(fields: [changedById], references: [id])
+
+  @@map("order_status_history")
+}
+
+model PickerAssignment {
+  id           String    @id @default(uuid())
+  orderId      String    @map("order_id")
+  pickerId     String    @map("picker_id")
+  assignedById String    @map("assigned_by")
+  assignedAt   DateTime  @default(now()) @map("assigned_at")
+  completedAt  DateTime? @map("completed_at")
+
+  order      Order @relation(fields: [orderId], references: [id])
+  picker     User  @relation("PickerUser", fields: [pickerId], references: [id])
+  assignedBy User  @relation("PickerAssignedBy", fields: [assignedById], references: [id])
+
+  @@index([pickerId, completedAt])
+  @@map("picker_assignments")
+}
+
+model PackerAssignment {
+  id           String    @id @default(uuid())
+  orderId      String    @map("order_id")
+  packerId     String    @map("packer_id")
+  assignedById String    @map("assigned_by")
+  assignedAt   DateTime  @default(now()) @map("assigned_at")
+  completedAt  DateTime? @map("completed_at")
+
+  order      Order @relation(fields: [orderId], references: [id])
+  packer     User  @relation("PackerUser", fields: [packerId], references: [id])
+  assignedBy User  @relation("PackerAssignedBy", fields: [assignedById], references: [id])
+
+  @@index([packerId, completedAt])
+  @@map("packer_assignments")
+}
+
+model SlaEscalation {
+  id            String   @id @default(uuid())
+  orderId       String   @map("order_id")
+  tenantId      String   @map("tenant_id")
+  fromLevel     Int?     @map("from_level")
+  toLevel       Int      @map("to_level")
+  triggeredAt   DateTime @default(now()) @map("triggered_at")
+  triggerSource String   @map("trigger_source")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([tenantId, triggeredAt(sort: Desc)])
+  @@map("sla_escalations")
+}
