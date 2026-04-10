@@ -7,6 +7,7 @@ import PickerAdmin from './pages/PickerAdmin'
 import PickerMobile from './pages/PickerMobile'
 import PackerAdmin from './pages/PackerAdmin'
 import PackerMobile from './pages/PackerMobile'
+import Outbound from './pages/Outbound'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -85,7 +86,7 @@ export default function App() {
             path="/outbound"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
-                <AppLayout><PlaceholderPage title="Outbound" /></AppLayout>
+                <AppLayout><Outbound /></AppLayout>
               </ProtectedRoute>
             }
           />
