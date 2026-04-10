@@ -44,7 +44,19 @@ async function start() {
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
-  // Attach Socket.io to the underlying HTTP server
+  // BullMQ workers — declared here so onClose hook can reference them
+  let escalationWorker: ReturnType<typeof startSlaEscalationWorker> | null = null
+  let d4EmailWorker: ReturnType<typeof startSlaD4EmailWorker> | null = null
+
+  // Register onClose BEFORE fastify.ready() — Fastify rejects hooks after ready
+  fastify.addHook('onClose', async () => {
+    if (escalationWorker) await escalationWorker.close()
+    if (d4EmailWorker) await d4EmailWorker.close()
+    await prisma.$disconnect()
+    redis.disconnect()
+  })
+
+  // Attach Socket.io to the underlying HTTP server (requires fastify.ready first)
   await fastify.ready()
   initSocket(fastify.server)
 
@@ -59,15 +71,8 @@ async function start() {
   )
 
   // Start BullMQ workers
-  const escalationWorker = startSlaEscalationWorker()
-  const d4EmailWorker = startSlaD4EmailWorker()
-
-  fastify.addHook('onClose', async () => {
-    await escalationWorker.close()
-    await d4EmailWorker.close()
-    await prisma.$disconnect()
-    redis.disconnect()
-  })
+  escalationWorker = startSlaEscalationWorker()
+  d4EmailWorker = startSlaD4EmailWorker()
 
   const port = Number(process.env.PORT) || 3000
   await fastify.listen({ port, host: '0.0.0.0' })
