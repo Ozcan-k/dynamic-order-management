@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 1.2.0-draft  
-> **Date:** 2026-04-09  
-> **Status:** Pre-development — for review and alignment before coding begins
+> **Version:** 1.3.0  
+> **Date:** 2026-04-10  
+> **Status:** In development — Phase 4 complete
 
 ---
 
@@ -415,7 +415,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.2 Inbound Panel
+### 7.2 Inbound Panel ✅ Built (Phase 2)
 **Visible to:** Admin (edit), Inbound Admin (edit+delete), Picker Admin (view), Packer Admin (view)
 
 **Scan Flow:**
@@ -425,28 +425,56 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 **Order Table Columns:** Tracking Number | Platform | Delay (D-badge) | Scan Time | Scanned By | Actions
 
+**Pagination:** 25 orders per page, client-side. Header stats (Total + D0–D4 counts) reflect full dataset regardless of current page.
+
+**Sort order:** priority DESC → delayLevel DESC → createdAt ASC (most urgent first)
+
 **Actions:**
 - Inbound Admin / Admin: Delete order button (with confirmation dialog)
 
 ---
 
-### 7.3 Picker Admin Panel
+### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4)
 **Visible to:** Admin, Picker Admin
 
-**Top Section — Assignment Area:**
-- Scan one or multiple waybills into a staging area
-- Bulk assign: select all staged orders → choose Picker from dropdown → assign all at once (e.g., 10 orders to 1 picker in one action)
-- Carryover orders (from previous day, unassigned) appear at top of list with visual indicator (e.g., orange badge)
+**Header Stats Bar:** Inbound count | Assigned Today | Pickers count | Sync indicator
 
-**Stats Bar:** Total | Unassigned | Assigned | In Progress (Picking) | Complete | D2+ Count (urgent)
+**Toolbar:**
+- Select All checkbox + selected count badge
+- Custom Picker Select dropdown (avatar + name, selected state highlighted in blue with checkmark)
+- Assign Selected button (active orders on current page)
+- Assign All button (all inbound orders regardless of page)
 
-**Order Table Columns:** Tracking Number | Platform | Delay (D-badge) | Assigned To | Status | Actions
+**Inbound Order Table:**
+- Columns: Checkbox | # | Tracking Number | Platform (badge) | Delay (D-badge) | Scanned At | Scanned By (avatar) | Priority | Assign button
+- Sort: priority DESC → delayLevel DESC → createdAt ASC (D4 always at top)
+- Pagination: 10 orders per page, page number buttons, "Showing X–Y of Z" counter
+- Row tinting: D2 = amber, D3/D4 = red; selected rows = blue
+- Assign button per row: assigns single order to currently selected picker
 
-**Per-Picker Table:** Picker Name | Assigned Count | Complete Count | In Progress Count
+**Picker Workload Section (below table):**
+- Grid of picker cards (auto-fill, min 240px per card)
+- Each card shows: Avatar + username | active count badge | Assigned / Picking / Done status chips | segmented progress bar (blue/amber/green)
+- **Click on any card → opens Order Detail Modal**
 
-**Sub-Panel — Picker Performance Reports:**
-- Filterable by: Daily / Weekly / Monthly
-- Columns: Picker Name | Total Assigned | Completed | Avg Completion Time (minutes) | Orders Completed Within SLA (D0) | Orders Delayed (D1+)
+**Order Detail Modal (per picker):**
+- Shows all active orders assigned to that picker (completedAt = null)
+- Columns: Tracking Number | Platform | Status chip | Delay | Assigned At | Actions
+- Status chips: Assigned (blue) | Picking (amber) | Done (green)
+- Actions per row (shown only for non-complete orders):
+  - **Remove** (red) → opens styled Remove Confirmation Dialog → on confirm: order returns to INBOUND queue
+  - **Complete** (green) → marks order as PICKER_COMPLETE
+- Modal refetches every 3 seconds
+- Closes on overlay click or X button
+
+**Remove Confirmation Dialog:**
+- Custom styled modal (z-index above order detail modal)
+- Red gradient header + trash icon
+- Shows tracking number in a styled pill
+- Cancel / Yes, Remove buttons
+- "Removing..." loading state while request is in flight
+
+**Seed data:** 20 pickers (Picker 1–20, password: picker123) created by seed script
 
 ---
 
@@ -471,15 +499,49 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.5 Packer Admin Panel
+### 7.5 Packer Admin Panel 🔜 Next (Phase 5)
 **Visible to:** Admin, Packer Admin
 
-Same structure as Picker Admin Panel but for packing stage. Orders arrive here automatically when Picker marks them PICKER_COMPLETE.
+Mirrors the Picker Admin Panel exactly, adapted for the packing stage. Orders appear here automatically when a picker marks an order as PICKER_COMPLETE.
 
-- Bulk scan & assign to Packers
-- Same carryover priority logic
-- **Order Table Columns:** Tracking Number | Platform | Delay (D-badge) | Assigned To | Status | Actions
-- Same per-packer performance reporting (includes SLA columns: Orders Completed Within SLA / Orders Delayed)
+**Header Stats Bar:** PICKER_COMPLETE queue count | Assigned Today | Packers count | Sync indicator
+
+**Toolbar:**
+- Same custom Packer Select dropdown (avatar + name, same design as PickerSelect)
+- Assign Selected / Assign All buttons
+- Select All checkbox + selection count badge
+
+**Order Table:**
+- Columns: Checkbox | # | Tracking Number | Platform | Delay | Completed By (picker, avatar) | Priority | Assign button
+- Source: orders with status = PICKER_COMPLETE
+- Sort: priority DESC → delayLevel DESC → createdAt ASC
+- Pagination: 10 orders per page
+
+**Packer Workload Section:**
+- Same card grid as Picker Workload
+- Status chips: Assigned (blue) | Packing (amber) | Done (green)
+- **Click on any card → opens Order Detail Modal** (same pattern as Picker Admin)
+
+**Order Detail Modal (per packer):**
+- Columns: Tracking Number | Platform | Status | Delay | Assigned At | Actions
+- Actions (non-complete orders):
+  - **Remove** (red) → styled confirmation dialog → order returns to PICKER_COMPLETE queue
+  - **Complete** (green) → marks order as PACKER_COMPLETE
+- Same Remove Confirmation Dialog design as Picker Admin
+
+**Seed data:** 20 packers (Packer 1–20, password: packer123) to be created by seed script
+
+**Backend endpoints to build:**
+```
+GET  /packer-admin/orders                     → PICKER_COMPLETE orders
+GET  /packer-admin/packers                    → active packer users
+POST /packer-admin/assign                     → assign single order
+POST /packer-admin/bulk-assign                → assign multiple orders
+GET  /packer-admin/stats                      → per-packer workload counts
+GET  /packer-admin/packer/:packerId/orders    → orders assigned to a specific packer
+POST /packer-admin/complete                   → mark order PACKER_COMPLETE
+POST /packer-admin/unassign                   → return order to PICKER_COMPLETE queue
+```
 
 ---
 
@@ -522,10 +584,11 @@ frontend/
 ├── src/
 │   ├── pages/
 │   │   ├── Login.tsx
-│   │   ├── Inbound.tsx            ← served at /dashboard route
-│   │   ├── PickerAdmin.tsx        ← Phase 3 ✅ built
-│   │   ├── PickerDevice.tsx       ← Phase 4 (mobile-first; orders pushed via WebSocket)
-│   │   ├── PackerAdmin.tsx        ← Phase 5
+│   │   ├── Inbound.tsx            ← /dashboard — Phase 2 ✅ (pagination 25/page, delay sort)
+│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 ✅ (custom dropdown, pagination,
+│   │   │                              workload cards, order detail modal, remove/complete)
+│   │   ├── PickerDevice.tsx       ← Phase 5 (mobile-first; orders pushed via WebSocket)
+│   │   ├── PackerAdmin.tsx        ← Phase 5 🔜 (same pattern as PickerAdmin)
 │   │   ├── PackerDevice.tsx       ← Phase 5 (mobile-first; orders pushed via WebSocket)
 │   │   ├── Outbound.tsx           ← Phase 6
 │   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
@@ -556,7 +619,7 @@ frontend/
 │   ├── lib/
 │   │   ├── platformDetect.ts      ← tracking number → platform logic
 │   │   └── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
-│   ├── theme.ts                   ← design tokens (colors, delay levels)
+│   ├── theme.ts                   ← design tokens: colors, radius, shadow, font — single source of truth
 │   └── index.css                  ← global design system CSS
 ```
 
@@ -620,11 +683,14 @@ backend/
 | DELETE | `/orders/:id` | ADMIN, INBOUND_ADMIN | Delete order |
 | PATCH | `/orders/:id/status` | Role-filtered | Update status — sets `sla_completed_at` when → OUTBOUND |
 | GET | `/orders/:id/sla` | ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN | Full SLA escalation history for an order |
-| GET | `/picker-admin/orders` | ADMIN, PICKER_ADMIN | List unassigned INBOUND orders |
+| GET | `/picker-admin/orders` | ADMIN, PICKER_ADMIN | List INBOUND orders sorted by priority DESC, delayLevel DESC, createdAt ASC |
 | GET | `/picker-admin/pickers` | ADMIN, PICKER_ADMIN | List active pickers |
-| POST | `/picker-admin/assign` | ADMIN, PICKER_ADMIN | Assign single order to picker |
-| POST | `/picker-admin/bulk-assign` | ADMIN, PICKER_ADMIN | Bulk assign orders to picker |
-| GET | `/picker-admin/stats` | ADMIN, PICKER_ADMIN | Per-picker assigned/completed counts |
+| POST | `/picker-admin/assign` | ADMIN, PICKER_ADMIN | Assign single order to picker → status: PICKER_ASSIGNED |
+| POST | `/picker-admin/bulk-assign` | ADMIN, PICKER_ADMIN | Bulk assign up to 200 orders to one picker |
+| GET | `/picker-admin/stats` | ADMIN, PICKER_ADMIN | Per-picker workload: PICKER_ASSIGNED / PICKING / PICKER_COMPLETE counts |
+| GET | `/picker-admin/picker/:id/orders` | ADMIN, PICKER_ADMIN | Active orders assigned to a specific picker (completedAt = null) |
+| POST | `/picker-admin/complete` | ADMIN, PICKER_ADMIN | Mark order as PICKER_COMPLETE; sets pickerAssignment.completedAt |
+| POST | `/picker-admin/unassign` | ADMIN, PICKER_ADMIN | Return order to INBOUND; deletes PickerAssignment record |
 | POST | `/assign/picker` | ADMIN, PICKER_ADMIN | Assign to picker → emits `order:assigned` to `user:{pickerId}` |
 | POST | `/assign/packer` | ADMIN, PACKER_ADMIN | Assign to packer → emits `order:assigned` to `user:{packerId}` |
 | GET | `/reports/dashboard` | ADMIN, INBOUND_ADMIN | Dashboard stats |
@@ -783,19 +849,21 @@ main branch'e push gelince:
 
 ## 15. Development Phases
 
-| Phase | What Gets Built | Exit Criteria |
-|---|---|---|
-| **1** | Project scaffold, auth system, user management; Socket.io plugin (`socket.ts`) with dual-room join — on connect, user joins `tenant:{tenantId}` AND `user:{userId}` using JWT payload | All 6 roles can log in, access is restricted correctly; Socket connects join correct rooms (verified via socket room inspection) |
-| **2** | Inbound Panel — scan, auto-detect, zero manual input; SLA schema + D0 assignment on scan | Orders appear in table after scan (~2 sec/order); `sla_started_at` and `delay_level=0` set correctly |
-| **3** | Picker Admin Panel — assign, bulk assign, reports; `order:assigned` push to picker handheld | Orders assigned to pickers, carryover priority works; order appears on picker's device instantly |
-| **4** | Picker Device View (mobile-first) — START, COMPLETE, UNDO; `user:{id}` socket room | Picker sees assigned orders on handheld, complete/undo works, order pushed via WebSocket |
-| **5** | Packer Admin Panel + Packer Device View (same pattern as Phase 3+4) | Full picker→packer handoff verified; packer confirms on handheld |
-| **6** | Outbound Panel; `sla_completed_at` set on OUTBOUND | End-to-end lifecycle works; SLA timer stops at dispatch |
-| **7** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); DelayBadge + SlaAlertBanner UI | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
-| **8** | Main Dashboard + SLA Summary Card + real-time + nightly email (with SLA data) | Live stats update, SLA card accurate, email received at 9pm with SLA section |
-| **9** | Reporting & Analytics + CSV/PDF export | Reports match known test data, SLA history queryable per order |
-| **10** | Security hardening + load testing | OWASP checklist passed, 100 users load test passed |
-| **11** | Multi-tenant, Docker, CI/CD, versioned deploy | Full regression on test branch, clean deploy to main |
+| Phase | What Gets Built | Status | Exit Criteria |
+|---|---|---|---|
+| **1** | Project scaffold, auth system, user management, Socket.io dual-room join | ✅ Done | All 6 roles can log in; access restricted correctly |
+| **2** | Inbound Panel — scan, auto-detect, zero manual input, SLA D0, pagination (25/page), delay-priority sort | ✅ Done | Orders appear after scan (~2 sec); D4 at top |
+| **3** | Picker Admin Panel — custom picker dropdown, order table (10/page, delay sort), bulk assign, workload cards | ✅ Done | Orders assigned; workload grid accurate |
+| **4** | Picker Admin — order detail modal, Remove (styled confirm dialog), Complete, unassign endpoint | ✅ Done | Remove → INBOUND; Complete → PICKER_COMPLETE; stats refresh within 5s |
+| **5** | Packer Admin Panel (same pattern as Phase 3+4): order table, custom packer dropdown, workload cards, order detail modal with Remove/Complete | 🔜 Next | PICKER_COMPLETE orders appear; packer workload visible; remove returns to PICKER_COMPLETE queue |
+| **6** | Picker Device View (mobile-first) — START, COMPLETE, UNDO; `user:{id}` socket room | 🔜 | Picker sees orders on handheld; complete/undo works; pushed via WebSocket |
+| **7** | Packer Device View (mobile-first) — same pattern as Picker Device | 🔜 | Packer confirms on handheld |
+| **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | 🔜 | End-to-end lifecycle works; SLA timer stops at dispatch |
+| **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | 🔜 | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
+| **10** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
+| **11** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
+| **12** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
+| **13** | Multi-tenant, Docker, CI/CD, versioned deploy | 🔜 | Full regression on test branch; clean deploy to main |
 
 ---
 

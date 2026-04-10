@@ -225,7 +225,20 @@ All located in `frontend/src/components/shared/`.
 | Class | Description |
 |---|---|
 | `.stats-grid` | Auto-fill grid, min 220px columns, 14px gap |
-| `.picker-stat-card` | Picker performance card inside `.stats-grid` |
+| `.picker-stat-card` | Clickable picker workload card inside a grid — hover shows pointer cursor and elevated shadow |
+
+### Modals
+Modals are built inline (not a shared component) with this overlay pattern:
+```tsx
+<div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000 }}>
+  <div style={{ background: '#fff', borderRadius: '14px', maxWidth: '680px', ... }}>
+    {/* header / body / actions */}
+  </div>
+</div>
+```
+- Nested modals (e.g. confirm dialog on top of order modal) use `zIndex: 1100`
+- Overlay click closes the modal (`onClick={onClose}` on overlay, `e.stopPropagation()` on inner panel)
+- Confirm dialogs use red gradient header (`linear-gradient(135deg, #fef2f2, #fff5f5)`) + trash icon
 
 ### Legacy / Deprecated (do not use in new code)
 | Class | Replacement |
