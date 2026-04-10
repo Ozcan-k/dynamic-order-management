@@ -71,7 +71,7 @@ Example: `192.168.1.119`
 4. Enter a 4-digit PIN (e.g. `1234`)
 5. Click **Save**
 
-> Each picker must have a unique PIN. The same PIN cannot be assigned to two pickers.
+> PINs are **globally unique** across all handheld devices. The same PIN cannot be assigned to two pickers, two packers, or one picker and one packer.
 
 ---
 
@@ -188,4 +188,5 @@ Order removed from all packers' lists ✓
 
 - No special app or APK installation needed — browser-based solution
 - If multiple pickers share shifts, each picker has their own 4-digit PIN
+- PINs are globally unique — no picker and no packer may share the same PIN
 - Session lasts 8 hours — no need to re-enter PIN during a shift

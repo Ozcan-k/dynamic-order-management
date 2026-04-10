@@ -282,8 +282,8 @@ orders ──< packer_assignments >── users (packers)
 | tenant_id | UUID FK | → tenants |
 | username | VARCHAR | Unique per tenant |
 | password_hash | VARCHAR | bcrypt |
-| picker_pin | VARCHAR NULLABLE | 4-digit PIN for PICKER handheld login; unique per tenant |
-| packer_pin | VARCHAR NULLABLE | 4-digit PIN for PACKER handheld login; unique per tenant |
+| picker_pin | VARCHAR NULLABLE | 4-digit PIN for PICKER handheld login; globally unique per tenant (no picker or packer may share a PIN) |
+| packer_pin | VARCHAR NULLABLE | 4-digit PIN for PACKER handheld login; globally unique per tenant (no picker or packer may share a PIN) |
 | role | ENUM | See roles below |
 | is_active | BOOLEAN | |
 | created_by | UUID FK | → users (admin who created) |
@@ -503,7 +503,7 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 
 - Grid of picker cards (auto-fill, min 240px per card)
 - Each card shows: Avatar + username | active count badge | Assigned / Done status chips | segmented progress bar (blue/green)
-- **Device PIN section** (bottom of each card): shows current PIN or "not set"; **Set PIN / Change** button → inline 4-digit input → PATCH `/picker-admin/picker/:id/pin`
+- **Device PIN section** (bottom of each card): shows current PIN or "not set"; **Set PIN / Change** button → inline 4-digit input → PATCH `/picker-admin/picker/:id/pin` — PIN is validated globally: a PIN already used by any picker or packer is rejected with 409
 - **Click on any card → opens Order Detail Modal**
 
 **Order Detail Modal (per picker):**
@@ -628,7 +628,7 @@ POST /packer-admin/remove   { orderId }    → PICKER_ASSIGNED (auto-reassign) o
 - Grid of packer cards (auto-fill, min 220px)
 - Each card: Avatar | username | `X packed` | Done chip | Device PIN management
 - **Click card → Order Detail Modal:** table of that packer's completed orders (Tracking | Platform | Delay | Completed At)
-- **PIN management:** shows current packerPin or "not set"; Set PIN / Change inline form → `PATCH /packer-admin/packer/:id/pin`
+- **PIN management:** shows current packerPin or "not set"; Set PIN / Change inline form → `PATCH /packer-admin/packer/:id/pin` — PIN is validated globally: a PIN already used by any picker or packer is rejected with 409
 - **Backend endpoints:**
 ```
 GET  /packer-admin/packers                         → active PACKER users
