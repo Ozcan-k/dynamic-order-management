@@ -28,58 +28,129 @@ interface Picker {
 
 interface PickerStat {
   picker: { id: string; username: string }
-  assigned: number
+  statusCounts: {
+    PICKER_ASSIGNED: number
+    PICKING: number
+    PICKER_COMPLETE: number
+  }
+  total: number
   completed: number
 }
 
 // ─── Per-picker stat card ────────────────────────────────────────────────────
 function PickerStatCard({ stat }: { stat: PickerStat }) {
-  const total = stat.assigned + stat.completed
-  const pct = total > 0 ? Math.round((stat.assigned / total) * 100) : 0
+  const hasOrders = stat.total > 0 || stat.completed > 0
 
   return (
     <div className="picker-stat-card">
-      {/* Header row */}
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
         <Avatar username={stat.picker.username} size={32} />
-        <span style={{ fontWeight: 600, fontSize: '14px', color: colors.textPrimary }}>
-          {stat.picker.username}
-        </span>
-      </div>
-
-      {/* Metrics row */}
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '12px' }}>
-        <div>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: colors.primary, lineHeight: 1 }}>
-            {stat.assigned}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: '13px', color: colors.textPrimary, lineHeight: 1.2 }}>
+            {stat.picker.username}
           </div>
-          <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500, marginTop: '2px' }}>
-            Assigned
+          <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
+            {stat.total} active · {stat.completed} done
           </div>
         </div>
-        <div>
-          <div style={{ fontSize: '20px', fontWeight: 800, color: colors.success, lineHeight: 1 }}>
-            {stat.completed}
-          </div>
-          <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500, marginTop: '2px' }}>
-            Completed
-          </div>
-        </div>
+        {/* Total active badge */}
+        {stat.total > 0 && (
+          <span style={{
+            background: '#dbeafe',
+            color: '#1d4ed8',
+            borderRadius: '9999px',
+            padding: '2px 8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            flexShrink: 0,
+          }}>
+            {stat.total}
+          </span>
+        )}
       </div>
 
-      {/* Progress bar */}
-      <div style={{ height: '5px', borderRadius: '9999px', background: colors.border, overflow: 'hidden' }}>
-        <div style={{
-          height: '100%',
-          width: `${pct}%`,
-          background: 'linear-gradient(90deg, #3b82f6, #6366f1)',
-          borderRadius: '9999px',
-          transition: 'width 0.4s ease',
-        }} />
+      {/* Status breakdown */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <StatusChip
+          label="Assigned"
+          count={stat.statusCounts.PICKER_ASSIGNED}
+          bg="#dbeafe"
+          color="#1e40af"
+          dot="#3b82f6"
+        />
+        <StatusChip
+          label="Picking"
+          count={stat.statusCounts.PICKING}
+          bg="#fef3c7"
+          color="#92400e"
+          dot="#f59e0b"
+        />
+        <StatusChip
+          label="Done"
+          count={stat.statusCounts.PICKER_COMPLETE}
+          bg="#d1fae5"
+          color="#065f46"
+          dot="#10b981"
+        />
       </div>
-      <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '5px' }}>
-        {pct}% of total pending assigned
-      </div>
+
+      {/* Completion progress bar */}
+      {hasOrders && (
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ height: '4px', borderRadius: '9999px', background: colors.border, overflow: 'hidden', display: 'flex', gap: '2px' }}>
+            {stat.statusCounts.PICKER_ASSIGNED > 0 && (
+              <div style={{
+                flex: stat.statusCounts.PICKER_ASSIGNED,
+                background: '#3b82f6',
+                transition: 'flex 0.4s ease',
+              }} />
+            )}
+            {stat.statusCounts.PICKING > 0 && (
+              <div style={{
+                flex: stat.statusCounts.PICKING,
+                background: '#f59e0b',
+                transition: 'flex 0.4s ease',
+              }} />
+            )}
+            {stat.statusCounts.PICKER_COMPLETE > 0 && (
+              <div style={{
+                flex: stat.statusCounts.PICKER_COMPLETE,
+                background: '#10b981',
+                transition: 'flex 0.4s ease',
+              }} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {!hasOrders && (
+        <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '8px', fontStyle: 'italic' }}>
+          No orders assigned
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatusChip({ label, count, bg, color, dot }: {
+  label: string; count: number; bg: string; color: string; dot: string
+}) {
+  return (
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '5px',
+      background: bg,
+      color,
+      borderRadius: '6px',
+      padding: '4px 8px',
+      fontSize: '11px',
+      fontWeight: 600,
+      opacity: count === 0 ? 0.45 : 1,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+      {label}: {count}
     </div>
   )
 }
@@ -159,7 +230,7 @@ export default function PickerAdmin() {
   const pickerList = pickers ?? []
   const statsList = statsData ?? []
 
-  const totalAssignedToday = statsList.reduce((sum, s) => sum + s.assigned, 0)
+  const totalAssignedToday = statsList.reduce((sum, s) => sum + s.total, 0)
 
   // Select / deselect helpers
   const allSelected = orderList.length > 0 && orderList.every(o => selectedIds.has(o.id))
@@ -405,17 +476,28 @@ export default function PickerAdmin() {
         </div>
       )}
 
-      {/* Picker performance section */}
-      {statsList.length > 0 && (
-        <div style={{ marginTop: '32px' }}>
-          <SectionHeader title="Picker Performance" count={statsList.length} />
-          <div className="stats-grid">
+      {/* Picker workload section */}
+      <div style={{ marginTop: '32px' }}>
+        <SectionHeader title="Picker Workload" count={statsList.length} />
+        {statsList.length === 0 ? (
+          <div className="empty-state" style={{ marginTop: '12px' }}>
+            <div className="empty-state-icon">👤</div>
+            <p className="empty-state-title">No pickers found</p>
+            <p className="empty-state-desc">Run the seed script to create picker accounts.</p>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+            gap: '12px',
+            marginTop: '12px',
+          }}>
             {statsList.map(stat => (
               <PickerStatCard key={stat.picker.id} stat={stat} />
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </PageShell>
   )
 }
