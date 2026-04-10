@@ -7,6 +7,7 @@ import { redis } from './lib/redis'
 import { prisma } from './lib/prisma'
 import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
+import orderRoutes from './routes/orders'
 
 const fastify = Fastify({
   logger: {
@@ -25,6 +26,7 @@ async function start() {
 
   await fastify.register(authRoutes, { prefix: '/auth' })
   await fastify.register(userRoutes, { prefix: '/users' })
+  await fastify.register(orderRoutes, { prefix: '/orders' })
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 

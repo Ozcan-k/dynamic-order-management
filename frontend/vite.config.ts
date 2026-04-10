@@ -1,17 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const backendUrl = process.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
+
+const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health']
+const proxyConfig = Object.fromEntries(
+  proxyRoutes.map((route) => [route, { target: backendUrl, changeOrigin: true }]),
+)
+
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: ['@dom/shared'],
+  },
   server: {
     port: 5173,
-    proxy: {
-      '/auth': { target: 'http://localhost:3000', changeOrigin: true },
-      '/users': { target: 'http://localhost:3000', changeOrigin: true },
-      '/orders': { target: 'http://localhost:3000', changeOrigin: true },
-      '/assign': { target: 'http://localhost:3000', changeOrigin: true },
-      '/reports': { target: 'http://localhost:3000', changeOrigin: true },
-      '/health': { target: 'http://localhost:3000', changeOrigin: true },
-    },
+    host: '0.0.0.0',
+    proxy: proxyConfig,
   },
 })

@@ -34,6 +34,15 @@ export const SLA_PRIORITY_BOOSTS: Record<number, number> = {
 }
 
 export const SLA_HOURS_PER_LEVEL = 4
+export const SLA_MAX_LEVEL = 4
+
+export const SLA_LEVEL_COLORS: Record<number, string> = {
+  0: 'gray',
+  1: 'yellow',
+  2: 'orange',
+  3: 'red',
+  4: 'crimson',
+}
 
 export interface JWTPayload {
   userId: string

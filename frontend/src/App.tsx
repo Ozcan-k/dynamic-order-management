@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import Login from './pages/Login'
+import Inbound from './pages/Inbound'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuthStore } from './stores/authStore'
 
@@ -43,7 +44,7 @@ export default function App() {
             path="/dashboard"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
-                <PlaceholderPage title="Dashboard" />
+                <Inbound />
               </ProtectedRoute>
             }
           />
