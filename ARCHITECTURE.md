@@ -670,14 +670,49 @@ PATCH /packer-admin/packer/:packerId/pin { pin }   → set 4-digit packerPin
 
 ---
 
-### 7.7 Outbound Panel
-**Visible to:** Admin, Inbound Admin
+### 7.7 Outbound Panel ✅ Built (Phase 8)
+**Visible to:** Admin, Inbound Admin  
+**Route:** `/outbound`
 
-- Orders arrive here automatically when Packer marks PACKER_COMPLETE
-- **Comparison Report Table:**
-  - Inbound count vs Outbound count
-  - Missing orders count
-- **Stuck Orders Table:** Lists all orders not yet at OUTBOUND, showing current status (which stage they are stuck at — Picker or Packer) with Tracking Number, Platform, Current Status, Delay Level (D-badge), Time in Current Status — sorted by `delay_level DESC` then `sla_started_at ASC`
+Orders reach the Outbound Panel automatically when a packer marks them `PACKER_COMPLETE`. An Admin or Inbound Admin then dispatches them to `OUTBOUND`, which sets `sla_completed_at` and stops the SLA countdown.
+
+#### Header Stats
+| Card | Value | Color |
+|---|---|---|
+| Waiting to Dispatch | PACKER_COMPLETE order count | Sky blue |
+| Dispatched Today | OUTBOUND orders with `slaCompletedAt ≥ today` | Green |
+| D4 Orders | non-OUTBOUND orders with `delayLevel = 4` | Red |
+| Missing | Total inbound − Total outbound | Amber |
+
+#### Ready to Dispatch Table
+- Lists all `PACKER_COMPLETE` orders sorted by `delayLevel DESC` → `createdAt ASC`
+- Columns: Tracking Number · Platform · Packed By · Waiting Since · D-badge · Dispatch button
+- **Search bar** — client-side filter on tracking number; clears after dispatch action
+- **Checkbox selection** — select individual or all filtered orders
+- **Dispatch** (single): confirm dialog → `POST /outbound/dispatch` → `PACKER_COMPLETE → OUTBOUND`, `slaCompletedAt = NOW()`
+- **Dispatch Selected** (bulk): `POST /outbound/bulk-dispatch` → returns `{ dispatched, skipped }`
+- Pagination: 10 orders/page; resets on search change and after dispatch
+
+#### Comparison Report
+Three stat tiles below the dispatch table:
+- **Total Inbound** — all orders ever scanned for this tenant
+- **Total Dispatched** — all OUTBOUND orders
+- **Still in Pipeline** — Total Inbound − Total Dispatched (should approach 0 at end of day)
+
+#### Stuck Orders Table
+Lists every order **not yet at OUTBOUND** (INBOUND → PACKER_COMPLETE range).  
+Sorted by `delayLevel DESC` then `slaStartedAt ASC` — most urgent at top.  
+Columns: Tracking Number · Platform · Current Status (colored pill) · D-badge · Time in Status · In Pipeline Since  
+Refetch: 10 s (less frequent than dispatch queue's 5 s).
+
+#### Status Pill Colors
+| Status | Background | Text |
+|---|---|---|
+| INBOUND | `#e5e7eb` | `#374151` |
+| PICKER_ASSIGNED | `#dbeafe` | `#1d4ed8` |
+| PICKING | `#e0e7ff` | `#4338ca` |
+| PICKER_COMPLETE | `#ede9fe` | `#6d28d9` |
+| PACKER_COMPLETE | `#ccfbf1` | `#0f766e` |
 
 ---
 
@@ -698,7 +733,7 @@ frontend/
 │   │   │                              packer workload cards, PIN management,
 │   │   │                              "Returned to Picker" + "Total Packed" stats)
 │   │   ├── PackerMobile.tsx       ← /packer ✅ PIN auth + shared queue + scan complete (green theme)
-│   │   ├── Outbound.tsx           ← Phase 6
+│   │   ├── Outbound.tsx           ← /outbound ✅ Phase 8 (dispatch queue, comparison report, stuck orders)
 │   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
 │   ├── components/
 │   │   ├── ScanInput.tsx          ← HID barcode scanner input (desktop inbound only)
@@ -801,6 +836,11 @@ backend/
 | POST | `/picker-admin/unassign` | ADMIN, PICKER_ADMIN | Return order to INBOUND; deletes PickerAssignment record |
 | POST | `/assign/picker` | ADMIN, PICKER_ADMIN | Assign to picker → emits `order:assigned` to `user:{pickerId}` |
 | POST | `/assign/packer` | ADMIN, PACKER_ADMIN | Assign to packer → emits `order:assigned` to `user:{packerId}` |
+| GET | `/outbound/orders` | ADMIN, INBOUND_ADMIN | List PACKER_COMPLETE orders ready to dispatch, sorted by delayLevel DESC, createdAt ASC |
+| GET | `/outbound/stats` | ADMIN, INBOUND_ADMIN | Header stats: waitingCount, dispatchedToday, inboundTotal, outboundTotal, missingCount, d4Count |
+| GET | `/outbound/stuck` | ADMIN, INBOUND_ADMIN | All non-OUTBOUND orders sorted by delayLevel DESC, slaStartedAt ASC |
+| POST | `/outbound/dispatch` | ADMIN, INBOUND_ADMIN | Dispatch single order → OUTBOUND; sets `sla_completed_at` |
+| POST | `/outbound/bulk-dispatch` | ADMIN, INBOUND_ADMIN | Dispatch up to 200 orders at once; returns `{ dispatched, skipped }` |
 | GET | `/reports/dashboard` | ADMIN, INBOUND_ADMIN | Dashboard stats |
 | GET | `/reports/picker` | ADMIN, PICKER_ADMIN | Picker reports |
 | GET | `/reports/packer` | ADMIN, PACKER_ADMIN | Packer reports |
@@ -963,11 +1003,11 @@ On push to main branch:
 | **2** | Inbound Panel — scan, auto-detect, zero manual input, SLA D0, pagination (25/page), delay-priority sort | ✅ Done | Orders appear after scan (~2 sec); D4 at top |
 | **3** | Picker Admin Panel — custom picker dropdown, order table (10/page, delay sort), bulk assign, workload cards | ✅ Done | Orders assigned; workload grid accurate |
 | **4** | Picker Admin — order detail modal, Remove (styled confirm dialog), Complete, unassign endpoint | ✅ Done | Remove → INBOUND; Complete → PICKER_COMPLETE; stats refresh within 5s |
-| **5** | Packer Admin Panel (same pattern as Phase 3+4): order table, custom packer dropdown, workload cards, order detail modal with Remove/Complete | 🔜 Next | PICKER_COMPLETE orders appear; packer workload visible; remove returns to PICKER_COMPLETE queue |
-| **6** | Picker Device View (mobile-first) — START, COMPLETE, UNDO; `user:{id}` socket room | 🔜 | Picker sees orders on handheld; complete/undo works; pushed via WebSocket |
-| **7** | Packer Device View (mobile-first) — same pattern as Picker Device | 🔜 | Packer confirms on handheld |
-| **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | 🔜 | End-to-end lifecycle works; SLA timer stops at dispatch |
-| **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | 🔜 | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
+| **5** | Packer Admin Panel (same pattern as Phase 3+4): order table, custom packer dropdown, workload cards, order detail modal with Remove/Complete | ✅ Done | PICKER_COMPLETE orders appear; packer workload visible; remove auto-reassigns to original picker |
+| **6** | Picker Device View (mobile-first) — PIN auth, order list, scan complete | ✅ Done | Picker sees orders on handheld; complete works; PIN-based session |
+| **7** | Packer Device View (mobile-first) — same pattern as Picker Device (green theme) | ✅ Done | Packer confirms on handheld; shared queue; race condition protected |
+| **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | ✅ Done | End-to-end lifecycle works; SLA timer stops at dispatch |
+| **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | 🔜 Next | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
 | **10** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **11** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **12** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |

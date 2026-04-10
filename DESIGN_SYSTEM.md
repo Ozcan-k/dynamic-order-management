@@ -317,6 +317,7 @@ frontend/src/
 │   ├── PickerMobile.tsx              ← /picker handheld — PIN auth + order list (blue theme)
 │   ├── PackerAdmin.tsx               ← Packer admin panel (uses PageShell)
 │   ├── PackerMobile.tsx              ← /packer handheld — PIN auth + shared queue (green theme)
+│   ├── Outbound.tsx                  ← /outbound — dispatch queue, comparison report, stuck orders
 │   └── Login.tsx                     ← Login page (uses .login-* classes)
 └── components/
     ├── shared/
