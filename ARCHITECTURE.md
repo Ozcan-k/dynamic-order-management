@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 1.3.0  
+> **Version:** 1.4.0  
 > **Date:** 2026-04-10  
-> **Status:** In development — Phase 4 complete
+> **Status:** In development — Phase 5 complete
 
 ---
 
@@ -434,25 +434,67 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4)
+### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4 + 5)
 **Visible to:** Admin, Picker Admin
 
 **Header Stats Bar:** Inbound count | Assigned Today | Pickers count | Sync indicator
 
-**Toolbar:**
+---
+
+#### Scan & Stage Flow (primary assignment method)
+
+The top section of the panel is designed for the real-world scenario where a Picker Admin has a stack of printed waybills and a handheld barcode scanner.
+
+**Flow:**
+1. Picker Admin scans a waybill into the Scan Input → system looks up the order by tracking number
+2. If found and INBOUND: order is added to the **staging list** (client-side, no DB write yet)
+3. Admin scans more waybills one by one — staging list grows
+4. Admin selects a Picker from the dropdown
+5. Clicks **"Assign N Staged Orders →"** → all staged orders are bulk-assigned in one request
+6. Staging list clears; Inbound table updates automatically
+
+**Feedback (inline, no alerts):**
+- Success: green message `Staged: <tracking number>`
+- Duplicate scan: yellow warning `Already staged: <tracking number>` (not re-added)
+- Not found: red error `Order not found`
+- Not INBOUND: red error `Order is not available (status: PICKER ASSIGNED)` etc.
+
+**Staged orders list:**
+- Rows: # | Tracking Number | Platform badge | Delay badge | Priority | × remove button
+- Header shows count + "Clear all" button
+- Staged rows in the Inbound table get a green tint + **STAGED** pill badge
+
+**Backend endpoint:**
+```
+POST /picker-admin/scan   { trackingNumber }
+  → 200: order data (id, trackingNumber, platform, delayLevel, priority, status, createdAt)
+  → 404: Order not found
+  → 409: Order is not available (status: ...)
+```
+This endpoint performs a lookup only — it does NOT create orders. Order creation is handled exclusively by the Inbound Panel (`POST /orders/scan`).
+
+---
+
+#### Manual Assignment Flow (secondary, for browsing)
+
+**Picker Select Dropdown:** Shared with Scan & Stage — single picker selection used by both flows.
+
+**Toolbar (below scan area):**
 - Select All checkbox + selected count badge
-- Custom Picker Select dropdown (avatar + name, selected state highlighted in blue with checkmark)
-- Assign Selected button (active orders on current page)
-- Assign All button (all inbound orders regardless of page)
+- Assign Selected button (assigns checked rows to selected picker)
+- Assign All button (assigns all INBOUND orders to selected picker)
 
 **Inbound Order Table:**
 - Columns: Checkbox | # | Tracking Number | Platform (badge) | Delay (D-badge) | Scanned At | Scanned By (avatar) | Priority | Assign button
 - Sort: priority DESC → delayLevel DESC → createdAt ASC (D4 always at top)
 - Pagination: 10 orders per page, page number buttons, "Showing X–Y of Z" counter
-- Row tinting: D2 = amber, D3/D4 = red; selected rows = blue
+- Row tinting: D2 = amber, D3/D4 = red; selected rows = blue; staged rows = green
 - Assign button per row: assigns single order to currently selected picker
 
-**Picker Workload Section (below table):**
+---
+
+#### Picker Workload Section
+
 - Grid of picker cards (auto-fill, min 240px per card)
 - Each card shows: Avatar + username | active count badge | Assigned / Picking / Done status chips | segmented progress bar (blue/amber/green)
 - **Click on any card → opens Order Detail Modal**
@@ -499,48 +541,95 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.5 Packer Admin Panel 🔜 Next (Phase 5)
+### 7.5 Packer Admin Panel 🔜 Next (Phase 6)
 **Visible to:** Admin, Packer Admin
 
 Mirrors the Picker Admin Panel exactly, adapted for the packing stage. Orders appear here automatically when a picker marks an order as PICKER_COMPLETE.
 
 **Header Stats Bar:** PICKER_COMPLETE queue count | Assigned Today | Packers count | Sync indicator
 
+---
+
+#### Scan & Stage Flow (primary assignment method — same pattern as Picker Admin)
+
+Packer Admin has a stack of packed orders and scans each waybill before assigning to a packer.
+
+**Flow:**
+1. Packer Admin scans a waybill → system looks up order by tracking number
+2. If found and PICKER_COMPLETE: added to staging list
+3. Admin scans more waybills — list grows
+4. Admin selects a Packer from the dropdown
+5. Clicks **"Assign N Staged Orders →"** → all bulk-assigned in one request
+6. Staging list clears; order table updates
+
+**Feedback (inline, no alerts):**
+- Success: green `Staged: <tracking number>`
+- Duplicate: yellow `Already staged: <tracking number>`
+- Not found: red `Order not found`
+- Not PICKER_COMPLETE: red `Order is not available (status: ...)`
+
+**Staged orders list:** identical layout to Picker Admin staging list
+- Rows: # | Tracking Number | Platform badge | Delay badge | Priority | × remove
+- STAGED badge + green row tint in the order table
+
+**Backend endpoint:**
+```
+POST /packer-admin/scan   { trackingNumber }
+  → 200: order data
+  → 404: Order not found
+  → 409: Order is not available (status: ...)
+```
+Lookup only — does NOT change order status. Status is only changed by assign/complete/unassign endpoints.
+
+---
+
+#### Manual Assignment Flow (secondary)
+
+**Packer Select Dropdown:** Same custom design as PickerSelect (avatar + name + checkmark, shared state with scan area)
+
 **Toolbar:**
-- Same custom Packer Select dropdown (avatar + name, same design as PickerSelect)
-- Assign Selected / Assign All buttons
-- Select All checkbox + selection count badge
+- Select All checkbox + selected count badge
+- Assign Selected button
+- Assign All button
 
 **Order Table:**
 - Columns: Checkbox | # | Tracking Number | Platform | Delay | Completed By (picker, avatar) | Priority | Assign button
 - Source: orders with status = PICKER_COMPLETE
 - Sort: priority DESC → delayLevel DESC → createdAt ASC
 - Pagination: 10 orders per page
+- Row tinting: D2 = amber, D3/D4 = red; selected = blue; staged = green
 
-**Packer Workload Section:**
-- Same card grid as Picker Workload
+---
+
+#### Packer Workload Section
+
+- Same card grid as Picker Workload (auto-fill, min 240px)
 - Status chips: Assigned (blue) | Packing (amber) | Done (green)
-- **Click on any card → opens Order Detail Modal** (same pattern as Picker Admin)
+- **Click on any card → opens Order Detail Modal**
 
 **Order Detail Modal (per packer):**
-- Columns: Tracking Number | Platform | Status | Delay | Assigned At | Actions
+- Columns: Tracking Number | Platform | Status chip | Delay | Assigned At | Actions
 - Actions (non-complete orders):
   - **Remove** (red) → styled confirmation dialog → order returns to PICKER_COMPLETE queue
   - **Complete** (green) → marks order as PACKER_COMPLETE
 - Same Remove Confirmation Dialog design as Picker Admin
+- Refetches every 3 seconds
+
+---
 
 **Seed data:** 20 packers (Packer 1–20, password: packer123) to be created by seed script
 
 **Backend endpoints to build:**
 ```
-GET  /packer-admin/orders                     → PICKER_COMPLETE orders
-GET  /packer-admin/packers                    → active packer users
-POST /packer-admin/assign                     → assign single order
-POST /packer-admin/bulk-assign                → assign multiple orders
-GET  /packer-admin/stats                      → per-packer workload counts
-GET  /packer-admin/packer/:packerId/orders    → orders assigned to a specific packer
-POST /packer-admin/complete                   → mark order PACKER_COMPLETE
-POST /packer-admin/unassign                   → return order to PICKER_COMPLETE queue
+GET  /packer-admin/orders                       → PICKER_COMPLETE orders
+GET  /packer-admin/packers                      → active packer users
+POST /packer-admin/scan                         → lookup by tracking number (PICKER_COMPLETE only)
+POST /packer-admin/assign                       → assign single order → PACKER_ASSIGNED
+POST /packer-admin/bulk-assign                  → assign multiple orders
+GET  /packer-admin/stats                        → per-packer workload counts
+GET  /packer-admin/packer/:packerId/orders      → orders assigned to specific packer
+POST /packer-admin/complete                     → mark order PACKER_COMPLETE
+POST /packer-admin/unassign                     → return order to PICKER_COMPLETE queue
 ```
 
 ---
