@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
@@ -37,12 +37,350 @@ interface PickerStat {
   completed: number
 }
 
+// ─── Picker orders modal ─────────────────────────────────────────────────────
+interface PickerOrderRow {
+  id: string
+  assignmentId: string
+  trackingNumber: string
+  platform: string
+  status: string
+  delayLevel: number
+  priority: number
+  createdAt: string
+  assignedAt: string
+}
+
+function PickerOrdersModal({
+  picker,
+  onClose,
+  onComplete,
+}: {
+  picker: { id: string; username: string }
+  onClose: () => void
+  onComplete: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['picker-orders', picker.id],
+    queryFn: async () => {
+      const res = await api.get<{ orders: PickerOrderRow[] }>(`/picker-admin/picker/${picker.id}/orders`)
+      return res.data.orders
+    },
+    refetchInterval: 3000,
+  })
+
+  const completeMutation = useMutation({
+    mutationFn: ({ orderId }: { orderId: string }) =>
+      api.post('/picker-admin/complete', { orderId, pickerId: picker.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['picker-orders', picker.id] })
+      onComplete()
+    },
+    onError: (err: any) => alert(err?.response?.data?.error ?? 'Complete failed'),
+  })
+
+  const unassignMutation = useMutation({
+    mutationFn: ({ orderId }: { orderId: string }) =>
+      api.post('/picker-admin/unassign', { orderId, pickerId: picker.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['picker-orders', picker.id] })
+      queryClient.invalidateQueries({ queryKey: ['picker-admin-orders'] })
+      onComplete()
+    },
+    onError: (err: any) => alert(err?.response?.data?.error ?? 'Remove failed'),
+  })
+
+  const orders = data ?? []
+
+  function handleComplete(orderId: string, tracking: string) {
+    if (!window.confirm(`Mark "${tracking}" as complete?`)) return
+    completeMutation.mutate({ orderId })
+  }
+
+  function handleRemove(orderId: string, tracking: string) {
+    setRemoveTarget({ id: orderId, tracking })
+  }
+
+  function confirmRemove() {
+    if (!removeTarget) return
+    unassignMutation.mutate({ orderId: removeTarget.id })
+    setRemoveTarget(null)
+  }
+
+  const isBusy = completeMutation.isPending || unassignMutation.isPending
+
+  const statusChip = (status: string) => {
+    const map: Record<string, { label: string; bg: string; color: string }> = {
+      PICKER_ASSIGNED: { label: 'Assigned', bg: '#dbeafe', color: '#1e40af' },
+      PICKING:         { label: 'Picking',  bg: '#fef3c7', color: '#92400e' },
+      PICKER_COMPLETE: { label: 'Done',     bg: '#d1fae5', color: '#065f46' },
+    }
+    const s = map[status] ?? { label: status, bg: '#f1f5f9', color: '#64748b' }
+    return (
+      <span style={{
+        display: 'inline-block', padding: '2px 10px', borderRadius: '9999px',
+        fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color,
+      }}>
+        {s.label}
+      </span>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+        zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '16px',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '680px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
+          maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '12px',
+          padding: '18px 24px', borderBottom: `1px solid ${colors.border}`,
+        }}>
+          <Avatar username={picker.username} size={36} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '15px', color: colors.textPrimary }}>
+              {picker.username}
+            </div>
+            <div style={{ fontSize: '12px', color: colors.textMuted }}>
+              {isLoading ? 'Loading...' : `${orders.length} active order${orders.length !== 1 ? 's' : ''}`}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              width: 32, height: 32, borderRadius: '8px', border: 'none',
+              background: '#f1f5f9', cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', color: colors.textSecondary,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {isLoading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: colors.textMuted, fontSize: '13px' }}>
+              Loading orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>🎉</div>
+              <div style={{ fontWeight: 600, color: colors.textPrimary, fontSize: '14px' }}>No active orders</div>
+              <div style={{ color: colors.textMuted, fontSize: '12px', marginTop: '4px' }}>All orders completed for this picker.</div>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
+                  {['Tracking Number', 'Platform', 'Status', 'Delay', 'Assigned At', ''].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 16px', textAlign: 'left', fontSize: '11px',
+                      fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
+                      letterSpacing: '0.05em', whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(order => (
+                  <tr key={order.id} style={{ borderBottom: `1px solid #f1f5f9` }}>
+                    <td style={{ padding: '11px 16px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
+                      {order.trackingNumber}
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      <PlatformBadge platform={order.platform} />
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      {statusChip(order.status)}
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      <DelayBadge level={order.delayLevel} />
+                    </td>
+                    <td style={{ padding: '11px 16px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      {new Date(order.assignedAt).toLocaleString('en-GB', {
+                        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </td>
+                    <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+                      {order.status !== 'PICKER_COMPLETE' && (
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => handleRemove(order.id, order.trackingNumber)}
+                            disabled={isBusy}
+                            style={{
+                              padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
+                              borderRadius: '6px', background: '#fff', color: colors.danger,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = colors.danger
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                            }}
+                            onMouseLeave={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.danger
+                            }}
+                          >
+                            Remove
+                          </button>
+                          <button
+                            onClick={() => handleComplete(order.id, order.trackingNumber)}
+                            disabled={isBusy}
+                            style={{
+                              padding: '4px 12px', border: `1px solid ${colors.success}`,
+                              borderRadius: '6px', background: '#fff', color: colors.success,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = colors.success
+                              ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                            }}
+                            onMouseLeave={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.success
+                            }}
+                          >
+                            Complete
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Remove confirmation dialog */}
+      {removeTarget && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setRemoveTarget(null)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '420px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Dialog header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #fef2f2, #fff5f5)',
+              padding: '24px 24px 20px',
+              borderBottom: `1px solid ${colors.dangerBorder}`,
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px',
+                background: '#fee2e2', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  Remove Order?
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  This will unassign the order from <strong>{picker.username}</strong> and return it to the inbound queue.
+                </div>
+              </div>
+            </div>
+
+            {/* Tracking number pill */}
+            <div style={{ padding: '16px 24px', background: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                Order
+              </div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                background: '#fff', border: `1px solid ${colors.border}`,
+                borderRadius: '8px', padding: '8px 14px',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="3" width="15" height="13" rx="1" /><path d="M16 8h4l3 3v5h-7V8z" />
+                  <circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
+                </svg>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: colors.textPrimary }}>
+                  {removeTarget.tracking}
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setRemoveTarget(null)}
+                style={{
+                  padding: '9px 20px', border: `1px solid ${colors.border}`,
+                  borderRadius: '8px', background: '#fff', color: colors.textSecondary,
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemove}
+                disabled={unassignMutation.isPending}
+                style={{
+                  padding: '9px 20px', border: 'none',
+                  borderRadius: '8px', background: colors.danger, color: '#fff',
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  opacity: unassignMutation.isPending ? 0.7 : 1,
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                {unassignMutation.isPending ? 'Removing...' : 'Yes, Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Per-picker stat card ────────────────────────────────────────────────────
-function PickerStatCard({ stat }: { stat: PickerStat }) {
+function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => void }) {
   const hasOrders = stat.total > 0 || stat.completed > 0
 
   return (
-    <div className="picker-stat-card">
+    <div
+      className="picker-stat-card"
+      onClick={onClick}
+      style={{ cursor: 'pointer' }}
+    >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
         <Avatar username={stat.picker.username} size={32} />
@@ -155,6 +493,145 @@ function StatusChip({ label, count, bg, color, dot }: {
   )
 }
 
+// ─── Custom picker dropdown ──────────────────────────────────────────────────
+function PickerSelect({
+  pickers,
+  value,
+  onChange,
+}: {
+  pickers: Picker[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const selected = pickers.find(p => p.id === value) ?? null
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: '220px' }}>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '8px 12px',
+          background: selected ? '#eff6ff' : '#fff',
+          border: `1.5px solid ${selected ? colors.primary : colors.borderStrong}`,
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: selected ? 600 : 400,
+          color: selected ? colors.primary : colors.textSecondary,
+          transition: 'all 0.15s',
+          textAlign: 'left',
+        }}
+      >
+        {selected ? (
+          <>
+            <Avatar username={selected.username} size={24} />
+            <span style={{ flex: 1 }}>{selected.username}</span>
+            {/* Selected checkmark */}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </>
+        ) : (
+          <>
+            <span style={{
+              width: 24, height: 24, borderRadius: '50%',
+              background: '#e5e7eb', display: 'inline-flex',
+              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+            <span style={{ flex: 1 }}>Select a picker...</span>
+          </>
+        )}
+        {/* Chevron */}
+        <svg
+          width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke={selected ? colors.primary : '#9ca3af'}
+          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s', flexShrink: 0 }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {/* Dropdown list */}
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 6px)',
+          left: 0,
+          right: 0,
+          background: '#fff',
+          border: `1px solid ${colors.border}`,
+          borderRadius: '10px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          zIndex: 50,
+          overflow: 'hidden',
+          maxHeight: '320px',
+          overflowY: 'auto',
+        }}>
+          {pickers.map(p => {
+            const isActive = p.id === value
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { onChange(p.id); setOpen(false) }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '9px 14px',
+                  background: isActive ? '#eff6ff' : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: isActive ? 600 : 400,
+                  color: isActive ? colors.primary : colors.textPrimary,
+                  textAlign: 'left',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc' }}
+                onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+              >
+                <Avatar username={p.username} size={26} />
+                <span style={{ flex: 1 }}>{p.username}</span>
+                {isActive && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 export default function PickerAdmin() {
   const user = useAuthStore((s) => s.user)
@@ -162,6 +639,9 @@ export default function PickerAdmin() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectedPickerId, setSelectedPickerId] = useState<string>('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
+  const [modalPicker, setModalPicker] = useState<{ id: string; username: string } | null>(null)
 
   // Orders query — refetch every 5 s
   const {
@@ -231,6 +711,11 @@ export default function PickerAdmin() {
   const statsList = statsData ?? []
 
   const totalAssignedToday = statsList.reduce((sum, s) => sum + s.total, 0)
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(orderList.length / PAGE_SIZE))
+  const safePage = Math.min(currentPage, totalPages)
+  const pagedOrders = orderList.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   // Select / deselect helpers
   const allSelected = orderList.length > 0 && orderList.every(o => selectedIds.has(o.id))
@@ -328,17 +813,11 @@ export default function PickerAdmin() {
 
         {/* Right: picker dropdown + action buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <select
+          <PickerSelect
+            pickers={pickerList}
             value={selectedPickerId}
-            onChange={e => setSelectedPickerId(e.target.value)}
-            className="styled-select"
-            style={{ minWidth: '200px' }}
-          >
-            <option value="">Select a picker...</option>
-            {pickerList.map(p => (
-              <option key={p.id} value={p.id}>{p.username}</option>
-            ))}
-          </select>
+            onChange={setSelectedPickerId}
+          />
 
           <button
             className="btn btn-primary"
@@ -378,19 +857,12 @@ export default function PickerAdmin() {
           <p className="empty-state-desc">No inbound orders are waiting for assignment.</p>
         </div>
       ) : (
+        <>
         <div className="data-table-wrap">
           <table style={{ minWidth: '900px' }}>
             <thead>
               <tr>
-                {/* Checkbox header */}
-                <th style={{ width: 40, textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleAll}
-                    style={{ accentColor: colors.primary, cursor: 'pointer' }}
-                  />
-                </th>
+                <th style={{ width: 40 }} />
                 <th style={{ width: 40 }}>#</th>
                 <th>Tracking Number</th>
                 <th>Platform</th>
@@ -402,7 +874,8 @@ export default function PickerAdmin() {
               </tr>
             </thead>
             <tbody>
-              {orderList.map((order, i) => {
+              {pagedOrders.map((order, i) => {
+                const globalIndex = (safePage - 1) * PAGE_SIZE + i + 1
                 const isSelected = selectedIds.has(order.id)
                 const delayClass =
                   order.delayLevel === 4 ? 'row-d4' :
@@ -412,7 +885,6 @@ export default function PickerAdmin() {
 
                 return (
                   <tr key={order.id} className={rowClass}>
-                    {/* Checkbox */}
                     <td style={{ textAlign: 'center', width: 40 }}>
                       <input
                         type="checkbox"
@@ -421,44 +893,28 @@ export default function PickerAdmin() {
                         style={{ accentColor: colors.primary, cursor: 'pointer' }}
                       />
                     </td>
-
-                    {/* Row number */}
-                    <td style={{ color: '#9ca3af', width: 40 }}>{i + 1}</td>
-
-                    {/* Tracking number */}
+                    <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                     <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                       {order.trackingNumber}
                     </td>
-
-                    {/* Platform badge */}
                     <td><PlatformBadge platform={order.platform} /></td>
-
-                    {/* Delay badge */}
                     <td><DelayBadge level={order.delayLevel} /></td>
-
-                    {/* Scanned at */}
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                       {new Date(order.createdAt).toLocaleString('en-GB', {
                         day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                       })}
                     </td>
-
-                    {/* Scanned by */}
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#374151', fontWeight: 500 }}>
                         <Avatar username={order.scannedBy.username} size={24} />
                         {order.scannedBy.username}
                       </span>
                     </td>
-
-                    {/* Priority */}
                     <td style={{ textAlign: 'center' }}>
                       <span style={{ fontWeight: 700, fontSize: '13px', color: colors.priority(order.priority) }}>
                         {order.priority}
                       </span>
                     </td>
-
-                    {/* Single assign */}
                     <td style={{ textAlign: 'center' }}>
                       <button
                         className="btn-assign"
@@ -474,6 +930,52 @@ export default function PickerAdmin() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            marginTop: '12px', padding: '0 4px',
+          }}>
+            <span style={{ fontSize: '12px', color: colors.textMuted }}>
+              Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, orderList.length)} of {orderList.length} orders
+            </span>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <button
+                className="btn btn-outline"
+                style={{ padding: '5px 12px', fontSize: '12px' }}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+              >
+                ← Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  style={{
+                    width: 32, height: 32, borderRadius: '6px', border: 'none',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: page === safePage ? 700 : 400,
+                    background: page === safePage ? colors.primary : 'transparent',
+                    color: page === safePage ? '#fff' : colors.textSecondary,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                className="btn btn-outline"
+                style={{ padding: '5px 12px', fontSize: '12px' }}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {/* Picker workload section */}
@@ -493,11 +995,25 @@ export default function PickerAdmin() {
             marginTop: '12px',
           }}>
             {statsList.map(stat => (
-              <PickerStatCard key={stat.picker.id} stat={stat} />
+              <PickerStatCard
+                key={stat.picker.id}
+                stat={stat}
+                onClick={() => setModalPicker({ id: stat.picker.id, username: stat.picker.username })}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {modalPicker && (
+        <PickerOrdersModal
+          picker={modalPicker}
+          onClose={() => setModalPicker(null)}
+          onComplete={() => {
+            queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
+          }}
+        />
+      )}
     </PageShell>
   )
 }

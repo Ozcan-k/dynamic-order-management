@@ -8,6 +8,9 @@ import {
   assignPicker,
   bulkAssignPicker,
   getPickerStats,
+  getPickerOrders,
+  completeOrder,
+  unassignOrder,
 } from '../services/pickerAdminService'
 
 const AssignSchema = z.object({
@@ -75,5 +78,41 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     const stats = await getPickerStats(tenantId)
     return reply.send({ stats })
+  })
+
+  // GET /picker-admin/picker/:pickerId/orders
+  fastify.get('/picker/:pickerId/orders', { preHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const { pickerId } = request.params as { pickerId: string }
+    const orders = await getPickerOrders(pickerId, tenantId)
+    return reply.send({ orders })
+  })
+
+  // POST /picker-admin/unassign
+  fastify.post('/unassign', { preHandler }, async (request, reply) => {
+    const { orderId, pickerId } = request.body as { orderId: string; pickerId: string }
+    if (!orderId || !pickerId) return reply.code(400).send({ error: 'orderId and pickerId required' })
+    const { tenantId } = request.user as JWTPayload
+    try {
+      const order = await unassignOrder(orderId, pickerId, tenantId)
+      return reply.send({ order })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unassign failed'
+      return reply.code(400).send({ error: message })
+    }
+  })
+
+  // POST /picker-admin/complete
+  fastify.post('/complete', { preHandler }, async (request, reply) => {
+    const { orderId, pickerId } = request.body as { orderId: string; pickerId: string }
+    if (!orderId || !pickerId) return reply.code(400).send({ error: 'orderId and pickerId required' })
+    const { tenantId } = request.user as JWTPayload
+    try {
+      const order = await completeOrder(orderId, pickerId, tenantId)
+      return reply.send({ order })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Complete failed'
+      return reply.code(400).send({ error: message })
+    }
   })
 }

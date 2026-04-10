@@ -5,7 +5,7 @@ export async function getInboundOrders(tenantId: string) {
   return prisma.order.findMany({
     where: { tenantId, status: OrderStatus.INBOUND },
     include: { scannedBy: { select: { username: true } } },
-    orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+    orderBy: [{ priority: 'desc' }, { delayLevel: 'desc' }, { createdAt: 'asc' }],
   })
 }
 
@@ -76,6 +76,111 @@ export async function bulkAssignPicker(
   }
 
   return { assigned, skipped }
+}
+
+export async function getPickerOrders(pickerId: string, tenantId: string) {
+  const assignments = await prisma.pickerAssignment.findMany({
+    where: {
+      pickerId,
+      completedAt: null,
+      order: { tenantId },
+    },
+    include: {
+      order: {
+        select: {
+          id: true,
+          trackingNumber: true,
+          platform: true,
+          status: true,
+          delayLevel: true,
+          priority: true,
+          createdAt: true,
+        },
+      },
+    },
+    orderBy: [{ order: { priority: 'desc' } }, { assignedAt: 'asc' }],
+  })
+
+  return assignments.map((a) => ({
+    assignmentId: a.id,
+    assignedAt: a.assignedAt,
+    ...a.order,
+  }))
+}
+
+export async function unassignOrder(
+  orderId: string,
+  pickerId: string,
+  tenantId: string,
+) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } })
+  if (!order || order.tenantId !== tenantId) throw new Error('Order not found')
+  if (
+    order.status !== OrderStatus.PICKER_ASSIGNED &&
+    order.status !== OrderStatus.PICKING
+  ) {
+    throw new Error('Order is not assigned')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.INBOUND },
+    })
+
+    await tx.pickerAssignment.deleteMany({
+      where: { orderId, pickerId, completedAt: null },
+    })
+
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId,
+        fromStatus: order.status,
+        toStatus: OrderStatus.INBOUND,
+        changedById: pickerId,
+      },
+    })
+
+    return updated
+  })
+}
+
+export async function completeOrder(
+  orderId: string,
+  pickerId: string,
+  tenantId: string,
+) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } })
+  if (!order || order.tenantId !== tenantId) throw new Error('Order not found')
+  if (
+    order.status !== OrderStatus.PICKER_ASSIGNED &&
+    order.status !== OrderStatus.PICKING
+  ) {
+    throw new Error('Order is not in a completable state')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.PICKER_COMPLETE },
+    })
+
+    await tx.pickerAssignment.updateMany({
+      where: { orderId, pickerId, completedAt: null },
+      data: { completedAt: new Date() },
+    })
+
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId,
+        fromStatus: order.status,
+        toStatus: OrderStatus.PICKER_COMPLETE,
+        changedById: pickerId,
+      },
+    })
+
+    return updated
+  })
 }
 
 export async function getPickerStats(tenantId: string) {

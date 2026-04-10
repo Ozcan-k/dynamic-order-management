@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
@@ -18,9 +19,12 @@ interface Order {
   scannedBy: { username: string }
 }
 
+const PAGE_SIZE = 25
+
 export default function Inbound() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
+  const [currentPage, setCurrentPage] = useState(1)
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -57,10 +61,14 @@ export default function Inbound() {
     },
   })
 
-  const total = data?.length ?? 0
+  const allOrders = data ?? []
+  const total = allOrders.length
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage = Math.min(currentPage, totalPages)
+  const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
   const counts = [0, 1, 2, 3, 4].map(level => ({
     level,
-    count: data?.filter(o => o.delayLevel === level).length ?? 0,
+    count: allOrders.filter(o => o.delayLevel === level).length,
   }))
 
   // Header stats
@@ -98,10 +106,62 @@ export default function Inbound() {
       <SectionHeader title="Pending Orders" count={total} />
 
       <OrderTable
-        orders={data ?? []}
+        orders={pagedOrders}
         canDelete={canDelete}
         onDelete={(id) => deleteMutation.mutate(id)}
       />
+
+      {totalPages > 1 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginTop: '12px', padding: '0 4px',
+        }}>
+          <span style={{ fontSize: '12px', color: colors.textMuted }}>
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total} orders
+          </span>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              style={{
+                padding: '5px 12px', border: `1px solid ${colors.border}`,
+                borderRadius: '6px', background: '#fff', color: colors.textSecondary,
+                fontSize: '12px', fontWeight: 600, cursor: safePage === 1 ? 'not-allowed' : 'pointer',
+                opacity: safePage === 1 ? 0.4 : 1,
+              }}
+            >
+              ← Prev
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                style={{
+                  width: 32, height: 32, borderRadius: '6px', border: 'none',
+                  cursor: 'pointer', fontSize: '12px', fontWeight: page === safePage ? 700 : 400,
+                  background: page === safePage ? colors.primary : 'transparent',
+                  color: page === safePage ? '#fff' : colors.textSecondary,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              style={{
+                padding: '5px 12px', border: `1px solid ${colors.border}`,
+                borderRadius: '6px', background: '#fff', color: colors.textSecondary,
+                fontSize: '12px', fontWeight: 600, cursor: safePage === totalPages ? 'not-allowed' : 'pointer',
+                opacity: safePage === totalPages ? 0.4 : 1,
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
     </PageShell>
   )
 }
