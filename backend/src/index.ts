@@ -5,6 +5,10 @@ import rateLimitPlugin from './plugins/rateLimit'
 import authPlugin from './plugins/auth'
 import { redis } from './lib/redis'
 import { prisma } from './lib/prisma'
+import { initSocket } from './lib/socket'
+import { slaEscalationQueue } from './lib/queues'
+import { startSlaEscalationWorker } from './jobs/slaEscalation'
+import { startSlaD4EmailWorker } from './jobs/slaD4Email'
 import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
 import orderRoutes from './routes/orders'
@@ -40,7 +44,27 @@ async function start() {
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
+  // Attach Socket.io to the underlying HTTP server
+  await fastify.ready()
+  initSocket(fastify.server)
+
+  // Register SLA escalation as a repeatable BullMQ job (every 15 min)
+  await slaEscalationQueue.add(
+    'sweep',
+    {},
+    {
+      repeat: { pattern: '*/15 * * * *' },
+      jobId: 'sla-escalation-repeat',
+    },
+  )
+
+  // Start BullMQ workers
+  const escalationWorker = startSlaEscalationWorker()
+  const d4EmailWorker = startSlaD4EmailWorker()
+
   fastify.addHook('onClose', async () => {
+    await escalationWorker.close()
+    await d4EmailWorker.close()
     await prisma.$disconnect()
     redis.disconnect()
   })

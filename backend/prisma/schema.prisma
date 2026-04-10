@@ -57,6 +57,7 @@ model User {
   tenantId     String   @map("tenant_id")
   username     String
   passwordHash String   @map("password_hash")
+  email        String?  @map("email")
   pickerPin    String?  @map("picker_pin")
   packerPin    String?  @map("packer_pin")
   role         UserRole
