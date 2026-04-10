@@ -238,7 +238,9 @@ Modals are built inline (not a shared component) with this overlay pattern:
 ```
 - Nested modals (e.g. confirm dialog on top of order modal) use `zIndex: 1100`
 - Overlay click closes the modal (`onClick={onClose}` on overlay, `e.stopPropagation()` on inner panel)
-- Confirm dialogs use red gradient header (`linear-gradient(135deg, #fef2f2, #fff5f5)`) + trash icon
+- **Complete** confirm dialogs: green gradient header (`linear-gradient(135deg, #f0fdf4, #f7fef9)`) + checkmark icon
+- **Remove/danger** confirm dialogs: red gradient header (`linear-gradient(135deg, #fef2f2, #fff5f5)`) + warning icon
+- Both show tracking number pill in middle section; Cancel + action button in footer
 
 ### Legacy / Deprecated (do not use in new code)
 | Class | Replacement |
@@ -312,6 +314,9 @@ frontend/src/
 ├── pages/
 │   ├── Inbound.tsx                   ← Inbound panel (uses PageShell)
 │   ├── PickerAdmin.tsx               ← Picker admin panel (uses PageShell)
+│   ├── PickerMobile.tsx              ← /picker handheld — PIN auth + order list (blue theme)
+│   ├── PackerAdmin.tsx               ← Packer admin panel (uses PageShell)
+│   ├── PackerMobile.tsx              ← /packer handheld — PIN auth + shared queue (green theme)
 │   └── Login.tsx                     ← Login page (uses .login-* classes)
 └── components/
     ├── shared/

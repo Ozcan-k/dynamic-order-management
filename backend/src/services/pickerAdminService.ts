@@ -213,43 +213,76 @@ export async function getPickerStats(tenantId: string) {
     orderBy: { username: 'asc' },
   })
 
-  const stats = await Promise.all(
-    pickers.map(async (picker) => {
-      const [activeAssignments, completedCount] = await Promise.all([
-        prisma.pickerAssignment.findMany({
-          where: {
-            pickerId: picker.id,
-            completedAt: null,
-            order: { tenantId },
+  const [stats, returnedCount, totalCompleted] = await Promise.all([
+    Promise.all(
+      pickers.map(async (picker) => {
+        const [activeAssignments, completedCount, returned] = await Promise.all([
+          prisma.pickerAssignment.findMany({
+            where: {
+              pickerId: picker.id,
+              completedAt: null,
+              order: { tenantId },
+            },
+            select: { order: { select: { status: true } } },
+          }),
+          prisma.pickerAssignment.count({
+            where: { pickerId: picker.id, completedAt: { not: null } },
+          }),
+          prisma.pickerAssignment.count({
+            where: {
+              pickerId: picker.id,
+              completedAt: null,
+              order: {
+                status: OrderStatus.PICKER_ASSIGNED,
+                statusHistory: {
+                  some: {
+                    fromStatus: OrderStatus.PICKER_COMPLETE,
+                    toStatus: OrderStatus.PICKER_ASSIGNED,
+                  },
+                },
+              },
+            },
+          }),
+        ])
+
+        const statusCounts = {
+          PICKER_ASSIGNED: 0,
+          PICKING: 0,
+          PICKER_COMPLETE: 0,
+        }
+
+        for (const a of activeAssignments) {
+          const s = a.order.status
+          if (s === OrderStatus.PICKER_ASSIGNED) statusCounts.PICKER_ASSIGNED++
+          else if (s === OrderStatus.PICKING) statusCounts.PICKING++
+          else if (s === OrderStatus.PICKER_COMPLETE) statusCounts.PICKER_COMPLETE++
+        }
+
+        return {
+          picker,
+          statusCounts,
+          total: activeAssignments.length,
+          completed: completedCount,
+          returned,
+        }
+      }),
+    ),
+    prisma.order.count({
+      where: {
+        tenantId,
+        status: OrderStatus.PICKER_ASSIGNED,
+        statusHistory: {
+          some: {
+            fromStatus: OrderStatus.PICKER_COMPLETE,
+            toStatus: OrderStatus.PICKER_ASSIGNED,
           },
-          select: { order: { select: { status: true } } },
-        }),
-        prisma.pickerAssignment.count({
-          where: { pickerId: picker.id, completedAt: { not: null } },
-        }),
-      ])
-
-      const statusCounts = {
-        PICKER_ASSIGNED: 0,
-        PICKING: 0,
-        PICKER_COMPLETE: 0,
-      }
-
-      for (const a of activeAssignments) {
-        const s = a.order.status
-        if (s === OrderStatus.PICKER_ASSIGNED) statusCounts.PICKER_ASSIGNED++
-        else if (s === OrderStatus.PICKING) statusCounts.PICKING++
-        else if (s === OrderStatus.PICKER_COMPLETE) statusCounts.PICKER_COMPLETE++
-      }
-
-      return {
-        picker,
-        statusCounts,
-        total: activeAssignments.length,
-        completed: completedCount,
-      }
+        },
+      },
     }),
-  )
+    prisma.pickerAssignment.count({
+      where: { completedAt: { not: null }, order: { tenantId } },
+    }),
+  ])
 
-  return stats
+  return { stats, returnedCount, totalCompleted }
 }

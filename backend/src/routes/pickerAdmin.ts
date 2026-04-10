@@ -93,8 +93,8 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   // GET /picker-admin/stats
   fastify.get('/stats', { preHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
-    const stats = await getPickerStats(tenantId)
-    return reply.send({ stats })
+    const { stats, returnedCount, totalCompleted } = await getPickerStats(tenantId)
+    return reply.send({ stats, returnedCount, totalCompleted })
   })
 
   // GET /picker-admin/picker/:pickerId/orders

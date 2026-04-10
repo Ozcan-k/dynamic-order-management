@@ -20,6 +20,13 @@ export async function findPickerByPin(pin: string) {
   })
 }
 
+export async function findPackerByPin(pin: string) {
+  return prisma.user.findFirst({
+    where: { packerPin: pin, role: UserRole.PACKER, isActive: true },
+    include: { tenant: { select: { isActive: true } } },
+  })
+}
+
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash)
 }

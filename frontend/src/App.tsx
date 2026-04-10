@@ -5,6 +5,8 @@ import Login from './pages/Login'
 import Inbound from './pages/Inbound'
 import PickerAdmin from './pages/PickerAdmin'
 import PickerMobile from './pages/PickerMobile'
+import PackerAdmin from './pages/PackerAdmin'
+import PackerMobile from './pages/PackerMobile'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -75,7 +77,7 @@ export default function App() {
             path="/packer-admin"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN]}>
-                <AppLayout><PlaceholderPage title="Packer Admin" /></AppLayout>
+                <AppLayout><PackerAdmin /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -96,16 +98,9 @@ export default function App() {
             }
           />
           {/* Mobile routes — no sidebar */}
-          {/* /picker is public — PickerMobile handles PIN auth internally */}
+          {/* /picker and /packer are public — they handle PIN auth internally */}
           <Route path="/picker" element={<PickerMobile />} />
-          <Route
-            path="/packer"
-            element={
-              <ProtectedRoute allowedRoles={[UserRole.PACKER]}>
-                <PlaceholderPage title="Packer Device" />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/packer" element={<PackerMobile />} />
           <Route
             path="/unauthorized"
             element={<PlaceholderPage title="403 — Forbidden" />}

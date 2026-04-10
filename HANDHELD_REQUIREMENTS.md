@@ -1,4 +1,4 @@
-# Handheld Device Requirements — Picker Application
+# Handheld Device Requirements — Picker & Packer Applications
 
 > **Status:** Pending hardware evaluation  
 > **Date:** 2026-04-10
@@ -45,7 +45,7 @@
 ### Prerequisites
 - Application server must be running (`docker compose up`)
 - Handheld device and server must be on the same WiFi/LAN network
-- A PIN must be assigned to the picker from the Picker Admin panel
+- A PIN must be assigned to the user from the relevant admin panel (Picker Admin for pickers, Packer Admin for packers)
 
 ---
 
@@ -128,6 +128,43 @@ Order removed from list ✓
 ```
 
 > **Note:** Session is valid for 8 hours. The PIN will not be asked again if the device is turned off and back on during a shift. The PIN screen only reappears if the **Logout** button is pressed.
+
+---
+
+## Packer Handheld Setup
+
+The packer handheld uses the **same hardware and process** as the picker handheld. The only differences:
+
+| | Picker | Packer |
+|---|---|---|
+| URL | `http://<ip>:5173/picker` | `http://<ip>:5173/packer` |
+| PIN set by | Picker Admin panel | Packer Admin panel |
+| Order list | Own assigned orders | All PICKER_COMPLETE orders (shared queue) |
+| Action | Complete own order | Scan waybill → complete from shared queue |
+| Theme | Blue gradient PIN screen | Green gradient PIN screen |
+| Shortcut name | "Order Picker" | "Order Packer" |
+
+### Packer Daily Usage Flow
+
+```
+Open device
+    ↓
+Tap "Order Packer" shortcut on home screen
+    ↓
+Enter 4-digit PIN        ← only on first launch or after logout
+    ↓
+Shared order list appears (all PICKER_COMPLETE orders)
+    ↓
+Pick up physical package → scan waybill barcode
+    ↓
+Confirm Complete bottom sheet slides up
+    ↓
+Tap "Confirm ✓"
+    ↓
+Order removed from all packers' lists ✓
+```
+
+> **Note:** All packers see the same list. First packer to scan and confirm a waybill completes the order. If two packers scan the same waybill simultaneously, one gets success and the other gets an "already completed" error.
 
 ---
 

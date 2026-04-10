@@ -35,6 +35,7 @@ interface PickerStat {
   }
   total: number
   completed: number
+  returned: number
 }
 
 // ─── Picker orders modal ─────────────────────────────────────────────────────
@@ -550,6 +551,16 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
           color="#065f46"
           dot="#10b981"
         />
+        {stat.returned > 0 && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            background: '#fef3c7', color: '#92400e',
+            borderRadius: '6px', padding: '4px 8px',
+            fontSize: '11px', fontWeight: 600,
+          }}>
+            ↩ Returned: {stat.returned}
+          </div>
+        )}
       </div>
 
       {/* Completion progress bar */}
@@ -861,8 +872,8 @@ export default function PickerAdmin() {
   const { data: statsData } = useQuery({
     queryKey: ['picker-admin-stats'],
     queryFn: async () => {
-      const res = await api.get<{ stats: PickerStat[] }>('/picker-admin/stats')
-      return res.data.stats
+      const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number }>('/picker-admin/stats')
+      return res.data
     },
     refetchInterval: 5000,
   })
@@ -945,7 +956,9 @@ export default function PickerAdmin() {
 
   const orderList = orders ?? []
   const pickerList = pickers ?? []
-  const statsList = statsData ?? []
+  const statsList = statsData?.stats ?? []
+  const returnedFromPacker = statsData?.returnedCount ?? 0
+  const totalCompleted = statsData?.totalCompleted ?? 0
 
   const totalAssignedToday = statsList.reduce((sum, s) => sum + s.total, 0)
 
@@ -999,6 +1012,8 @@ export default function PickerAdmin() {
     <>
       <StatCard label="Inbound" value={orderList.length} color={colors.primary} />
       <StatCard label="Assigned Today" value={totalAssignedToday} color={colors.success} />
+      <StatCard label="Total Completed" value={totalCompleted} color="#10b981" />
+      <StatCard label="Returned from Packer" value={returnedFromPacker} color="#f59e0b" />
       <StatCard label="Pickers" value={pickerList.length} color="#7c3aed" />
       {ordersLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
