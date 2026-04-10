@@ -8,6 +8,7 @@ import { prisma } from './lib/prisma'
 import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
 import orderRoutes from './routes/orders'
+import pickerAdminRoutes from './routes/pickerAdmin'
 
 const fastify = Fastify({
   logger: {
@@ -27,6 +28,7 @@ async function start() {
   await fastify.register(authRoutes, { prefix: '/auth' })
   await fastify.register(userRoutes, { prefix: '/users' })
   await fastify.register(orderRoutes, { prefix: '/orders' })
+  await fastify.register(pickerAdminRoutes, { prefix: '/picker-admin' })
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 

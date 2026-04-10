@@ -3,7 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import Login from './pages/Login'
 import Inbound from './pages/Inbound'
+import PickerAdmin from './pages/PickerAdmin'
 import ProtectedRoute from './components/ProtectedRoute'
+import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
 
 const queryClient = new QueryClient({
@@ -44,7 +46,7 @@ export default function App() {
             path="/dashboard"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
-                <Inbound />
+                <AppLayout><Inbound /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -52,7 +54,7 @@ export default function App() {
             path="/picker-admin"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN]}>
-                <PlaceholderPage title="Picker Admin" />
+                <AppLayout><PickerAdmin /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -60,23 +62,15 @@ export default function App() {
             path="/packer-admin"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN]}>
-                <PlaceholderPage title="Packer Admin" />
+                <AppLayout><PlaceholderPage title="Packer Admin" /></AppLayout>
               </ProtectedRoute>
             }
           />
           <Route
-            path="/picker"
+            path="/outbound"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.PICKER]}>
-                <PlaceholderPage title="Picker Panel" />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/packer"
-            element={
-              <ProtectedRoute allowedRoles={[UserRole.PACKER]}>
-                <PlaceholderPage title="Packer Panel" />
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+                <AppLayout><PlaceholderPage title="Outbound" /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -84,7 +78,24 @@ export default function App() {
             path="/users"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                <PlaceholderPage title="User Management" />
+                <AppLayout><PlaceholderPage title="User Management" /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Mobile routes — no sidebar */}
+          <Route
+            path="/picker"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.PICKER]}>
+                <PlaceholderPage title="Picker Device" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/packer"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.PACKER]}>
+                <PlaceholderPage title="Packer Device" />
               </ProtectedRoute>
             }
           />

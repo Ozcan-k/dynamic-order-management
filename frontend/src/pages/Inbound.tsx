@@ -2,8 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
+import { colors } from '../theme'
 import ScanInput from '../components/ScanInput'
 import OrderTable from '../components/OrderTable'
+import PageShell from '../components/shared/PageShell'
+import StatCard from '../components/shared/StatCard'
+import SectionHeader from '../components/shared/SectionHeader'
 
 interface Order {
   id: string
@@ -59,75 +63,45 @@ export default function Inbound() {
     count: data?.filter(o => o.delayLevel === level).length ?? 0,
   }))
 
-  const DELAY_COLORS = ['#64748b', '#eab308', '#f97316', '#ef4444', '#991b1b']
-
-  return (
-    <div style={{ minHeight: '100vh', width: '100%', background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-        <div className="inbound-header-inner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-            <span style={{ fontSize: '20px' }}>📦</span>
-            <div>
-              <h1 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                Inbound Panel
-              </h1>
-              <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
-                {user?.username} · {user?.role?.replace(/_/g, ' ')}
-              </p>
-            </div>
-          </div>
-
-          <div className="inbound-header-stats">
-            <StatCard label="Total" value={total} color="#3b82f6" />
-            {counts.map(({ level, count }) => (
-              <StatCard key={level} label={`D${level}`} value={count} color={DELAY_COLORS[level]} />
-            ))}
-            {isLoading && <span style={{ fontSize: '12px', color: '#94a3b8' }}>Syncing...</span>}
-            {isError && <span style={{ fontSize: '12px', color: '#ef4444' }}>Connection error</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="inbound-body" style={{ flex: 1 }}>
-        <ScanInput
-          onScan={(tn) => scanMutation.mutate(tn)}
-          disabled={scanMutation.isPending}
-        />
-
-        <div className="inbound-section-header">
-          <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
-            Pending Orders
-            {total > 0 && (
-              <span style={{
-                marginLeft: '10px', background: '#e0e7ff', color: '#4f46e5',
-                fontSize: '12px', fontWeight: 700, padding: '2px 10px', borderRadius: '9999px',
-              }}>
-                {total}
-              </span>
-            )}
-          </h2>
-        </div>
-
-        <OrderTable
-          orders={data ?? []}
-          canDelete={canDelete}
-          onDelete={(id) => deleteMutation.mutate(id)}
-        />
-      </div>
-    </div>
+  // Header stats
+  const headerStats = (
+    <>
+      <StatCard label="Total" value={total} color={colors.primary} />
+      {counts.map(({ level, count }) => (
+        <StatCard key={level} label={`D${level}`} value={count} color={colors.delay[level]} />
+      ))}
+      {isLoading && <span style={{ fontSize: '12px', color: colors.textMuted }}>Syncing...</span>}
+      {isError && <span style={{ fontSize: '12px', color: colors.danger }}>Connection error</span>}
+    </>
   )
-}
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+  const InboundIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="8 17 12 21 16 17" />
+      <line x1="12" y1="3" x2="12" y2="21" />
+      <rect x="3" y="3" width="18" height="4" rx="1" />
+    </svg>
+  )
+
   return (
-    <div style={{
-      background: '#f8fafc', border: '1px solid #e2e8f0',
-      borderRadius: '8px', padding: '6px 14px', textAlign: 'center', minWidth: '80px',
-    }}>
-      <div style={{ fontSize: '18px', fontWeight: 800, color }}>{value}</div>
-      <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>{label}</div>
-    </div>
+    <PageShell
+      icon={InboundIcon}
+      title="Inbound Panel"
+      subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
+      stats={headerStats}
+    >
+      <ScanInput
+        onScan={(tn) => scanMutation.mutate(tn)}
+        disabled={scanMutation.isPending}
+      />
+
+      <SectionHeader title="Pending Orders" count={total} />
+
+      <OrderTable
+        orders={data ?? []}
+        canDelete={canDelete}
+        onDelete={(id) => deleteMutation.mutate(id)}
+      />
+    </PageShell>
   )
 }

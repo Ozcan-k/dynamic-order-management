@@ -1,6 +1,6 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 1.1.0-draft  
+> **Version:** 1.2.0-draft  
 > **Date:** 2026-04-09  
 > **Status:** Pre-development — for review and alignment before coding begins
 
@@ -53,46 +53,50 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 ## 2. System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                            CLIENTS                                   │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  Web Browser (React)  +  Zebra/Honeywell Barcode Scanner         │  │
-│  └────────────────────────────────┬─────────────────────────────────┘  │
-└────────────────────────────────── ┼────────────────────────────────────┘
-                                    │           HTTPS + WSS
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                       BACKEND (Node.js + Fastify)                    │
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │   Auth API   │  │  Orders API  │  │  Users API   │              │
-│  │  POST /login │  │  GET/POST    │  │  CRUD        │              │
-│  │  POST /logout│  │  /orders/*   │  │  /users/*    │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │ Assign API   │  │ Reports API  │  │  WebSocket (Socket.io)   │  │
-│  │ /assign/*    │  │ /reports/*   │  │  Live dashboard updates   │  │
-│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │  BullMQ Job Queue                                              │ │
-│  │  → Nightly 9:00 PM email report to admins (Nodemailer)         │ │
-│  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation          │ │
-│  │  → D4 supervisor alert email (triggered by sweep)              │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└──────────────────────┬───────────────────────┬───────────────────────┘
-                       │                       │
-            ┌──────────▼──────────┐  ┌─────────▼──────────┐
-            │    PostgreSQL 16    │  │       Redis         │
-            │                     │  │                     │
-            │  orders             │  │  JWT sessions       │
-            │  users              │  │  order list cache   │
-            │  tenants            │  │  BullMQ job queues  │
-            │  assignments        │  │                     │
-            │  status_history     │  └─────────────────────┘
-            │  sla_escalations    │
-            └─────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                 CLIENTS                                    │
+│                                                                            │
+│  ┌──────────────────────────────────┐  ┌────────────────────────────────┐ │
+│  │  Desktop Browser (React)         │  │  Handheld Device (Android)     │ │
+│  │  Admin / Inbound / Picker Admin  │  │  Picker & Packer               │ │
+│  │  Packer Admin / Outbound         │  │  Chrome browser — WiFi         │ │
+│  │  + HID Barcode Scanner (inbound) │  │  Mobile-optimized UI           │ │
+│  └──────────────────┬───────────────┘  └──────────────┬─────────────────┘ │
+└─────────────────────┼────────────────────────────────── ┼──────────────────┘
+                      │         HTTPS + WSS               │
+┌─────────────────────▼───────────────────────────────────▼──────────────────┐
+│                         BACKEND (Node.js + Fastify)                        │
+│                                                                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                    │
+│  │   Auth API   │  │  Orders API  │  │  Users API   │                    │
+│  │  POST /login │  │  GET/POST    │  │  CRUD        │                    │
+│  │  POST /logout│  │  /orders/*   │  │  /users/*    │                    │
+│  └──────────────┘  └──────────────┘  └──────────────┘                    │
+│                                                                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────┐    │
+│  │ Assign API   │  │ Reports API  │  │  WebSocket (Socket.io)       │    │
+│  │ /assign/*    │  │ /reports/*   │  │  tenant:{id} — broadcast     │    │
+│  └──────────────┘  └──────────────┘  │  user:{id}  — targeted push  │    │
+│                                       └──────────────────────────────┘    │
+│                                                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐ │
+│  │  BullMQ Job Queue                                                    │ │
+│  │  → Nightly 9:00 PM email report to admins (Nodemailer)               │ │
+│  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
+│  │  → D4 supervisor alert email (triggered by sweep)                    │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────┬──────────────────────────┬───────────────────────────┘
+                      │                          │
+           ┌──────────▼──────────┐  ┌────────────▼───────────┐
+           │    PostgreSQL 16    │  │         Redis           │
+           │                    │  │                         │
+           │  orders            │  │  JWT sessions           │
+           │  users             │  │  order list cache       │
+           │  tenants           │  │  BullMQ job queues      │
+           │  assignments       │  │  socket user→room map   │
+           │  status_history    │  └─────────────────────────┘
+           │  sla_escalations   │
+           └────────────────────┘
 ```
 
 ---
@@ -379,9 +383,9 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **Inbound — scan & add** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Inbound — delete** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Picker Admin Panel** | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| **Picker Sub-Panel** | ✅ | ❌ | ✅ | ❌ | Own only | ❌ |
+| **Picker Device View** (handheld) | ❌ | ❌ | ❌ | ❌ | Own only | ❌ |
 | **Packer Admin Panel** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| **Packer Sub-Panel** | ✅ | ❌ | ❌ | ✅ | ❌ | Own only |
+| **Packer Device View** (handheld) | ❌ | ❌ | ❌ | ❌ | ❌ | Own only |
 | **Outbound Panel** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **User Management** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Reports (all)** | ✅ | ✅ | Picker only | Packer only | ❌ | ❌ |
@@ -446,14 +450,24 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.4 Picker Sub-Panel
-**Visible to:** Picker (own orders only)
+### 7.4 Picker Device View
+**Visible to:** Picker (own orders only)  
+**Target device:** Android handheld (Zebra, Honeywell, or equivalent) — Chrome browser over WiFi  
+**Design:** Mobile-first, touch-optimized (large buttons, no sidebar, no desktop layout)
 
-- Date and time display
-- Stats: Assigned Today | In Progress | Complete
-- Order table: Tracking Number | Platform | Delay (D-badge) | Status | Actions
-- **Complete button:** marks order as PICKER_COMPLETE
-- **Undo button:** reverts PICKER_COMPLETE → PICKING (for accidental taps)
+**How orders arrive:**
+- Picker logs in on their handheld device
+- When Picker Admin assigns an order, backend emits `order:assigned` via Socket.io to room `user:{pickerId}`
+- Order appears instantly on picker's screen — no manual refresh, no panel searching
+
+**UI:**
+- Header: Picker's name + date/time
+- Stats bar: Assigned Today | In Progress | Complete
+- Order cards (touch-friendly): Tracking Number | Platform badge | Delay (D-badge) | Status
+- **START button:** transitions PICKER_ASSIGNED → PICKING (picker starts work)
+- **COMPLETE button:** marks PICKING → PICKER_COMPLETE
+- **UNDO button:** reverts PICKER_COMPLETE → PICKING (for accidental taps)
+- Order disappears from active list once PICKER_COMPLETE is confirmed
 
 ---
 
@@ -469,12 +483,24 @@ Same structure as Picker Admin Panel but for packing stage. Orders arrive here a
 
 ---
 
-### 7.6 Packer Sub-Panel
-**Visible to:** Packer (own orders only)
+### 7.6 Packer Device View
+**Visible to:** Packer (own orders only)  
+**Target device:** Android handheld — same as Picker Device View  
+**Design:** Identical mobile-first layout as Picker Device View
 
-Same structure as Picker Sub-Panel — Order table: Tracking Number | Platform | Delay (D-badge) | Status | Actions.
-- **Complete button:** marks PACKER_COMPLETE
-- **Undo button:** reverts PACKER_COMPLETE → PACKING
+**How orders arrive:**
+- Packer logs in on their handheld device
+- When Packer Admin assigns an order, backend emits `order:assigned` via Socket.io to room `user:{packerId}`
+- Order appears instantly — no manual refresh
+
+**UI:**
+- Header: Packer's name + date/time
+- Stats bar: Assigned Today | In Progress | Complete
+- Order cards: Tracking Number | Platform badge | Delay (D-badge) | Status
+- **START button:** transitions PACKER_ASSIGNED → PACKING
+- **COMPLETE button:** marks PACKING → PACKER_COMPLETE
+- **UNDO button:** reverts PACKER_COMPLETE → PACKING (for accidental taps)
+- Order disappears from active list once PACKER_COMPLETE is confirmed
 
 ---
 
@@ -496,52 +522,57 @@ frontend/
 ├── src/
 │   ├── pages/
 │   │   ├── Login.tsx
-│   │   ├── Dashboard.tsx
-│   │   ├── Inbound.tsx
-│   │   ├── PickerAdmin.tsx
-│   │   ├── PickerPanel.tsx
-│   │   ├── PackerAdmin.tsx
-│   │   ├── PackerPanel.tsx
-│   │   ├── Outbound.tsx
-│   │   └── Users.tsx
+│   │   ├── Inbound.tsx            ← served at /dashboard route
+│   │   ├── PickerAdmin.tsx        ← Phase 3 ✅ built
+│   │   ├── PickerDevice.tsx       ← Phase 4 (mobile-first; orders pushed via WebSocket)
+│   │   ├── PackerAdmin.tsx        ← Phase 5
+│   │   ├── PackerDevice.tsx       ← Phase 5 (mobile-first; orders pushed via WebSocket)
+│   │   ├── Outbound.tsx           ← Phase 6
+│   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
 │   ├── components/
-│   │   ├── ScanInput.tsx          ← HID barcode scanner input
-│   │   ├── OrderTable.tsx         ← includes DelayBadge column; D2+ rows tinted
-│   │   ├── StatsBar.tsx           ← includes D1/D2/D3/D4 count breakdown
-│   │   ├── AssignDropdown.tsx
-│   │   ├── BulkAssignPanel.tsx
-│   │   ├── ReportTable.tsx
+│   │   ├── ScanInput.tsx          ← HID barcode scanner input (desktop inbound only)
+│   │   ├── OrderTable.tsx         ← desktop table; includes DelayBadge column; D2+ rows tinted
+│   │   ├── OrderCard.tsx          ← Phase 4: mobile card, touch-friendly, large tap targets
+│   │   ├── ConfirmDialog.tsx      ← reusable confirmation modal
 │   │   ├── DelayBadge.tsx         ← D-level badge: D0=none, D1=yellow, D2=orange, D3=red, D4=red+pulse
-│   │   ├── SlaAlertBanner.tsx     ← dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
-│   │   └── layout/
-│   │       ├── Sidebar.tsx
-│   │       └── Header.tsx
+│   │   ├── SlaAlertBanner.tsx     ← Phase 7: dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
+│   │   └── shared/
+│   │       ├── AppLayout.tsx      ← desktop layout wrapper (Sidebar + content area)
+│   │       ├── Sidebar.tsx        ← role-based nav with SVG icons; desktop only
+│   │       ├── MobileHeader.tsx   ← Phase 4: handheld layout header (name + time, no nav)
+│   │       ├── PageShell.tsx      ← sticky header + scrollable body for each panel
+│   │       ├── Avatar.tsx         ← initials avatar component
+│   │       ├── PlatformBadge.tsx  ← color-coded platform label (Shopee/Lazada/TikTok)
+│   │       ├── StatCard.tsx       ← stat number card used in panel headers
+│   │       └── SectionHeader.tsx  ← section title + count badge
 │   ├── stores/                    ← Zustand global state
 │   │   ├── authStore.ts
-│   │   └── notificationStore.ts   ← includes d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   └── notificationStore.ts   ← Phase 7: d4Alerts[], addD4Alert(), dismissD4Alert()
 │   ├── api/                       ← TanStack Query hooks
-│   │   ├── orders.ts              ← includes useSlaSummary(), useSlaHistory(orderId)
+│   │   ├── orders.ts
 │   │   ├── assignments.ts
 │   │   ├── users.ts
 │   │   └── reports.ts
-│   │   (no stores.ts — store management removed)
-│   └── lib/
-│       ├── platformDetect.ts      ← tracking number → platform logic
-│       └── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
+│   ├── lib/
+│   │   ├── platformDetect.ts      ← tracking number → platform logic
+│   │   └── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
+│   ├── theme.ts                   ← design tokens (colors, delay levels)
+│   └── index.css                  ← global design system CSS
 ```
 
 ### Route Access Control
 ```
 /login                → Public
-/dashboard            → ADMIN, INBOUND_ADMIN
-/inbound              → ADMIN, INBOUND_ADMIN
+/dashboard            → ADMIN, INBOUND_ADMIN  (Inbound panel — also visible to PICKER_ADMIN, PACKER_ADMIN via sidebar)
 /picker-admin         → ADMIN, PICKER_ADMIN
-/picker               → PICKER
+/picker               → PICKER            (mobile-first — PickerDevice.tsx)
 /packer-admin         → ADMIN, PACKER_ADMIN
-/packer               → PACKER
+/packer               → PACKER            (mobile-first — PackerDevice.tsx)
 /outbound             → ADMIN, INBOUND_ADMIN
 /users                → ADMIN only
 ```
+
+> **Handheld routing note:** `/picker` and `/packer` routes are opened on the handheld device browser. After login the device stays on this route — no navigation to other pages. The layout renders without Sidebar/Header and uses mobile-first components.
 
 ---
 
@@ -560,7 +591,7 @@ backend/
 │   │   ├── auth.ts                ← JWT verification plugin
 │   │   ├── cors.ts
 │   │   ├── rateLimit.ts
-│   │   └── socket.ts              ← Socket.io integration
+│   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
 │   │   ├── nightlyReport.ts       ← BullMQ job: 9pm email (extended with SLA data)
@@ -589,8 +620,13 @@ backend/
 | DELETE | `/orders/:id` | ADMIN, INBOUND_ADMIN | Delete order |
 | PATCH | `/orders/:id/status` | Role-filtered | Update status — sets `sla_completed_at` when → OUTBOUND |
 | GET | `/orders/:id/sla` | ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN | Full SLA escalation history for an order |
-| POST | `/assign/picker` | ADMIN, PICKER_ADMIN | Assign to picker |
-| POST | `/assign/packer` | ADMIN, PACKER_ADMIN | Assign to packer |
+| GET | `/picker-admin/orders` | ADMIN, PICKER_ADMIN | List unassigned INBOUND orders |
+| GET | `/picker-admin/pickers` | ADMIN, PICKER_ADMIN | List active pickers |
+| POST | `/picker-admin/assign` | ADMIN, PICKER_ADMIN | Assign single order to picker |
+| POST | `/picker-admin/bulk-assign` | ADMIN, PICKER_ADMIN | Bulk assign orders to picker |
+| GET | `/picker-admin/stats` | ADMIN, PICKER_ADMIN | Per-picker assigned/completed counts |
+| POST | `/assign/picker` | ADMIN, PICKER_ADMIN | Assign to picker → emits `order:assigned` to `user:{pickerId}` |
+| POST | `/assign/packer` | ADMIN, PACKER_ADMIN | Assign to packer → emits `order:assigned` to `user:{packerId}` |
 | GET | `/reports/dashboard` | ADMIN, INBOUND_ADMIN | Dashboard stats |
 | GET | `/reports/picker` | ADMIN, PICKER_ADMIN | Picker reports |
 | GET | `/reports/packer` | ADMIN, PACKER_ADMIN | Packer reports |
@@ -749,11 +785,11 @@ main branch'e push gelince:
 
 | Phase | What Gets Built | Exit Criteria |
 |---|---|---|
-| **1** | Project scaffold, auth system, user management | All 6 roles can log in, access is restricted correctly |
+| **1** | Project scaffold, auth system, user management; Socket.io plugin (`socket.ts`) with dual-room join — on connect, user joins `tenant:{tenantId}` AND `user:{userId}` using JWT payload | All 6 roles can log in, access is restricted correctly; Socket connects join correct rooms (verified via socket room inspection) |
 | **2** | Inbound Panel — scan, auto-detect, zero manual input; SLA schema + D0 assignment on scan | Orders appear in table after scan (~2 sec/order); `sla_started_at` and `delay_level=0` set correctly |
-| **3** | Picker Admin Panel — assign, bulk assign, reports | Orders assigned to pickers, carryover priority works |
-| **4** | Picker Sub-Panel — complete, undo | Pickers see only their orders, complete/undo works |
-| **5** | Packer Admin Panel + Sub-Panel | Full picker→packer handoff verified |
+| **3** | Picker Admin Panel — assign, bulk assign, reports; `order:assigned` push to picker handheld | Orders assigned to pickers, carryover priority works; order appears on picker's device instantly |
+| **4** | Picker Device View (mobile-first) — START, COMPLETE, UNDO; `user:{id}` socket room | Picker sees assigned orders on handheld, complete/undo works, order pushed via WebSocket |
+| **5** | Packer Admin Panel + Packer Device View (same pattern as Phase 3+4) | Full picker→packer handoff verified; packer confirms on handheld |
 | **6** | Outbound Panel; `sla_completed_at` set on OUTBOUND | End-to-end lifecycle works; SLA timer stops at dispatch |
 | **7** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); DelayBadge + SlaAlertBanner UI | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
 | **8** | Main Dashboard + SLA Summary Card + real-time + nightly email (with SLA data) | Live stats update, SLA card accurate, email received at 9pm with SLA section |
@@ -805,11 +841,28 @@ Both frontend and backend import from this file — no magic numbers anywhere el
 - `SLA_PRIORITY_BOOSTS = [0, 200, 400, 800, 1600]`
 - `SLA_LEVEL_COLORS = { 0: 'gray', 1: 'yellow', 2: 'orange', 3: 'red', 4: 'crimson' }`
 
-### Socket.io Events (SLA)
-| Event | Direction | Payload | Consumer |
-|---|---|---|---|
-| `sla:escalated` | Server → Client | `{ orderId, fromLevel, toLevel, tenantId }` | Invalidate order list cache |
-| `sla:d4_alert` | Server → Client | `{ orderId, trackingNumber, tenantId }` | Show SlaAlertBanner |
+### Socket.io Rooms
+
+| Room | Members | Purpose |
+|---|---|---|
+| `tenant:{tenantId}` | All users of that tenant | Broadcast: dashboard stats, SLA alerts, order list updates |
+| `user:{userId}` | Single user (their session) | Targeted push: new order assigned to this picker/packer |
+
+On login, the socket server joins the user to both their `tenant:` room and their `user:` room automatically.
+
+### Socket.io Events
+
+| Event | Direction | Room | Payload | Consumer |
+|---|---|---|---|---|
+| `order:created` | Server → Client | `tenant:{id}` | `{ order }` | Invalidate order list cache |
+| `order:updated` | Server → Client | `tenant:{id}` | `{ orderId, status }` | Invalidate order list cache |
+| `order:deleted` | Server → Client | `tenant:{id}` | `{ orderId }` | Invalidate order list cache |
+| `order:assigned` | Server → Client | `user:{pickerId/packerId}` | `{ order }` | Push new order to handheld device |
+| `stats:updated` | Server → Client | `tenant:{id}` | `{ stats }` | Update dashboard stats |
+| `sla:escalated` | Server → Client | `tenant:{id}` | `{ orderId, fromLevel, toLevel, tenantId }` | Invalidate order list cache |
+| `sla:d4_alert` | Server → Client | `tenant:{id}` | `{ orderId, trackingNumber, tenantId }` | Show SlaAlertBanner |
+
+> **Key design:** `order:assigned` goes to `user:{id}` room — only the assigned picker/packer receives it. All other events broadcast to the full tenant room.
 
 ### RLS on `sla_escalations`
 ```sql
