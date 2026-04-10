@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors } from '../theme'
@@ -28,7 +27,7 @@ interface Picker {
 }
 
 interface PickerStat {
-  picker: { id: string; username: string }
+  picker: { id: string; username: string; pickerPin: string | null }
   statusCounts: {
     PICKER_ASSIGNED: number
     PICKING: number
@@ -62,6 +61,8 @@ function PickerOrdersModal({
 }) {
   const queryClient = useQueryClient()
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
+  const [completeTarget, setCompleteTarget] = useState<{ id: string; tracking: string } | null>(null)
+  const [modalError, setModalError] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['picker-orders', picker.id],
@@ -79,7 +80,7 @@ function PickerOrdersModal({
       queryClient.invalidateQueries({ queryKey: ['picker-orders', picker.id] })
       onComplete()
     },
-    onError: (err: any) => alert(err?.response?.data?.error ?? 'Complete failed'),
+    onError: (err: any) => setModalError(err?.response?.data?.error ?? 'Complete failed'),
   })
 
   const unassignMutation = useMutation({
@@ -90,14 +91,19 @@ function PickerOrdersModal({
       queryClient.invalidateQueries({ queryKey: ['picker-admin-orders'] })
       onComplete()
     },
-    onError: (err: any) => alert(err?.response?.data?.error ?? 'Remove failed'),
+    onError: (err: any) => setModalError(err?.response?.data?.error ?? 'Remove failed'),
   })
 
   const orders = data ?? []
 
   function handleComplete(orderId: string, tracking: string) {
-    if (!window.confirm(`Mark "${tracking}" as complete?`)) return
-    completeMutation.mutate({ orderId })
+    setCompleteTarget({ id: orderId, tracking })
+  }
+
+  function confirmComplete() {
+    if (!completeTarget) return
+    completeMutation.mutate({ orderId: completeTarget.id })
+    setCompleteTarget(null)
   }
 
   function handleRemove(orderId: string, tracking: string) {
@@ -176,8 +182,20 @@ function PickerOrdersModal({
 
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
+          {modalError && (
+            <div className="feedback-banner feedback-banner--error" style={{ margin: '12px 16px 0' }}>
+              {modalError}
+              <button
+                onClick={() => setModalError(null)}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700, fontSize: '14px', padding: '0 4px' }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {isLoading ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: colors.textMuted, fontSize: '13px' }}>
+            <div style={{ padding: '40px', textAlign: 'center', color: colors.textMuted, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+              <span className="spinner spinner-sm" />
               Loading orders...
             </div>
           ) : orders.length === 0 ? (
@@ -272,6 +290,94 @@ function PickerOrdersModal({
           )}
         </div>
       </div>
+
+      {/* Complete confirmation dialog */}
+      {completeTarget && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => setCompleteTarget(null)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '420px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: 'linear-gradient(135deg, #f0fdf4, #f7fef9)',
+              padding: '24px 24px 20px',
+              borderBottom: '1px solid #bbf7d0',
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px',
+                background: '#dcfce7', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  Mark as Complete?
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  This will mark the order as <strong>Picker Complete</strong> for <strong>{picker.username}</strong>.
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', background: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                Order
+              </div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                background: '#fff', border: `1px solid ${colors.border}`,
+                borderRadius: '8px', padding: '8px 14px',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="3" width="15" height="13" rx="1" /><path d="M16 8h4l3 3v5h-7V8z" />
+                  <circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
+                </svg>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: colors.textPrimary }}>
+                  {completeTarget.tracking}
+                </span>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setCompleteTarget(null)}
+                style={{
+                  padding: '9px 20px', border: `1px solid ${colors.border}`,
+                  borderRadius: '8px', background: '#fff', color: colors.textSecondary,
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmComplete}
+                disabled={completeMutation.isPending}
+                style={{
+                  padding: '9px 20px', border: 'none',
+                  borderRadius: '8px', background: '#16a34a', color: '#fff',
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  opacity: completeMutation.isPending ? 0.7 : 1,
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                {completeMutation.isPending ? 'Completing...' : '✓ Yes, Complete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Remove confirmation dialog */}
       {removeTarget && (
@@ -374,7 +480,26 @@ function PickerOrdersModal({
 
 // ─── Per-picker stat card ────────────────────────────────────────────────────
 function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => void }) {
+  const queryClient = useQueryClient()
   const hasOrders = stat.total > 0 || stat.completed > 0
+  const [pinInput, setPinInput] = useState('')
+  const [showPinForm, setShowPinForm] = useState(false)
+  const [pinFeedback, setPinFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null)
+
+  const setPinMutation = useMutation({
+    mutationFn: (pin: string) =>
+      api.patch(`/picker-admin/picker/${stat.picker.id}/pin`, { pin }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
+      setPinFeedback({ type: 'ok', msg: 'PIN saved' })
+      setShowPinForm(false)
+      setPinInput('')
+      setTimeout(() => setPinFeedback(null), 2500)
+    },
+    onError: (err: any) => {
+      setPinFeedback({ type: 'err', msg: err?.response?.data?.error ?? 'Failed to save PIN' })
+    },
+  })
 
   return (
     <div
@@ -419,15 +544,8 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
           dot="#3b82f6"
         />
         <StatusChip
-          label="Picking"
-          count={stat.statusCounts.PICKING}
-          bg="#fef3c7"
-          color="#92400e"
-          dot="#f59e0b"
-        />
-        <StatusChip
           label="Done"
-          count={stat.statusCounts.PICKER_COMPLETE}
+          count={stat.completed}
           bg="#d1fae5"
           color="#065f46"
           dot="#10b981"
@@ -445,16 +563,9 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
                 transition: 'flex 0.4s ease',
               }} />
             )}
-            {stat.statusCounts.PICKING > 0 && (
+            {stat.completed > 0 && (
               <div style={{
-                flex: stat.statusCounts.PICKING,
-                background: '#f59e0b',
-                transition: 'flex 0.4s ease',
-              }} />
-            )}
-            {stat.statusCounts.PICKER_COMPLETE > 0 && (
-              <div style={{
-                flex: stat.statusCounts.PICKER_COMPLETE,
+                flex: stat.completed,
                 background: '#10b981',
                 transition: 'flex 0.4s ease',
               }} />
@@ -468,6 +579,81 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
           No orders assigned
         </div>
       )}
+
+      {/* PIN management */}
+      <div
+        style={{ marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${colors.border}` }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {pinFeedback && (
+          <div style={{
+            fontSize: '11px', fontWeight: 600, marginBottom: '6px',
+            color: pinFeedback.type === 'ok' ? '#065f46' : '#991b1b',
+          }}>
+            {pinFeedback.msg}
+          </div>
+        )}
+        {!showPinForm ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', color: colors.textMuted }}>
+              Device PIN: {stat.picker.pickerPin ? (
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: colors.textPrimary }}>
+                  {stat.picker.pickerPin}
+                </span>
+              ) : (
+                <span style={{ fontStyle: 'italic' }}>not set</span>
+              )}
+            </span>
+            <button
+              onClick={() => { setShowPinForm(true); setPinFeedback(null) }}
+              style={{
+                marginLeft: 'auto', fontSize: '11px', fontWeight: 600,
+                background: '#eff6ff', color: '#1d4ed8', border: 'none',
+                borderRadius: '6px', padding: '3px 8px', cursor: 'pointer',
+              }}
+            >
+              {stat.picker.pickerPin ? 'Change' : 'Set PIN'}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="4 digits"
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              style={{
+                flex: 1, padding: '5px 8px', fontSize: '13px', fontFamily: 'monospace',
+                border: `1px solid ${colors.border}`, borderRadius: '6px', outline: 'none',
+              }}
+            />
+            <button
+              onClick={() => setPinMutation.mutate(pinInput)}
+              disabled={pinInput.length !== 4 || setPinMutation.isPending}
+              style={{
+                fontSize: '11px', fontWeight: 700, padding: '5px 10px',
+                background: pinInput.length === 4 ? '#3b82f6' : '#e2e8f0',
+                color: pinInput.length === 4 ? '#fff' : '#94a3b8',
+                border: 'none', borderRadius: '6px', cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Save
+            </button>
+            <button
+              onClick={() => { setShowPinForm(false); setPinInput(''); setPinFeedback(null) }}
+              style={{
+                fontSize: '11px', fontWeight: 600, padding: '5px 8px',
+                background: '#f1f5f9', color: '#64748b',
+                border: 'none', borderRadius: '6px', cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -693,7 +879,7 @@ export default function PickerAdmin() {
     onSuccess: () => { invalidateAll() },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Assign failed'
-      alert(msg)
+      setScanFeedback({ type: 'error', message: msg })
     },
   })
 
@@ -701,13 +887,15 @@ export default function PickerAdmin() {
   const bulkAssignMutation = useMutation({
     mutationFn: ({ orderIds, pickerId }: { orderIds: string[]; pickerId: string }) =>
       api.post('/picker-admin/bulk-assign', { orderIds, pickerId }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       setSelectedIds(new Set())
       invalidateAll()
+      const assigned = res?.data?.assigned ?? selectedIds.size
+      setScanFeedback({ type: 'success', message: `Successfully assigned ${assigned} order${assigned !== 1 ? 's' : ''}.` })
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Bulk assign failed'
-      alert(msg)
+      setScanFeedback({ type: 'error', message: msg })
     },
   })
 
@@ -787,20 +975,20 @@ export default function PickerAdmin() {
   }
 
   function handleAssignSelected() {
-    if (!selectedPickerId) { alert('Please select a picker first'); return }
-    if (selectedIds.size === 0) { alert('No orders selected'); return }
+    if (!selectedPickerId) { setScanFeedback({ type: 'error', message: 'Please select a picker first' }); return }
+    if (selectedIds.size === 0) { setScanFeedback({ type: 'warning', message: 'No orders selected' }); return }
     bulkAssignMutation.mutate({ orderIds: Array.from(selectedIds), pickerId: selectedPickerId })
   }
 
   function handleAssignAll() {
-    if (!selectedPickerId) { alert('Please select a picker first'); return }
+    if (!selectedPickerId) { setScanFeedback({ type: 'error', message: 'Please select a picker first' }); return }
     const allIds = orderList.map(o => o.id)
-    if (allIds.length === 0) { alert('No orders to assign'); return }
+    if (allIds.length === 0) { setScanFeedback({ type: 'warning', message: 'No orders to assign' }); return }
     bulkAssignMutation.mutate({ orderIds: allIds, pickerId: selectedPickerId })
   }
 
   function handleAssignSingle(orderId: string) {
-    if (!selectedPickerId) { alert('Please select a picker first'); return }
+    if (!selectedPickerId) { setScanFeedback({ type: 'error', message: 'Please select a picker first' }); return }
     assignMutation.mutate({ orderId, pickerId: selectedPickerId })
   }
 
@@ -813,10 +1001,18 @@ export default function PickerAdmin() {
       <StatCard label="Assigned Today" value={totalAssignedToday} color={colors.success} />
       <StatCard label="Pickers" value={pickerList.length} color="#7c3aed" />
       {ordersLoading && (
-        <span style={{ fontSize: '12px', color: colors.textMuted }}>Syncing...</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
+          <span className="spinner spinner-sm" />
+          Syncing
+        </span>
       )}
       {ordersError && (
-        <span style={{ fontSize: '12px', color: colors.danger }}>Connection error</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: colors.danger, fontWeight: 600 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Connection error
+        </span>
       )}
     </>
   )
@@ -854,13 +1050,12 @@ export default function PickerAdmin() {
               disabled={scanStageMutation.isPending}
             />
             {scanFeedback && (
-              <div style={{
-                marginTop: '8px', padding: '10px 14px', borderRadius: '8px',
-                fontSize: '13px', fontWeight: 500, lineHeight: 1.4,
-                background: scanFeedback.type === 'error' ? '#fef2f2' : scanFeedback.type === 'warning' ? '#fefce8' : '#f0fdf4',
-                color: scanFeedback.type === 'error' ? colors.danger : scanFeedback.type === 'warning' ? '#854d0e' : colors.success,
-                border: `1px solid ${scanFeedback.type === 'error' ? colors.dangerBorder : scanFeedback.type === 'warning' ? '#fef08a' : '#bbf7d0'}`,
-              }}>
+              <div className={[
+                'feedback-banner',
+                scanFeedback.type === 'error' ? 'feedback-banner--error'
+                  : scanFeedback.type === 'warning' ? 'feedback-banner--warning'
+                  : 'feedback-banner--success',
+              ].join(' ')} style={{ marginTop: '8px' }}>
                 {scanFeedback.message}
               </div>
             )}
@@ -985,20 +1180,29 @@ export default function PickerAdmin() {
 
       {/* Order table / loading / error / empty states */}
       {ordersLoading ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">⏳</div>
-          <p className="empty-state-title">Loading orders...</p>
-          <p className="empty-state-desc">Fetching inbound order list from the server.</p>
+        <div className="loading-state">
+          <span className="spinner spinner-lg" />
+          <span>Loading orders...</span>
         </div>
       ) : ordersError ? (
         <div className="empty-state" style={{ borderColor: colors.dangerBorder }}>
-          <div className="empty-state-icon">⚠️</div>
+          <div className="empty-state-icon">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
           <p className="empty-state-title" style={{ color: colors.danger }}>Failed to load orders</p>
           <p className="empty-state-desc">Please check your connection and try again.</p>
         </div>
       ) : orderList.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">🎉</div>
+          <div className="empty-state-icon">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
           <p className="empty-state-title">All orders assigned!</p>
           <p className="empty-state-desc">No inbound orders are waiting for assignment.</p>
         </div>
@@ -1090,17 +1294,13 @@ export default function PickerAdmin() {
 
         {/* Pagination controls */}
         {totalPages > 1 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginTop: '12px', padding: '0 4px',
-          }}>
-            <span style={{ fontSize: '12px', color: colors.textMuted }}>
+          <div className="pagination-bar">
+            <span className="pagination-info">
               Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, orderList.length)} of {orderList.length} orders
             </span>
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <div className="pagination-controls">
               <button
-                className="btn btn-outline"
-                style={{ padding: '5px 12px', fontSize: '12px' }}
+                className="btn btn-ghost btn-sm"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={safePage === 1}
               >
@@ -1110,20 +1310,13 @@ export default function PickerAdmin() {
                 <button
                   key={page}
                   onClick={() => setCurrentPage(page)}
-                  style={{
-                    width: 32, height: 32, borderRadius: '6px', border: 'none',
-                    cursor: 'pointer', fontSize: '12px', fontWeight: page === safePage ? 700 : 400,
-                    background: page === safePage ? colors.primary : 'transparent',
-                    color: page === safePage ? '#fff' : colors.textSecondary,
-                    transition: 'all 0.15s',
-                  }}
+                  className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}
                 >
                   {page}
                 </button>
               ))}
               <button
-                className="btn btn-outline"
-                style={{ padding: '5px 12px', fontSize: '12px' }}
+                className="btn btn-ghost btn-sm"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={safePage === totalPages}
               >
@@ -1140,7 +1333,14 @@ export default function PickerAdmin() {
         <SectionHeader title="Picker Workload" count={statsList.length} />
         {statsList.length === 0 ? (
           <div className="empty-state" style={{ marginTop: '12px' }}>
-            <div className="empty-state-icon">👤</div>
+            <div className="empty-state-icon">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
             <p className="empty-state-title">No pickers found</p>
             <p className="empty-state-desc">Run the seed script to create picker accounts.</p>
           </div>

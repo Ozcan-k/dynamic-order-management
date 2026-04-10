@@ -162,6 +162,25 @@ On push to `main`:
 
 ---
 
+## Handheld Device Setup (Picker)
+
+Each picker device (Android/iOS handheld with barcode scanner) connects to the system over WiFi.
+
+**One-time setup per device:**
+1. Ensure device is on the same LAN as the server
+2. Picker Admin sets a 4-digit PIN for the picker: `Picker Admin Panel → picker card → Set PIN`
+3. Open Chrome on the device → navigate to `http://<server-ip>:5173/picker`
+4. Bookmark / Add to Home Screen for quick access
+
+**Daily use:**
+- Picker opens the bookmark → PIN screen → enter 4-digit PIN → order list appears
+- Scan physical waybill barcode → match found → Confirm → order marked complete
+- Session persists (8 hours); no re-login needed unless Logout is pressed
+
+**Server IP:** run `ipconfig` on the host machine → `IPv4 Address` under the active network adapter
+
+---
+
 ## Repository Structure
 
 ```

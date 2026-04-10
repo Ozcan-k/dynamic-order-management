@@ -25,6 +25,7 @@ export default function Inbound() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const [currentPage, setCurrentPage] = useState(1)
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -43,10 +44,11 @@ export default function Inbound() {
       api.post('/orders/scan', { trackingNumber }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
+      setScanFeedback(null)
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Scan error'
-      alert(msg)
+      setScanFeedback({ type: 'error', message: msg })
     },
   })
 
@@ -57,7 +59,7 @@ export default function Inbound() {
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Delete failed'
-      alert(msg)
+      setScanFeedback({ type: 'error', message: msg })
     },
   })
 
@@ -78,8 +80,20 @@ export default function Inbound() {
       {counts.map(({ level, count }) => (
         <StatCard key={level} label={`D${level}`} value={count} color={colors.delay[level]} />
       ))}
-      {isLoading && <span style={{ fontSize: '12px', color: colors.textMuted }}>Syncing...</span>}
-      {isError && <span style={{ fontSize: '12px', color: colors.danger }}>Connection error</span>}
+      {isLoading && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
+          <span className="spinner spinner-sm" />
+          Syncing
+        </span>
+      )}
+      {isError && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: colors.danger, fontWeight: 600 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Connection error
+        </span>
+      )}
     </>
   )
 
@@ -99,9 +113,27 @@ export default function Inbound() {
       stats={headerStats}
     >
       <ScanInput
-        onScan={(tn) => scanMutation.mutate(tn)}
+        onScan={(tn) => { setScanFeedback(null); scanMutation.mutate(tn) }}
         disabled={scanMutation.isPending}
       />
+
+      {scanFeedback && (
+        <div
+          className={[
+            'feedback-banner',
+            scanFeedback.type === 'error' ? 'feedback-banner--error' : 'feedback-banner--success',
+          ].join(' ')}
+          style={{ marginBottom: '16px', marginTop: '-8px' }}
+        >
+          {scanFeedback.message}
+          <button
+            onClick={() => setScanFeedback(null)}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700, fontSize: '14px', padding: '0 4px' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <SectionHeader title="Pending Orders" count={total} />
 
@@ -112,23 +144,15 @@ export default function Inbound() {
       />
 
       {totalPages > 1 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginTop: '12px', padding: '0 4px',
-        }}>
-          <span style={{ fontSize: '12px', color: colors.textMuted }}>
+        <div className="pagination-bar">
+          <span className="pagination-info">
             Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total} orders
           </span>
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div className="pagination-controls">
             <button
+              className="btn btn-ghost btn-sm"
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={safePage === 1}
-              style={{
-                padding: '5px 12px', border: `1px solid ${colors.border}`,
-                borderRadius: '6px', background: '#fff', color: colors.textSecondary,
-                fontSize: '12px', fontWeight: 600, cursor: safePage === 1 ? 'not-allowed' : 'pointer',
-                opacity: safePage === 1 ? 0.4 : 1,
-              }}
             >
               ← Prev
             </button>
@@ -136,26 +160,15 @@ export default function Inbound() {
               <button
                 key={page}
                 onClick={() => setCurrentPage(page)}
-                style={{
-                  width: 32, height: 32, borderRadius: '6px', border: 'none',
-                  cursor: 'pointer', fontSize: '12px', fontWeight: page === safePage ? 700 : 400,
-                  background: page === safePage ? colors.primary : 'transparent',
-                  color: page === safePage ? '#fff' : colors.textSecondary,
-                  transition: 'all 0.15s',
-                }}
+                className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}
               >
                 {page}
               </button>
             ))}
             <button
+              className="btn btn-ghost btn-sm"
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={safePage === totalPages}
-              style={{
-                padding: '5px 12px', border: `1px solid ${colors.border}`,
-                borderRadius: '6px', background: '#fff', color: colors.textSecondary,
-                fontSize: '12px', fontWeight: 600, cursor: safePage === totalPages ? 'not-allowed' : 'pointer',
-                opacity: safePage === totalPages ? 0.4 : 1,
-              }}
             >
               Next →
             </button>

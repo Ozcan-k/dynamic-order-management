@@ -4,6 +4,7 @@ import { UserRole } from '@dom/shared'
 import Login from './pages/Login'
 import Inbound from './pages/Inbound'
 import PickerAdmin from './pages/PickerAdmin'
+import PickerMobile from './pages/PickerMobile'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -17,21 +18,33 @@ const queryClient = new QueryClient({
 // Placeholder pages — will be replaced in later phases
 function PlaceholderPage({ title }: { title: string }) {
   const user = useAuthStore((s) => s.user)
-  const setUser = useAuthStore((s) => s.setUser)
   return (
-    <div style={{ padding: 32 }}>
-      <h2>{title}</h2>
-      <p>
-        Logged in as: <strong>{user?.username}</strong> ({user?.role})
-      </p>
-      <button
-        onClick={async () => {
-          await fetch('/auth/logout', { method: 'POST', credentials: 'include' })
-          setUser(null)
-        }}
-      >
-        Logout
-      </button>
+    <div className="panel-root">
+      <header className="panel-header">
+        <div className="panel-header-inner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              {title}
+            </h1>
+            <span style={{
+              fontSize: '11px', fontWeight: 600, color: '#f59e0b',
+              background: '#fef9c3', padding: '2px 8px', borderRadius: '9999px',
+            }}>
+              Coming Soon
+            </span>
+          </div>
+          <span style={{ fontSize: '13px', color: '#64748b' }}>
+            {user?.username} · {user?.role?.replace(/_/g, ' ')}
+          </span>
+        </div>
+      </header>
+      <main className="panel-body">
+        <div className="empty-state">
+          <div className="empty-state-icon">🚧</div>
+          <p className="empty-state-title">This page is under construction</p>
+          <p className="empty-state-desc">This section will be available in a future release.</p>
+        </div>
+      </main>
     </div>
   )
 }
@@ -83,14 +96,8 @@ export default function App() {
             }
           />
           {/* Mobile routes — no sidebar */}
-          <Route
-            path="/picker"
-            element={
-              <ProtectedRoute allowedRoles={[UserRole.PICKER]}>
-                <PlaceholderPage title="Picker Device" />
-              </ProtectedRoute>
-            }
-          />
+          {/* /picker is public — PickerMobile handles PIN auth internally */}
+          <Route path="/picker" element={<PickerMobile />} />
           <Route
             path="/packer"
             element={

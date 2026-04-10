@@ -157,12 +157,22 @@ export default function Login() {
               style={{
                 marginTop: '4px', padding: '14px 0',
                 borderRadius: '10px', border: 'none',
-                background: loading ? '#93c5fd' : '#2563eb',
+                background: '#2563eb',
                 color: '#fff', fontSize: '15px', fontWeight: 700,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 width: '100%', transition: 'background 0.15s',
+                opacity: loading ? 0.7 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
               }}
             >
+              {loading && (
+                <span style={{
+                  width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)',
+                  borderTopColor: '#fff', borderRadius: '50%',
+                  display: 'inline-block',
+                  animation: 'spin 0.7s linear infinite',
+                }} />
+              )}
               {loading ? 'Signing in...' : 'Sign In →'}
             </button>
           </form>

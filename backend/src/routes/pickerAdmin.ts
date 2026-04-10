@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+import { prisma } from '../lib/prisma'
 import {
   getInboundOrders,
   getPickers,
@@ -130,5 +131,33 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
       const message = err instanceof Error ? err.message : 'Complete failed'
       return reply.code(400).send({ error: message })
     }
+  })
+
+  // PATCH /picker-admin/picker/:pickerId/pin — picker'a PIN ata
+  fastify.patch('/picker/:pickerId/pin', { preHandler }, async (request, reply) => {
+    const { pickerId } = request.params as { pickerId: string }
+    const { pin } = request.body as { pin?: string }
+    const { tenantId } = request.user as JWTPayload
+
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      return reply.code(400).send({ error: 'PIN must be exactly 4 digits' })
+    }
+
+    const target = await prisma.user.findFirst({
+      where: { id: pickerId, tenantId, role: UserRole.PICKER },
+    })
+    if (!target) return reply.code(404).send({ error: 'Picker not found' })
+
+    const conflict = await prisma.user.findFirst({
+      where: { tenantId, pickerPin: pin, id: { not: pickerId } },
+    })
+    if (conflict) return reply.code(409).send({ error: 'PIN already in use' })
+
+    const updated = await prisma.user.update({
+      where: { id: pickerId },
+      data: { pickerPin: pin },
+      select: { id: true, username: true, pickerPin: true },
+    })
+    return reply.send({ picker: updated })
   })
 }

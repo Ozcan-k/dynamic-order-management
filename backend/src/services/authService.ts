@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt'
+import { UserRole } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 
 export async function findUserByUsername(username: string, tenantId?: string) {
@@ -9,6 +10,13 @@ export async function findUserByUsername(username: string, tenantId?: string) {
       ...(tenantId ? { tenantId } : {}),
     },
     include: { tenant: true },
+  })
+}
+
+export async function findPickerByPin(pin: string) {
+  return prisma.user.findFirst({
+    where: { pickerPin: pin, role: UserRole.PICKER, isActive: true },
+    include: { tenant: { select: { isActive: true } } },
   })
 }
 

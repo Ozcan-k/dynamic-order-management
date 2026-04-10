@@ -281,6 +281,7 @@ orders ──< packer_assignments >── users (packers)
 | tenant_id | UUID FK | → tenants |
 | username | VARCHAR | Unique per tenant |
 | password_hash | VARCHAR | bcrypt |
+| picker_pin | VARCHAR NULLABLE | 4-digit PIN for PICKER handheld login; unique per tenant |
 | role | ENUM | See roles below |
 | is_active | BOOLEAN | |
 | created_by | UUID FK | → users (admin who created) |
@@ -434,7 +435,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4 + 5)
+### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4 + 5 + Handheld PIN Management)
 **Visible to:** Admin, Picker Admin
 
 **Header Stats Bar:** Inbound count | Assigned Today | Pickers count | Sync indicator
@@ -496,48 +497,71 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 #### Picker Workload Section
 
 - Grid of picker cards (auto-fill, min 240px per card)
-- Each card shows: Avatar + username | active count badge | Assigned / Picking / Done status chips | segmented progress bar (blue/amber/green)
+- Each card shows: Avatar + username | active count badge | Assigned / Done status chips | segmented progress bar (blue/green)
+- **Device PIN section** (bottom of each card): shows current PIN or "not set"; **Set PIN / Change** button → inline 4-digit input → PATCH `/picker-admin/picker/:id/pin`
 - **Click on any card → opens Order Detail Modal**
 
 **Order Detail Modal (per picker):**
 - Shows all active orders assigned to that picker (completedAt = null)
 - Columns: Tracking Number | Platform | Status chip | Delay | Assigned At | Actions
-- Status chips: Assigned (blue) | Picking (amber) | Done (green)
+- Status chips: Assigned (blue) | Done (green)
 - Actions per row (shown only for non-complete orders):
   - **Remove** (red) → opens styled Remove Confirmation Dialog → on confirm: order returns to INBOUND queue
-  - **Complete** (green) → marks order as PICKER_COMPLETE
+  - **Complete** (green) → opens styled Complete Confirmation Dialog → on confirm: order marked PICKER_COMPLETE
 - Modal refetches every 3 seconds
 - Closes on overlay click or X button
+
+**Complete Confirmation Dialog:**
+- Custom styled modal (z-index above order detail modal)
+- Green gradient header + checkmark icon
+- Shows tracking number in a styled pill
+- Cancel / ✓ Yes, Complete buttons
 
 **Remove Confirmation Dialog:**
 - Custom styled modal (z-index above order detail modal)
 - Red gradient header + trash icon
 - Shows tracking number in a styled pill
 - Cancel / Yes, Remove buttons
-- "Removing..." loading state while request is in flight
 
 **Seed data:** 20 pickers (Picker 1–20, password: picker123) created by seed script
 
 ---
 
-### 7.4 Picker Device View
-**Visible to:** Picker (own orders only)  
-**Target device:** Android handheld (Zebra, Honeywell, or equivalent) — Chrome browser over WiFi  
-**Design:** Mobile-first, touch-optimized (large buttons, no sidebar, no desktop layout)
+### 7.4 Picker Device View ✅ Built
+**Visible to:** PICKER role (own orders only)  
+**Route:** `/picker` (public — no traditional login required)  
+**Target device:** Android/iOS handheld — Chrome browser over WiFi (same LAN as server)  
+**Design:** Mobile-first, touch-optimized, no sidebar, dark PIN screen + light order list
 
-**How orders arrive:**
-- Picker logs in on their handheld device
-- When Picker Admin assigns an order, backend emits `order:assigned` via Socket.io to room `user:{pickerId}`
-- Order appears instantly on picker's screen — no manual refresh, no panel searching
+**Authentication — PIN based:**
+- Each picker has a 4-digit `picker_pin` set by Picker Admin from the workload section
+- Device opens `http://<server-ip>:5173/picker` → PIN numpad screen shown
+- Picker enters PIN → `POST /picker/auth { pin }` → JWT cookie set (8h session)
+- Session persists in localStorage (Zustand) — device reopened without re-entering PIN
+- Logout button → session cleared → PIN screen shown again
 
-**UI:**
-- Header: Picker's name + date/time
-- Stats bar: Assigned Today | In Progress | Complete
-- Order cards (touch-friendly): Tracking Number | Platform badge | Delay (D-badge) | Status
-- **START button:** transitions PICKER_ASSIGNED → PICKING (picker starts work)
-- **COMPLETE button:** marks PICKING → PICKER_COMPLETE
-- **UNDO button:** reverts PICKER_COMPLETE → PICKING (for accidental taps)
-- Order disappears from active list once PICKER_COMPLETE is confirmed
+**Connection setup (one-time per device):**
+1. Picker Admin sets PIN for the picker in the admin panel
+2. IT/admin opens `http://<server-ip>:5173/picker` on the handheld browser
+3. Save/bookmark as home screen shortcut
+
+**Order list (after PIN auth):**
+- Header: picker username + active order count + Logout button
+- Order cards: Tracking Number (monospace) | Platform badge | Delay badge | Assigned time
+- Left border color: red (D3+), amber (D1–D2), blue (D0)
+- List auto-refreshes every 15 seconds
+
+**Waybill scan → complete flow:**
+1. Picker picks up physical waybill paper → scans barcode with handheld scanner (USB HID → keyboard)
+2. Tracking number appears in scan input → matched against active order list
+3. Match found → **Confirm Complete** dialog shown (tracking number + platform + delay displayed)
+4. Picker taps **Confirm Complete ✓** → `POST /picker/complete { trackingNumber }` → order removed from list
+5. No match → error toast "not found in your assigned orders"
+
+**API endpoints (PICKER role only):**
+- `POST /picker/auth` — PIN login (public, no auth required)
+- `GET /picker/orders` — fetch own active orders (PICKER_ASSIGNED + PICKING statuses)
+- `POST /picker/complete { trackingNumber }` — complete order by tracking number scan
 
 ---
 
@@ -830,12 +854,12 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 | Concern | Solution |
 |---|---|
 | 50–100 concurrent users | Fastify handles 30K+ req/sec — no issue |
-| 2,000 orders/day (başlangıç) | ~0.023 req/sec — Vultr 4GB'ın %20-25 kapasitesi | 
-| 10,000 orders/day (hedef) | ~0.12 req/sec — aynı sunucu yeterli |
-| Database connections | Prisma connection pool yeterli; pgBouncer 10,000+ order/gün'de eklenecek |
+| 2,000 orders/day (initial) | ~0.023 req/sec — ~20-25% of Vultr 4GB capacity |
+| 10,000 orders/day (target) | ~0.12 req/sec — same server sufficient |
+| Database connections | Prisma connection pool sufficient; pgBouncer to be added at 10,000+ orders/day |
 | Frequent order list reads | Redis cache with 30-second TTL, invalidated on write |
 | Real-time dashboard | Socket.io — push only on state change, no polling |
-| 6 months data (≈360K orders başlangıç) | PostgreSQL with proper indexes — performant |
+| 6 months data (≈360K orders initial) | PostgreSQL with proper indexes — performant |
 
 ---
 
@@ -860,34 +884,34 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 
 ## 14. Deployment Strategy
 
-### Ortam Planı
+### Environment Plan
 
-| Ortam | Nerede | Maliyet | Amaç |
+| Environment | Where | Cost | Purpose |
 |---|---|---|---|
-| **Development** | Localhost | Ücretsiz | Geliştirme |
-| **Production** | Vultr Manila 🇵🇭 | $12/ay | Canlı sistem |
+| **Development** | Localhost | Free | Local development |
+| **Production** | Vultr Manila 🇵🇭 | $12/month | Live system |
 
-> Test ortamı yok — geliştirme localhost'ta yapılır, onaylanan özellikler doğrudan production'a alınır.
+> No staging environment — features are developed on localhost and deployed directly to production once approved.
 
-### Neden Vultr Manila
-- Filipinler'e en yakın datacenter (~5-10ms latency)
-- Barkod tarama için anlık yanıt kritik — yüksek latency kabul edilemez
-- $12/ay ile 2000→10,000 order/gün arasındaki tüm yük rahatlıkla karşılanır
+### Why Vultr Manila
+- Closest datacenter to the Philippines (~5–10ms latency)
+- Instant response for barcode scanning is critical — high latency is unacceptable
+- $12/month handles 2,000–10,000 orders/day comfortably
 
-### Production Sunucu Spesifikasyonu
+### Production Server Specification
 
 **Vultr Cloud Compute — Regular Performance (Manila, PH)**
-| Kaynak | Değer |
+| Resource | Value |
 |---|---|
 | CPU | 2 vCPU |
 | RAM | 4 GB |
 | Disk | 80 GB SSD |
-| Bandwidth | 3 TB/ay |
-| Maliyet | **$12/ay** |
+| Bandwidth | 3 TB/month |
+| Cost | **$12/month** |
 
-2000 order/gün yükünde sunucu **~%20-25 kapasitede** çalışır.
+At 2,000 orders/day the server runs at **~20–25% capacity**.
 
-### Production Altyapısı (Docker Compose — Tek Sunucu)
+### Production Infrastructure (Docker Compose — Single Server)
 
 ```
 [Vultr Manila VPS]
@@ -900,7 +924,7 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 │               └── BullMQ workers
 ```
 
-### Branching Modeli
+### Branching Model
 ```
 feature/xxx  →  main branch
                      │
@@ -908,31 +932,31 @@ feature/xxx  →  main branch
                      │
               docker build + push
                      │
-              Vultr'a deploy
+              Deploy to Vultr
 ```
 
 ### Versioning
 - Semantic versioning: `v1.0.0`, `v1.1.0`, `v1.2.0`
-- Her production deploy git tag ile işaretlenir
-- Rollback: önceki Docker image'ı yeniden deploy et
+- Every production deploy is tagged in git
+- Rollback: re-deploy the previous Docker image
 
 ### CI/CD (GitHub Actions)
 ```
-main branch'e push gelince:
+On push to main branch:
   1. npm run lint
   2. npm run test
-  3. docker build (git tag ile etiketle)
+  3. docker build (tag with git tag)
   4. docker push → registry
-  5. Vultr'a SSH → docker compose pull + up
+  5. SSH to Vultr → docker compose pull + up
 ```
 
-### Scaling Yol Haritası
+### Scaling Roadmap
 
-| Aşama | Yük | Aksiyon |
+| Phase | Load | Action |
 |---|---|---|
-| Başlangıç | 2,000 order/gün | Vultr 2 vCPU / 4GB — mevcut plan |
-| Büyüme | ~5,000 order/gün | Vultr 4 vCPU / 8GB'a yükselt (~$24/ay) |
-| Büyük ölçek | 10,000+ order/gün | Ayrı DB sunucusu + pgBouncer ekle |
+| Launch | 2,000 orders/day | Vultr 2 vCPU / 4 GB — current plan |
+| Growth | ~5,000 orders/day | Upgrade to Vultr 4 vCPU / 8 GB (~$24/month) |
+| Scale | 10,000+ orders/day | Add separate DB server + pgBouncer |
 
 ---
 

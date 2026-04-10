@@ -15,7 +15,7 @@ export default function SectionHeader({ title, count, children }: SectionHeaderP
     <div className="section-header">
       <h2 className="section-title">
         {title}
-        {count !== undefined && count > 0 && (
+        {count !== undefined && (
           <span className="count-badge">{count}</span>
         )}
       </h2>

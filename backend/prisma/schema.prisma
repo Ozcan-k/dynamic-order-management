@@ -57,6 +57,7 @@ model User {
   tenantId     String   @map("tenant_id")
   username     String
   passwordHash String   @map("password_hash")
+  pickerPin    String?  @map("picker_pin")
   role         UserRole
   isActive     Boolean  @default(true) @map("is_active")
   createdById  String?  @map("created_by")
@@ -74,6 +75,7 @@ model User {
   statusHistoryChanges OrderStatusHistory[]
 
   @@unique([tenantId, username])
+  @@unique([tenantId, pickerPin])
   @@map("users")
 }
 
