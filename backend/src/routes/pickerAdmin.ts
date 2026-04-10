@@ -11,6 +11,7 @@ import {
   getPickerOrders,
   completeOrder,
   unassignOrder,
+  lookupOrderByScan,
 } from '../services/pickerAdminService'
 
 const AssignSchema = z.object({
@@ -71,6 +72,21 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
 
     const summary = await bulkAssignPicker(orderIds, pickerId, userId, tenantId)
     return reply.send(summary)
+  })
+
+  // POST /picker-admin/scan — lookup an INBOUND order by tracking number (does not create)
+  fastify.post('/scan', { preHandler }, async (request, reply) => {
+    const { trackingNumber } = request.body as { trackingNumber?: string }
+    if (!trackingNumber?.trim()) return reply.code(400).send({ error: 'trackingNumber is required' })
+    const { tenantId } = request.user as JWTPayload
+    try {
+      const order = await lookupOrderByScan(trackingNumber.trim(), tenantId)
+      return reply.send({ order })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Lookup failed'
+      const code = message.includes('not found') ? 404 : 409
+      return reply.code(code).send({ error: message })
+    }
   })
 
   // GET /picker-admin/stats

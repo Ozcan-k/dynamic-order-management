@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors } from '../theme'
 import DelayBadge from '../components/DelayBadge'
+import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
@@ -643,6 +644,10 @@ export default function PickerAdmin() {
   const PAGE_SIZE = 10
   const [modalPicker, setModalPicker] = useState<{ id: string; username: string } | null>(null)
 
+  // Staging state
+  const [stagedOrders, setStagedOrders] = useState<Order[]>([])
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
+
   // Orders query — refetch every 5 s
   const {
     data: orders,
@@ -692,7 +697,7 @@ export default function PickerAdmin() {
     },
   })
 
-  // Bulk assign mutation
+  // Bulk assign mutation (manual checkbox flow)
   const bulkAssignMutation = useMutation({
     mutationFn: ({ orderIds, pickerId }: { orderIds: string[]; pickerId: string }) =>
       api.post('/picker-admin/bulk-assign', { orderIds, pickerId }),
@@ -705,6 +710,50 @@ export default function PickerAdmin() {
       alert(msg)
     },
   })
+
+  // Scan lookup mutation — finds an INBOUND order by tracking number, adds to staging
+  const scanStageMutation = useMutation({
+    mutationFn: (trackingNumber: string) =>
+      api.post<{ order: Order }>('/picker-admin/scan', { trackingNumber }),
+    onSuccess: (res) => {
+      const order = res.data.order
+      if (stagedOrders.find(o => o.id === order.id)) {
+        setScanFeedback({ type: 'warning', message: `Already staged: ${order.trackingNumber}` })
+        return
+      }
+      setStagedOrders(prev => [...prev, order])
+      setScanFeedback({ type: 'success', message: `Staged: ${order.trackingNumber}` })
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error ?? 'Order not found'
+      setScanFeedback({ type: 'error', message: msg })
+    },
+  })
+
+  // Staged assign mutation — bulk-assigns all staged orders to selected picker
+  const assignStagedMutation = useMutation({
+    mutationFn: ({ orderIds, pickerId }: { orderIds: string[]; pickerId: string }) =>
+      api.post<{ assigned: number; skipped: number }>('/picker-admin/bulk-assign', { orderIds, pickerId }),
+    onSuccess: (res) => {
+      const { assigned, skipped } = res.data
+      setStagedOrders([])
+      invalidateAll()
+      if (skipped > 0) {
+        setScanFeedback({ type: 'warning', message: `Assigned ${assigned} order${assigned !== 1 ? 's' : ''}. ${skipped} skipped (already assigned).` })
+      } else {
+        setScanFeedback({ type: 'success', message: `Successfully assigned ${assigned} order${assigned !== 1 ? 's' : ''}.` })
+      }
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error ?? 'Assign failed'
+      setScanFeedback({ type: 'error', message: msg })
+    },
+  })
+
+  function handleAssignStaged() {
+    if (!selectedPickerId) { setScanFeedback({ type: 'error', message: 'Please select a picker first' }); return }
+    assignStagedMutation.mutate({ orderIds: stagedOrders.map(o => o.id), pickerId: selectedPickerId })
+  }
 
   const orderList = orders ?? []
   const pickerList = pickers ?? []
@@ -755,7 +804,7 @@ export default function PickerAdmin() {
     assignMutation.mutate({ orderId, pickerId: selectedPickerId })
   }
 
-  const isBusy = assignMutation.isPending || bulkAssignMutation.isPending
+  const isBusy = assignMutation.isPending || bulkAssignMutation.isPending || assignStagedMutation.isPending
 
   // ─── Header stats ──────────────────────────────────────────────────────────
   const headerStats = (
@@ -788,6 +837,109 @@ export default function PickerAdmin() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
       stats={headerStats}
     >
+      {/* ── Scan & Stage ── */}
+      <div style={{ marginBottom: '28px' }}>
+        <SectionHeader title="Scan & Stage" count={stagedOrders.length} />
+
+        {/* Main scan row */}
+        <div style={{ display: 'flex', gap: '16px', marginTop: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+
+          {/* Left: scan input + feedback */}
+          <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+            <ScanInput
+              onScan={(tn) => {
+                setScanFeedback(null)
+                scanStageMutation.mutate(tn)
+              }}
+              disabled={scanStageMutation.isPending}
+            />
+            {scanFeedback && (
+              <div style={{
+                marginTop: '8px', padding: '10px 14px', borderRadius: '8px',
+                fontSize: '13px', fontWeight: 500, lineHeight: 1.4,
+                background: scanFeedback.type === 'error' ? '#fef2f2' : scanFeedback.type === 'warning' ? '#fefce8' : '#f0fdf4',
+                color: scanFeedback.type === 'error' ? colors.danger : scanFeedback.type === 'warning' ? '#854d0e' : colors.success,
+                border: `1px solid ${scanFeedback.type === 'error' ? colors.dangerBorder : scanFeedback.type === 'warning' ? '#fef08a' : '#bbf7d0'}`,
+              }}>
+                {scanFeedback.message}
+              </div>
+            )}
+          </div>
+
+          {/* Right: picker select + assign staged button */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '230px' }}>
+            <PickerSelect
+              pickers={pickerList}
+              value={selectedPickerId}
+              onChange={setSelectedPickerId}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleAssignStaged}
+              disabled={stagedOrders.length === 0 || !selectedPickerId || assignStagedMutation.isPending}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              {assignStagedMutation.isPending
+                ? 'Assigning...'
+                : `Assign ${stagedOrders.length > 0 ? stagedOrders.length + ' ' : ''}Staged Orders →`}
+            </button>
+          </div>
+        </div>
+
+        {/* Staged orders list */}
+        {stagedOrders.length > 0 && (
+          <div style={{ marginTop: '12px', border: `1px solid #bbf7d0`, borderRadius: '10px', overflow: 'hidden' }}>
+            <div style={{
+              background: '#f0fdf4', padding: '8px 16px', borderBottom: `1px solid #bbf7d0`,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: colors.success }}>
+                {stagedOrders.length} order{stagedOrders.length !== 1 ? 's' : ''} ready to assign
+              </span>
+              <button
+                onClick={() => { setStagedOrders([]); setScanFeedback(null) }}
+                style={{
+                  fontSize: '12px', color: colors.textMuted, background: 'none',
+                  border: 'none', cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+            <div style={{ background: '#fff' }}>
+              {stagedOrders.map((order, i) => (
+                <div key={order.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '9px 16px',
+                  borderBottom: i < stagedOrders.length - 1 ? `1px solid ${colors.border}` : 'none',
+                }}>
+                  <span style={{ fontSize: '11px', color: colors.textMuted, width: 20, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', flex: 1 }}>
+                    {order.trackingNumber}
+                  </span>
+                  <PlatformBadge platform={order.platform} />
+                  <DelayBadge level={order.delayLevel} />
+                  <span style={{ fontSize: '12px', color: colors.textSecondary, fontWeight: 600, minWidth: 40 }}>
+                    P{order.priority}
+                  </span>
+                  <button
+                    onClick={() => setStagedOrders(prev => prev.filter(o => o.id !== order.id))}
+                    style={{
+                      width: 26, height: 26, borderRadius: '6px', border: 'none',
+                      background: '#f1f5f9', cursor: 'pointer', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: colors.textSecondary, fontSize: '16px', lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Section heading */}
       <SectionHeader title="Inbound Orders" count={orderList.length} />
 
@@ -811,14 +963,8 @@ export default function PickerAdmin() {
           )}
         </div>
 
-        {/* Right: picker dropdown + action buttons */}
+        {/* Right: action buttons (picker selected above in scan area) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <PickerSelect
-            pickers={pickerList}
-            value={selectedPickerId}
-            onChange={setSelectedPickerId}
-          />
-
           <button
             className="btn btn-primary"
             onClick={handleAssignSelected}
@@ -877,6 +1023,7 @@ export default function PickerAdmin() {
               {pagedOrders.map((order, i) => {
                 const globalIndex = (safePage - 1) * PAGE_SIZE + i + 1
                 const isSelected = selectedIds.has(order.id)
+                const isStaged = stagedOrders.some(o => o.id === order.id)
                 const delayClass =
                   order.delayLevel === 4 ? 'row-d4' :
                   order.delayLevel === 3 ? 'row-d3' :
@@ -884,7 +1031,7 @@ export default function PickerAdmin() {
                 const rowClass = [isSelected ? 'row-selected' : delayClass].filter(Boolean).join(' ')
 
                 return (
-                  <tr key={order.id} className={rowClass}>
+                  <tr key={order.id} className={rowClass} style={isStaged ? { background: '#f0fdf4' } : undefined}>
                     <td style={{ textAlign: 'center', width: 40 }}>
                       <input
                         type="checkbox"
@@ -896,6 +1043,16 @@ export default function PickerAdmin() {
                     <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                     <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                       {order.trackingNumber}
+                      {isStaged && (
+                        <span style={{
+                          marginLeft: '8px', fontSize: '10px', fontWeight: 700,
+                          background: '#dcfce7', color: colors.success,
+                          padding: '1px 7px', borderRadius: '9999px', fontFamily: 'sans-serif',
+                          verticalAlign: 'middle',
+                        }}>
+                          STAGED
+                        </span>
+                      )}
                     </td>
                     <td><PlatformBadge platform={order.platform} /></td>
                     <td><DelayBadge level={order.delayLevel} /></td>

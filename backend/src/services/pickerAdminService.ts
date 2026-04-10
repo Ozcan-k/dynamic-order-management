@@ -78,6 +78,29 @@ export async function bulkAssignPicker(
   return { assigned, skipped }
 }
 
+export async function lookupOrderByScan(trackingNumber: string, tenantId: string) {
+  const order = await prisma.order.findFirst({
+    where: { trackingNumber, tenantId },
+    select: {
+      id: true,
+      trackingNumber: true,
+      platform: true,
+      status: true,
+      delayLevel: true,
+      priority: true,
+      createdAt: true,
+      scannedBy: { select: { username: true } },
+    },
+  })
+
+  if (!order) throw new Error('Order not found')
+  if (order.status !== OrderStatus.INBOUND) {
+    throw new Error(`Order is not available (status: ${order.status.replace(/_/g, ' ')})`)
+  }
+
+  return order
+}
+
 export async function getPickerOrders(pickerId: string, tenantId: string) {
   const assignments = await prisma.pickerAssignment.findMany({
     where: {
