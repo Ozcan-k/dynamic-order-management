@@ -28,14 +28,19 @@ async function runEscalationForTenant(tenantId: string) {
   // Find orders that need escalation: not completed, not yet at max level,
   // and older than (delayLevel + 1) * SLA_HOURS_PER_LEVEL hours
   const orders = await prisma.$queryRaw<
-    Array<{ id: string; tracking_number: string; delay_level: number; priority: number }>
+    Array<{ id: string; tracking_number: string; delay_level: number; priority: number; status: string; assigned_picker: string | null; assigned_packer: string | null }>
   >`
-    SELECT id, tracking_number, delay_level, priority
-    FROM orders
-    WHERE tenant_id = ${tenantId}
-      AND sla_completed_at IS NULL
-      AND delay_level < ${SLA_MAX_LEVEL}
-      AND NOW() - sla_started_at > (delay_level + 1) * ${SLA_HOURS_PER_LEVEL} * INTERVAL '1 hour'
+    SELECT
+      o.id, o.tracking_number, o.delay_level, o.priority, o.status,
+      (SELECT u.username FROM picker_assignments pa JOIN users u ON u.id = pa.picker_id
+       WHERE pa.order_id = o.id AND pa.completed_at IS NULL LIMIT 1) AS assigned_picker,
+      (SELECT u.username FROM packer_assignments pa JOIN users u ON u.id = pa.packer_id
+       WHERE pa.order_id = o.id AND pa.completed_at IS NULL LIMIT 1) AS assigned_packer
+    FROM orders o
+    WHERE o.tenant_id = ${tenantId}
+      AND o.sla_completed_at IS NULL
+      AND o.delay_level < ${SLA_MAX_LEVEL}
+      AND NOW() - o.sla_started_at > (o.delay_level + 1) * ${SLA_HOURS_PER_LEVEL} * INTERVAL '1 hour'
   `
 
   for (const order of orders) {
@@ -49,7 +54,7 @@ async function runEscalationForTenant(tenantId: string) {
 
 async function escalateOrder(
   tenantId: string,
-  order: { id: string; tracking_number: string; delay_level: number; priority: number },
+  order: { id: string; tracking_number: string; delay_level: number; priority: number; status: string; assigned_picker: string | null; assigned_packer: string | null },
 ) {
   const fromLevel = order.delay_level
   const toLevel = Math.min(SLA_MAX_LEVEL, fromLevel + 1)
@@ -95,6 +100,9 @@ async function escalateOrder(
         orderId: order.id,
         trackingNumber: order.tracking_number,
         tenantId,
+        status: order.status,
+        assignedPicker: order.assigned_picker,
+        assignedPacker: order.assigned_packer,
       })
 
       await slaD4EmailQueue.add('sendD4Email', {

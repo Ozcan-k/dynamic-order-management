@@ -17,6 +17,7 @@ import pickerRoutes from './routes/picker'
 import packerAdminRoutes from './routes/packerAdmin'
 import packerRoutes from './routes/packer'
 import outboundRoutes from './routes/outbound'
+import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
   logger: {
@@ -41,6 +42,7 @@ async function start() {
   await fastify.register(packerAdminRoutes, { prefix: '/packer-admin' })
   await fastify.register(packerRoutes, { prefix: '/packer' })
   await fastify.register(outboundRoutes, { prefix: '/outbound' })
+  await fastify.register(devTestRoutes)
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 

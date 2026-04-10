@@ -5,6 +5,9 @@ export interface D4Alert {
   orderId: string
   trackingNumber: string
   tenantId: string
+  status: string
+  assignedPicker: string | null
+  assignedPacker: string | null
   receivedAt: number
 }
 
@@ -12,6 +15,7 @@ interface NotificationState {
   d4Alerts: D4Alert[]
   addD4Alert: (payload: Omit<D4Alert, 'id' | 'receivedAt'>) => void
   dismissD4Alert: (id: string) => void
+  dismissAllD4Alerts: () => void
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -33,4 +37,6 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     set((state) => ({
       d4Alerts: state.d4Alerts.filter((a) => a.id !== id),
     })),
+
+  dismissAllD4Alerts: () => set({ d4Alerts: [] }),
 }))

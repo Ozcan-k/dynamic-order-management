@@ -1007,7 +1007,7 @@ On push to main branch:
 | **6** | Picker Device View (mobile-first) — PIN auth, order list, scan complete | ✅ Done | Picker sees orders on handheld; complete works; PIN-based session |
 | **7** | Packer Device View (mobile-first) — same pattern as Picker Device (green theme) | ✅ Done | Packer confirms on handheld; shared queue; race condition protected |
 | **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | ✅ Done | End-to-end lifecycle works; SLA timer stops at dispatch |
-| **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | 🔜 Next | D-level updates automatically; D4 triggers Socket.io alert + supervisor email |
+| **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **11** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **12** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
@@ -1037,7 +1037,7 @@ Sweep detects order elapsed ≥ 16 hours
 DB Transaction: delay_level=4, priority+=800, d4_notified_at=NOW()
 Insert sla_escalations (from=3, to=4)
         │
-        ├──▶ Socket.io emit → sla:d4_alert → SlaAlertBanner appears for all ADMIN sessions
+        ├──▶ Socket.io emit → sla:d4_alert → SlaAlertBanner appears for all ADMIN/INBOUND_ADMIN sessions
         │
         └──▶ BullMQ enqueue slaD4Email → Nodemailer → supervisor email
 ```
@@ -1076,9 +1076,25 @@ On login, the socket server joins the user to both their `tenant:` room and thei
 | `order:assigned` | Server → Client | `user:{pickerId/packerId}` | `{ order }` | Push new order to handheld device |
 | `stats:updated` | Server → Client | `tenant:{id}` | `{ stats }` | Update dashboard stats |
 | `sla:escalated` | Server → Client | `tenant:{id}` | `{ orderId, fromLevel, toLevel, tenantId }` | Invalidate order list cache |
-| `sla:d4_alert` | Server → Client | `tenant:{id}` | `{ orderId, trackingNumber, tenantId }` | Show SlaAlertBanner |
+| `sla:d4_alert` | Server → Client | `tenant:{id}` | `{ orderId, trackingNumber, tenantId, status, assignedPicker, assignedPacker }` | Show SlaAlertBanner |
 
 > **Key design:** `order:assigned` goes to `user:{id}` room — only the assigned picker/packer receives it. All other events broadcast to the full tenant room.
+
+### SlaAlertBanner (`frontend/src/components/SlaAlertBanner.tsx`)
+
+Visible only to `ADMIN` and `INBOUND_ADMIN` roles. Rendered at the top of `AppLayout` (above page content).
+
+| Alert count | Behaviour |
+|---|---|
+| 0 | Hidden |
+| 1 | Full-width crimson bar: tracking number, stage (`OrderStatus`), assigned picker/packer (if any), `[Dismiss]` |
+| 2+ | Summary bar: order count, `[Show ▼]` to expand individual rows, `[Dismiss All]` |
+
+**Expanded rows** (2+ alerts): each row shows tracking number, stage, assigned picker/packer, individual `[Dismiss]`.
+
+**Socket lifecycle fix:** `SlaAlertBanner` calls `connectSocket()` (not `getSocket()`) in its `useEffect`. React fires child effects before parent effects — at mount time `getSocket()` would return `null` because `AppLayout`'s `connectSocket()` call hasn't run yet. `connectSocket()` is idempotent and safe to call from either component.
+
+**State:** `notificationStore` (Zustand, non-persisted) — `d4Alerts[]`, `addD4Alert()`, `dismissD4Alert(id)`, `dismissAllD4Alerts()`.
 
 ### RLS on `sla_escalations`
 ```sql
