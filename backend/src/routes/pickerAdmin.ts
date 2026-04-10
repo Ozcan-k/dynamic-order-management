@@ -149,9 +149,13 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     if (!target) return reply.code(404).send({ error: 'Picker not found' })
 
     const conflict = await prisma.user.findFirst({
-      where: { tenantId, pickerPin: pin, id: { not: pickerId } },
+      where: {
+        tenantId,
+        id: { not: pickerId },
+        OR: [{ pickerPin: pin }, { packerPin: pin }],
+      },
     })
-    if (conflict) return reply.code(409).send({ error: 'PIN already in use' })
+    if (conflict) return reply.code(409).send({ error: 'PIN already in use by another handheld device' })
 
     const updated = await prisma.user.update({
       where: { id: pickerId },

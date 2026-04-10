@@ -89,9 +89,13 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
     if (!target) return reply.code(404).send({ error: 'Packer not found' })
 
     const conflict = await prisma.user.findFirst({
-      where: { tenantId, packerPin: pin, id: { not: packerId } },
+      where: {
+        tenantId,
+        id: { not: packerId },
+        OR: [{ pickerPin: pin }, { packerPin: pin }],
+      },
     })
-    if (conflict) return reply.code(409).send({ error: 'PIN already in use' })
+    if (conflict) return reply.code(409).send({ error: 'PIN already in use by another handheld device' })
 
     const updated = await prisma.user.update({
       where: { id: packerId },
