@@ -133,8 +133,11 @@ export async function getPackerStats(tenantId: string) {
         return { packer, completed: completedCount }
       }),
     ),
-    prisma.order.count({
-      where: { tenantId, status: OrderStatus.PACKER_COMPLETE },
+    // Count all packer assignments ever completed (including already dispatched orders)
+    // Previously this counted order.count({ status: PACKER_COMPLETE }) which was wrong:
+    // it was identical to the "Waiting to Pack" queue and dropped to 0 after dispatch.
+    prisma.packerAssignment.count({
+      where: { completedAt: { not: null }, order: { tenantId } },
     }),
     prisma.order.count({
       where: {

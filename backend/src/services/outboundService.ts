@@ -61,7 +61,17 @@ export async function getOutboundStats(tenantId: string) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const [waitingCount, dispatchedToday, inboundTotal, outboundTotal, d4Count] = await Promise.all([
+  const [
+    waitingCount,
+    dispatchedToday,
+    inboundTotal,
+    outboundTotal,
+    d4Count,
+    inboundQueueCount,
+    pickerActiveCount,
+    pickerCompleteCount,
+    packerCompleteCount,
+  ] = await Promise.all([
     prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE } }),
     prisma.order.count({
       where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: today } },
@@ -71,6 +81,11 @@ export async function getOutboundStats(tenantId: string) {
     prisma.order.count({
       where: { tenantId, delayLevel: 4, status: { not: OrderStatus.OUTBOUND } },
     }),
+    // Per-phase breakdown so UI can verify: inboundQueueCount + pickerActiveCount + pickerCompleteCount + packerCompleteCount + outboundTotal === inboundTotal
+    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] } } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.PICKER_COMPLETE } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE } }),
   ])
 
   return {
@@ -80,6 +95,14 @@ export async function getOutboundStats(tenantId: string) {
     outboundTotal,
     missingCount: inboundTotal - outboundTotal,
     d4Count,
+    // Pipeline breakdown — these 5 values always sum to inboundTotal
+    pipeline: {
+      inboundQueue: inboundQueueCount,
+      pickerActive: pickerActiveCount,
+      pickerComplete: pickerCompleteCount,
+      packerComplete: packerCompleteCount,
+      dispatched: outboundTotal,
+    },
   }
 }
 

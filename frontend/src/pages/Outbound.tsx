@@ -31,6 +31,13 @@ interface OutboundStats {
   outboundTotal: number
   missingCount: number
   d4Count: number
+  pipeline: {
+    inboundQueue: number
+    pickerActive: number
+    pickerComplete: number
+    packerComplete: number
+    dispatched: number
+  }
 }
 
 interface StuckOrder {
@@ -540,9 +547,10 @@ export default function Outbound() {
 
       {/* ── Section 2: Comparison Report ──────────────────────────────────── */}
       <SectionHeader title="Comparison Report" />
+      {/* Top row: global totals */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px',
-        marginBottom: '28px',
+        marginBottom: '12px',
       }}>
         {[
           { label: 'Total Inbound', value: statsData?.inboundTotal ?? 0, color: colors.primary },
@@ -562,6 +570,58 @@ export default function Outbound() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Pipeline breakdown — these 5 values always sum to Total Inbound */}
+      <div style={{
+        background: '#fff', border: `1px solid ${colors.border}`,
+        borderRadius: '10px', padding: '14px 20px',
+        marginBottom: '28px',
+      }}>
+        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+          Pipeline Breakdown
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
+          {[
+            { label: 'Inbound Queue', value: statsData?.pipeline?.inboundQueue ?? 0, color: '#6b7280' },
+            { label: 'Picker Active', value: statsData?.pipeline?.pickerActive ?? 0, color: '#3b82f6' },
+            { label: 'Picker Complete', value: statsData?.pipeline?.pickerComplete ?? 0, color: '#8b5cf6' },
+            { label: 'Packer Complete', value: statsData?.pipeline?.packerComplete ?? 0, color: '#14b8a6' },
+            { label: 'Dispatched', value: statsData?.pipeline?.dispatched ?? 0, color: colors.success },
+          ].map(({ label, value, color }, i, arr) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '100px' }}>
+              <div style={{ flex: 1, textAlign: 'center', padding: '6px 4px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+                <div style={{ fontSize: '10px', color: colors.textSecondary, marginTop: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>{label}</div>
+              </div>
+              {i < arr.length - 1 && (
+                <div style={{ color: colors.textMuted, fontSize: '16px', flexShrink: 0 }}>→</div>
+              )}
+            </div>
+          ))}
+          <div style={{
+            marginLeft: '12px', paddingLeft: '12px',
+            borderLeft: `2px solid ${colors.border}`,
+            textAlign: 'center', flexShrink: 0,
+          }}>
+            <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>Sum</div>
+            <div style={{
+              fontSize: '16px', fontWeight: 800, marginTop: '2px',
+              color: statsData
+                ? ((statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)) === statsData.inboundTotal
+                  ? colors.success
+                  : colors.danger
+                : colors.textMuted,
+            }}>
+              {statsData
+                ? (statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)
+                : 0}
+            </div>
+            <div style={{ fontSize: '9px', color: colors.textMuted, marginTop: '2px' }}>
+              {statsData && ((statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)) === statsData.inboundTotal ? '✓ balanced' : '✗ mismatch'}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Section 3: Stuck Orders ────────────────────────────────────────── */}
