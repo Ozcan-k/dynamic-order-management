@@ -42,7 +42,7 @@ export default function Inbound() {
   const { data: statsData } = useQuery({
     queryKey: ['orders-stats'],
     queryFn: async () => {
-      const res = await api.get<{ totalScanned: number; pendingInbound: number }>('/orders/stats')
+      const res = await api.get<{ totalScanned: number; pendingInbound: number; delayBreakdown: number[] }>('/orders/stats')
       return res.data
     },
     refetchInterval: 5000,
@@ -80,16 +80,15 @@ export default function Inbound() {
   const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-  const counts = [0, 1, 2, 3, 4].map(level => ({
+  const counts = [0, 1, 2, 3, 4].map((level) => ({
     level,
-    count: allOrders.filter(o => o.delayLevel === level).length,
+    count: statsData?.delayBreakdown?.[level] ?? allOrders.filter(o => o.delayLevel === level).length,
   }))
 
   // Header stats
   const headerStats = (
     <>
       <StatCard label="Total Scanned" value={totalScanned} color={colors.primary} />
-      <StatCard label="Pending" value={pending} color="#6366f1" />
       {counts.map(({ level, count }) => (
         <StatCard key={level} label={`D${level}`} value={count} color={colors.delay[level]} />
       ))}

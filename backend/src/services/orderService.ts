@@ -49,11 +49,16 @@ export async function listOrders(tenantId: string) {
 }
 
 export async function getOrderStats(tenantId: string) {
-  const [totalScanned, pendingInbound] = await Promise.all([
+  const [totalScanned, pendingInbound, d0, d1, d2, d3, d4] = await Promise.all([
     prisma.order.count({ where: { tenantId } }),
     prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 0 } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 1 } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 2 } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 3 } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 4 } }),
   ])
-  return { totalScanned, pendingInbound }
+  return { totalScanned, pendingInbound, delayBreakdown: [d0, d1, d2, d3, d4] }
 }
 
 export async function deleteOrder(orderId: string, tenantId: string) {
