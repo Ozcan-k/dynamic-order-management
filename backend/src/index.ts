@@ -6,9 +6,10 @@ import authPlugin from './plugins/auth'
 import { redis } from './lib/redis'
 import { prisma } from './lib/prisma'
 import { initSocket } from './lib/socket'
-import { slaEscalationQueue } from './lib/queues'
+import { slaEscalationQueue, nightlyReportQueue } from './lib/queues'
 import { startSlaEscalationWorker } from './jobs/slaEscalation'
 import { startSlaD4EmailWorker } from './jobs/slaD4Email'
+import { startNightlyReportWorker } from './jobs/nightlyReport'
 import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
 import orderRoutes from './routes/orders'
@@ -17,6 +18,7 @@ import pickerRoutes from './routes/picker'
 import packerAdminRoutes from './routes/packerAdmin'
 import packerRoutes from './routes/packer'
 import outboundRoutes from './routes/outbound'
+import reportsRoutes from './routes/reports'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -42,6 +44,7 @@ async function start() {
   await fastify.register(packerAdminRoutes, { prefix: '/packer-admin' })
   await fastify.register(packerRoutes, { prefix: '/packer' })
   await fastify.register(outboundRoutes, { prefix: '/outbound' })
+  await fastify.register(reportsRoutes, { prefix: '/reports' })
   await fastify.register(devTestRoutes)
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
@@ -49,11 +52,13 @@ async function start() {
   // BullMQ workers — declared here so onClose hook can reference them
   let escalationWorker: ReturnType<typeof startSlaEscalationWorker> | null = null
   let d4EmailWorker: ReturnType<typeof startSlaD4EmailWorker> | null = null
+  let nightlyReportWorker: ReturnType<typeof startNightlyReportWorker> | null = null
 
   // Register onClose BEFORE fastify.ready() — Fastify rejects hooks after ready
   fastify.addHook('onClose', async () => {
     if (escalationWorker) await escalationWorker.close()
     if (d4EmailWorker) await d4EmailWorker.close()
+    if (nightlyReportWorker) await nightlyReportWorker.close()
     await prisma.$disconnect()
     redis.disconnect()
   })
@@ -72,9 +77,20 @@ async function start() {
     },
   )
 
+  // Register nightly report as a repeatable BullMQ job (every day at 21:00)
+  await nightlyReportQueue.add(
+    'send',
+    {},
+    {
+      repeat: { pattern: '0 21 * * *' },
+      jobId: 'nightly-report-repeat',
+    },
+  )
+
   // Start BullMQ workers
   escalationWorker = startSlaEscalationWorker()
   d4EmailWorker = startSlaD4EmailWorker()
+  nightlyReportWorker = startNightlyReportWorker()
 
   const port = Number(process.env.PORT) || 3000
   await fastify.listen({ port, host: '0.0.0.0' })

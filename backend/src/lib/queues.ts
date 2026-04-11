@@ -16,4 +16,9 @@ export const slaD4EmailQueue = new Queue('slaD4Email', {
   connection: redisConnection,
 })
 
+// Queue: sends nightly summary report email at 9pm
+export const nightlyReportQueue = new Queue('nightlyReport', {
+  connection: redisConnection,
+})
+
 export { redisConnection }

@@ -190,7 +190,7 @@ function getDefaultRoute(role: string): string {
   switch (role) {
     case 'ADMIN':
     case 'INBOUND_ADMIN':
-      return '/dashboard'
+      return '/'
     case 'PICKER_ADMIN':
       return '/picker-admin'
     case 'PACKER_ADMIN':

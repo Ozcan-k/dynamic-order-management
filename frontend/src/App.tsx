@@ -8,6 +8,7 @@ import PickerMobile from './pages/PickerMobile'
 import PackerAdmin from './pages/PackerAdmin'
 import PackerMobile from './pages/PackerMobile'
 import Outbound from './pages/Outbound'
+import Dashboard from './pages/Dashboard'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -106,7 +107,14 @@ export default function App() {
             path="/unauthorized"
             element={<PlaceholderPage title="403 — Forbidden" />}
           />
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+                <AppLayout><Dashboard /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
