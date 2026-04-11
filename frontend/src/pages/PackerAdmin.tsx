@@ -431,7 +431,6 @@ export default function PackerAdmin() {
       <StatCard label="Waiting to Pack" value={orderList.length} color={colors.warning} />
       <StatCard label="Total Packed" value={totalCompleted} color={colors.success} />
       <StatCard label="Returned to Picker" value={returnedCount} color="#f59e0b" />
-      <StatCard label="Packers" value={statsList.length} color="#7c3aed" />
       {ordersLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
           <span className="spinner spinner-sm" />

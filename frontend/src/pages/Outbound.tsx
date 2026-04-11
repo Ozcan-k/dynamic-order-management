@@ -40,16 +40,6 @@ interface OutboundStats {
   }
 }
 
-interface StuckOrder {
-  id: string
-  trackingNumber: string
-  platform: string
-  status: string
-  delayLevel: number
-  slaStartedAt: string
-  updatedAt: string
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatElapsed(from: string | Date): string {
@@ -60,26 +50,6 @@ function formatElapsed(from: string | Date): string {
   const m = totalMins % 60
   if (h === 0) return `${m}m`
   return `${h}h ${m}m`
-}
-
-const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  INBOUND:         { bg: '#e5e7eb', color: '#374151',  label: 'Inbound' },
-  PICKER_ASSIGNED: { bg: '#dbeafe', color: '#1d4ed8',  label: 'Picker Assigned' },
-  PICKING:         { bg: '#e0e7ff', color: '#4338ca',  label: 'Picking' },
-  PICKER_COMPLETE: { bg: '#ede9fe', color: '#6d28d9',  label: 'Picker Complete' },
-  PACKER_COMPLETE: { bg: '#ccfbf1', color: '#0f766e',  label: 'Packer Complete' },
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? { bg: '#f3f4f6', color: '#6b7280', label: status.replace(/_/g, ' ') }
-  return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
-      fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color, whiteSpace: 'nowrap',
-    }}>
-      {s.label}
-    </span>
-  )
 }
 
 // ─── Dispatch Confirm Dialog ─────────────────────────────────────────────────
@@ -167,7 +137,6 @@ function DispatchDialog({
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10
-const STUCK_PAGE_SIZE = 15
 
 export default function Outbound() {
   const user = useAuthStore((s) => s.user)
@@ -175,7 +144,6 @@ export default function Outbound() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
-  const [stuckPage, setStuckPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [dispatchTarget, setDispatchTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
@@ -203,22 +171,11 @@ export default function Outbound() {
     refetchInterval: 5000,
   })
 
-  const { data: stuckData } = useQuery({
-    queryKey: ['outbound-stuck'],
-    queryFn: async () => {
-      const res = await api.get<{ orders: StuckOrder[] }>('/outbound/stuck')
-      return res.data.orders
-    },
-    refetchInterval: 10000,
-  })
-
   const orderList = orders ?? []
-  const stuckList = stuckData ?? []
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['outbound-orders'] })
     queryClient.invalidateQueries({ queryKey: ['outbound-stats'] })
-    queryClient.invalidateQueries({ queryKey: ['outbound-stuck'] })
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────────
@@ -288,18 +245,12 @@ export default function Outbound() {
     })
   }
 
-  // Stuck orders pagination
-  const stuckTotalPages = Math.max(1, Math.ceil(stuckList.length / STUCK_PAGE_SIZE))
-  const safeStuckPage = Math.min(stuckPage, stuckTotalPages)
-  const pagedStuck = stuckList.slice((safeStuckPage - 1) * STUCK_PAGE_SIZE, safeStuckPage * STUCK_PAGE_SIZE)
-
   // ─── Header stats ─────────────────────────────────────────────────────────
   const headerStats = (
     <>
-      <StatCard label="Waiting to Dispatch" value={statsData?.waitingCount ?? orderList.length} color="#0ea5e9" />
-      <StatCard label="Dispatched Today" value={statsData?.dispatchedToday ?? 0} color={colors.success} />
-      <StatCard label="D4 Orders" value={statsData?.d4Count ?? 0} color={colors.danger} />
-      <StatCard label="Missing" value={statsData?.missingCount ?? 0} color="#f59e0b" />
+      <StatCard label="Total Inbound" value={statsData?.inboundTotal ?? 0} color={colors.primary} />
+      <StatCard label="Dispatched" value={statsData?.outboundTotal ?? 0} color={colors.success} />
+      <StatCard label="In Pipeline" value={statsData?.missingCount ?? 0} color="#f59e0b" />
       {ordersLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
           <span className="spinner spinner-sm" />
@@ -545,181 +496,6 @@ export default function Outbound() {
         )}
       </div>
 
-      {/* ── Section 2: Comparison Report ──────────────────────────────────── */}
-      <SectionHeader title="Comparison Report" />
-      {/* Top row: global totals */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px',
-        marginBottom: '12px',
-      }}>
-        {[
-          { label: 'Total Inbound', value: statsData?.inboundTotal ?? 0, color: colors.primary },
-          { label: 'Total Dispatched', value: statsData?.outboundTotal ?? 0, color: colors.success },
-          { label: 'Still in Pipeline', value: statsData?.missingCount ?? 0, color: '#f59e0b' },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{
-            background: '#fff', border: `1px solid ${colors.border}`,
-            borderRadius: '10px', padding: '16px 20px',
-            borderLeft: `4px solid ${color}`,
-          }}>
-            <div style={{ fontSize: '26px', fontWeight: 800, color: colors.textPrimary, lineHeight: 1 }}>
-              {value}
-            </div>
-            <div style={{ fontSize: '12px', color: colors.textSecondary, marginTop: '6px', fontWeight: 500 }}>
-              {label}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Pipeline breakdown — these 5 values always sum to Total Inbound */}
-      <div style={{
-        background: '#fff', border: `1px solid ${colors.border}`,
-        borderRadius: '10px', padding: '14px 20px',
-        marginBottom: '28px',
-      }}>
-        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-          Pipeline Breakdown
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
-          {[
-            { label: 'Inbound Queue', value: statsData?.pipeline?.inboundQueue ?? 0, color: '#6b7280' },
-            { label: 'Picker Active', value: statsData?.pipeline?.pickerActive ?? 0, color: '#3b82f6' },
-            { label: 'Picker Complete', value: statsData?.pipeline?.pickerComplete ?? 0, color: '#8b5cf6' },
-            { label: 'Packer Complete', value: statsData?.pipeline?.packerComplete ?? 0, color: '#14b8a6' },
-            { label: 'Dispatched', value: statsData?.pipeline?.dispatched ?? 0, color: colors.success },
-          ].map(({ label, value, color }, i, arr) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '100px' }}>
-              <div style={{ flex: 1, textAlign: 'center', padding: '6px 4px' }}>
-                <div style={{ fontSize: '20px', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-                <div style={{ fontSize: '10px', color: colors.textSecondary, marginTop: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>{label}</div>
-              </div>
-              {i < arr.length - 1 && (
-                <div style={{ color: colors.textMuted, fontSize: '16px', flexShrink: 0 }}>→</div>
-              )}
-            </div>
-          ))}
-          <div style={{
-            marginLeft: '12px', paddingLeft: '12px',
-            borderLeft: `2px solid ${colors.border}`,
-            textAlign: 'center', flexShrink: 0,
-          }}>
-            <div style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>Sum</div>
-            <div style={{
-              fontSize: '16px', fontWeight: 800, marginTop: '2px',
-              color: statsData
-                ? ((statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)) === statsData.inboundTotal
-                  ? colors.success
-                  : colors.danger
-                : colors.textMuted,
-            }}>
-              {statsData
-                ? (statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)
-                : 0}
-            </div>
-            <div style={{ fontSize: '9px', color: colors.textMuted, marginTop: '2px' }}>
-              {statsData && ((statsData.pipeline?.inboundQueue ?? 0) + (statsData.pipeline?.pickerActive ?? 0) + (statsData.pipeline?.pickerComplete ?? 0) + (statsData.pipeline?.packerComplete ?? 0) + (statsData.pipeline?.dispatched ?? 0)) === statsData.inboundTotal ? '✓ balanced' : '✗ mismatch'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Section 3: Stuck Orders ────────────────────────────────────────── */}
-      <SectionHeader title="Stuck Orders" count={stuckList.length} />
-      <div className="data-table-wrap" style={{ marginBottom: '16px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
-              {['Tracking Number', 'Platform', 'Current Status', 'Delay', 'Time in Status', 'In Pipeline Since'].map((h) => (
-                <th key={h} style={{
-                  padding: '10px 14px', textAlign: 'left', fontSize: '11px',
-                  fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
-                  letterSpacing: '0.05em', whiteSpace: 'nowrap',
-                }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {stuckList.length === 0 ? (
-              <tr>
-                <td colSpan={6} style={{ padding: '40px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '28px', marginBottom: '8px' }}>✅</div>
-                  <div style={{ fontWeight: 600, color: colors.textPrimary, fontSize: '14px' }}>
-                    No stuck orders
-                  </div>
-                  <div style={{ color: colors.textMuted, fontSize: '12px', marginTop: '4px' }}>
-                    All scanned orders have been dispatched.
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              pagedStuck.map((order) => (
-                <tr key={order.id} style={{ borderBottom: `1px solid #f1f5f9` }}>
-                  <td style={{ padding: '11px 14px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px', color: colors.textPrimary }}>
-                    {order.trackingNumber}
-                  </td>
-                  <td style={{ padding: '11px 14px' }}>
-                    <PlatformBadge platform={order.platform} />
-                  </td>
-                  <td style={{ padding: '11px 14px' }}>
-                    <StatusBadge status={order.status} />
-                  </td>
-                  <td style={{ padding: '11px 14px' }}>
-                    <DelayBadge level={order.delayLevel} />
-                  </td>
-                  <td style={{ padding: '11px 14px', fontSize: '12px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>
-                    {formatElapsed(order.updatedAt)}
-                  </td>
-                  <td style={{ padding: '11px 14px', fontSize: '12px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>
-                    {new Date(order.slaStartedAt).toLocaleString('en-GB', {
-                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-                    })}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-
-        {/* Stuck orders pagination */}
-        {stuckTotalPages > 1 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 16px', borderTop: `1px solid ${colors.border}`,
-            fontSize: '12px', color: colors.textSecondary,
-          }}>
-            <span>
-              {(safeStuckPage - 1) * STUCK_PAGE_SIZE + 1}–{Math.min(safeStuckPage * STUCK_PAGE_SIZE, stuckList.length)} of {stuckList.length}
-            </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                onClick={() => setStuckPage((p) => Math.max(1, p - 1))}
-                disabled={safeStuckPage === 1}
-                style={{
-                  padding: '4px 10px', borderRadius: '6px', border: `1px solid ${colors.border}`,
-                  background: '#fff', cursor: safeStuckPage === 1 ? 'not-allowed' : 'pointer',
-                  color: safeStuckPage === 1 ? colors.textMuted : colors.textPrimary, fontSize: '12px',
-                }}
-              >
-                ‹ Prev
-              </button>
-              <button
-                onClick={() => setStuckPage((p) => Math.min(stuckTotalPages, p + 1))}
-                disabled={safeStuckPage === stuckTotalPages}
-                style={{
-                  padding: '4px 10px', borderRadius: '6px', border: `1px solid ${colors.border}`,
-                  background: '#fff', cursor: safeStuckPage === stuckTotalPages ? 'not-allowed' : 'pointer',
-                  color: safeStuckPage === stuckTotalPages ? colors.textMuted : colors.textPrimary, fontSize: '12px',
-                }}
-              >
-                Next ›
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </PageShell>
   )
 }

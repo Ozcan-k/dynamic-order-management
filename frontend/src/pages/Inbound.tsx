@@ -67,6 +67,7 @@ export default function Inbound() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['picker-admin-orders'] })
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Delete failed'
@@ -80,18 +81,10 @@ export default function Inbound() {
   const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-  const counts = [0, 1, 2, 3, 4].map((level) => ({
-    level,
-    count: statsData?.delayBreakdown?.[level] ?? allOrders.filter(o => o.delayLevel === level).length,
-  }))
-
   // Header stats
   const headerStats = (
     <>
-      <StatCard label="Total Scanned" value={totalScanned} color={colors.primary} />
-      {counts.map(({ level, count }) => (
-        <StatCard key={level} label={`D${level}`} value={count} color={colors.delay[level]} />
-      ))}
+      <StatCard label="Inbound" value={totalScanned} color={colors.primary} />
       {isLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
           <span className="spinner spinner-sm" />

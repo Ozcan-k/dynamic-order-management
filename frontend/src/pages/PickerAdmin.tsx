@@ -968,10 +968,6 @@ export default function PickerAdmin() {
   const pickerList = pickers ?? []
   const statsList = statsData?.stats ?? []
   const returnedFromPacker = statsData?.returnedCount ?? 0
-  const totalCompleted = statsData?.totalCompleted ?? 0
-
-  const totalAssignedToday = statsList.reduce((sum, s) => sum + s.total, 0)
-
   // Pagination
   const totalPages = Math.max(1, Math.ceil(orderList.length / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
