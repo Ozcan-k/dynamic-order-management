@@ -103,6 +103,49 @@ cd backend && npm run dev
 cd frontend && npx vite
 ```
 
+---
+
+## [2026-04-11] Docker'da Shared Export Bulunamıyor (SyntaxError: does not provide an export named 'X')
+
+### Sorun
+`@dom/shared`'e yeni bir export (örn. `CARRIER_LABELS`) eklendi. Lokal çalışıyor ama
+Docker container'ında beyaz sayfa + şu hata:
+
+```
+SyntaxError: The requested module '/node_modules/.vite/deps/@dom_shared.js?v=...'
+does not provide an export named 'CARRIER_LABELS'
+```
+
+### Kök Neden
+Docker image build sırasında `shared/dist` derlendi. Sonradan `shared/src/index.ts`'e
+eklenen exportlar host'ta `npm run build` ile güncellendi ama container içindeki
+`node_modules/@dom/shared/dist/` hala eski versiyonu içeriyor. Vite bu eski dist'i
+cache'lediği için yeni export görünmüyor.
+
+**Dikkat:** Vite cache Docker'da `/app/node_modules/.vite/` DEĞİL,
+`/app/frontend/node_modules/.vite/` altındadır.
+
+### Çözüm
+```bash
+# 1. Container içinde shared'i rebuild et
+docker exec dom_frontend sh -c "cd /app && npm run build --workspace=shared"
+
+# 2. Doğru Vite cache'ini temizle
+docker exec dom_frontend sh -c "rm -rf /app/frontend/node_modules/.vite/deps"
+
+# 3. Frontend container'ı yeniden başlat
+docker restart dom_frontend
+
+# 4. Tarayıcıda hard refresh
+# Ctrl+Shift+R
+```
+
+### Kalıcı Çözüm
+`shared/src` değiştikten sonra Docker image'ı yeniden build et:
+```bash
+docker compose build frontend && docker compose up -d frontend
+```
+
 ### TypeScript Kontrolü
 ```bash
 # Backend
@@ -144,6 +187,75 @@ const myStyle: Record<string, string | number> = { ... }
 import type { CSSProperties } from 'react'
 const myStyle: CSSProperties = { ... }
 ```
+
+---
+
+## [2026-04-11] Docker Container'da Backend Route / Prisma Client Eski Kalıyor
+
+### Sorun
+Backend source'a yeni route veya Prisma schema alanı ekleniyor. Lokal'de çalışıyor ama
+Docker container'ında "Not Found" (404) veya "Unknown argument" hatası alınıyor.
+
+### Kök Neden
+Docker container üç ayrı katmanda eski koda sahip olabilir:
+1. `backend/dist/` — TypeScript compile edilmemiş, eski JS çalışıyor
+2. `node_modules/@prisma/client` — `prisma generate` çalıştırılmamış
+3. `node_modules/@dom/shared/dist/` — shared package güncellenmemiş
+
+### Çözüm (Sırayla)
+```bash
+# 1. Shared package'ı lokal'de build et
+cd shared && npm run build
+
+# 2. Shared dist'i container'a kopyala
+docker cp shared/dist/. dom_backend:/app/node_modules/@dom/shared/dist/
+
+# 3. Backend'i lokal'de compile et
+cd backend && npm run build
+
+# 4. Yeni dist'i container'a kopyala
+docker cp backend/dist/. dom_backend:/app/backend/dist/
+
+# 5. Prisma client'ı container'da regenerate et (schema değiştiyse)
+docker cp backend/prisma/schema.prisma dom_backend:/app/backend/prisma/schema.prisma
+docker exec dom_backend sh -c "cd /app/backend && npx prisma generate"
+
+# 6. Backend'i restart et
+docker compose restart backend
+```
+
+### Kalıcı Çözüm
+Her backend değişikliğinde:
+```bash
+cd backend && npm run build
+docker cp backend/dist/. dom_backend:/app/backend/dist/
+docker compose restart backend
+```
+
+---
+
+## [2026-04-11] Bulk Scan — Carrier ve Shop Name Zorunlu Alanlar
+
+### Davranış
+- Carrier ve Shop Name her ikisi de **zorunludur** (optional değil)
+- Barkod tarandıktan sonra biri boşsa sarı uyarı mesajı gösterilir
+- Confirm butonu her ikisi dolu olmadan disabled kalır
+- Backend de `z.string().min(1)` ile validate eder → 400 döner
+
+### İlgili Dosyalar
+- `frontend/src/components/BulkScanModal.tsx` — `canConfirm` koşulu, label, uyarı mesajı
+- `backend/src/routes/orders.ts` — `BulkScanSchema.shopName` optional kaldırıldı
+
+---
+
+## [2026-04-11] Preset Shop Names — BulkScanModal
+
+### Davranış
+`PRESET_SHOPS` sabiti `BulkScanModal.tsx` içinde tanımlıdır (18 isim).
+API'den gelen mevcut shop'larla birleştirilir (`Set` ile dedup), dropdown'da her zaman görünür.
+
+### İlgili Dosyalar
+- `frontend/src/components/BulkScanModal.tsx` — `PRESET_SHOPS` sabiti, `existingShops` merge
 
 ---
 

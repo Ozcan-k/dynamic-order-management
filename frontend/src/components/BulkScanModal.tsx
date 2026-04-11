@@ -20,6 +20,27 @@ type StagedItem = {
 
 const CARRIERS = Object.values(Carrier)
 
+const PRESET_SHOPS = [
+  'Picky_Farm',
+  'Eco_Tree',
+  'Chef_Mela',
+  'Super_Food',
+  'Every_Bite',
+  'Natures_Blend_Shope',
+  'Luxe',
+  'Green_Tree',
+  'Nuture_Blend_Online',
+  'Nature_Finest',
+  'Supper_Essantial',
+  'Green_Fuel',
+  'Zozo_Helth',
+  'Master_Chef',
+  'Daily_Nuts',
+  'Sport_Snack',
+  'Wimow',
+  'Raven_Wellnes',
+]
+
 export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps) {
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([])
   const [selectedCarrier, setSelectedCarrier] = useState<Carrier | ''>('')
@@ -41,7 +62,7 @@ export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps
     queryKey: ['order-shops'],
     queryFn: () => api.get<{ shops: string[] }>('/orders/shops').then(r => r.data.shops),
   })
-  const existingShops = shopsData ?? []
+  const existingShops = Array.from(new Set([...PRESET_SHOPS, ...(shopsData ?? [])]))
 
   // Default to text mode if no existing shops
   useEffect(() => {
@@ -72,7 +93,7 @@ export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps
     setStagedItems(prev => prev.filter(i => i.id !== id))
   }
 
-  const canConfirm = stagedItems.length > 0 && selectedCarrier !== ''
+  const canConfirm = stagedItems.length > 0 && selectedCarrier !== '' && shopName.trim() !== ''
 
   const bulkMutation = useMutation({
     mutationFn: () =>
@@ -298,7 +319,7 @@ export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps
 
             {/* Shop name (optional) */}
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Shop Name <span style={{ color: colors.textMuted, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+              <label style={labelStyle}>Shop Name <span style={{ color: colors.danger }}>*</span></label>
               {shopInputMode === 'select' ? (
                 <select
                   value={shopName}
@@ -350,6 +371,21 @@ export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps
               )}
             </div>
           </div>
+
+          {/* Validation hint */}
+          {stagedItems.length > 0 && (selectedCarrier === '' || shopName.trim() === '') && (
+            <div style={{
+              marginBottom: 12, padding: '8px 12px',
+              background: '#fffbeb', border: '1px solid #fcd34d',
+              borderRadius: 8, fontSize: 12, color: '#92400e',
+            }}>
+              {selectedCarrier === '' && shopName.trim() === ''
+                ? 'Carrier and Shop Name are required.'
+                : selectedCarrier === ''
+                  ? 'Carrier is required.'
+                  : 'Shop Name is required.'}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>

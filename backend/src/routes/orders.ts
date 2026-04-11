@@ -18,7 +18,7 @@ const ScanSchema = z.object({
 const BulkScanSchema = z.object({
   trackingNumbers: z.array(z.string().min(1).max(100)).min(1).max(200),
   carrierName: z.nativeEnum(Carrier),
-  shopName: z.string().min(1).max(100).optional(),
+  shopName: z.string().min(1).max(100),
 })
 
 export default async function orderRoutes(fastify: FastifyInstance) {

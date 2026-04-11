@@ -298,8 +298,8 @@ orders ──< packer_assignments >── users (packers)
 | tenant_id | UUID FK | → tenants |
 | tracking_number | VARCHAR | Unique per tenant |
 | platform | ENUM | `SHOPEE`, `LAZADA`, `TIKTOK`, `OTHER` — auto-detected from tracking number prefix |
-| carrier_name | VARCHAR NULLABLE | Logistics carrier (e.g. `SPX`, `JT_EXPRESS`, `FLASH`, `LEX`, `LBC`, `NINJA_VAN`, `OTHER`). Set at scan time via Bulk Scan. Null for legacy single-scan orders. |
-| shop_name | VARCHAR NULLABLE | Seller shop name (e.g. "Picky Farm Official"). Set at scan time via Bulk Scan. Null for legacy orders. |
+| carrier_name | VARCHAR | Logistics carrier (e.g. `SPX`, `JT_EXPRESS`, `FLASH`, `LEX`, `LBC`, `NINJA_VAN`, `OTHER`). **Required** at Bulk Scan time. |
+| shop_name | VARCHAR | Seller shop name (e.g. "Picky_Farm"). **Required** at Bulk Scan time. Chosen from 18 preset shop names or typed manually. |
 | status | ENUM | See status flow |
 | priority | INTEGER | Higher = more urgent; default 0, carryover +100, SLA boosts added on escalation |
 | delay_level | INTEGER | SLA delay level: 0=D0, 1=D1, 2=D2, 3=D3, 4=D4; default 0 |
@@ -435,7 +435,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
    - Duplicate TN in same batch: client-side warning, not re-added
    - Each row shows: index | tracking number | platform badge | remove button
 3. Admin selects **Carrier** (required) from dropdown: SPX / J&T / Flash / LEX / LBC / Ninja Van / Other
-4. Admin selects or types **Shop Name** (optional): dropdown populated from `GET /orders/shops` (distinct past values)
+4. Admin selects or types **Shop Name** (required): dropdown shows 18 preset shop names merged with distinct past values from `GET /orders/shops`; or type a new name manually. Confirm button stays disabled until both Carrier and Shop Name are filled — yellow warning shown if either is missing after items are staged.
 5. Admin clicks Confirm → `POST /orders/bulk-scan` → all orders created atomically with carrier + shop
 6. Modal closes; success/partial-duplicate banner shown; order table refreshes
 
@@ -1028,7 +1028,7 @@ On push to main branch:
 | **7** | Packer Device View (mobile-first) — same pattern as Picker Device (green theme) | ✅ Done | Packer confirms on handheld; shared queue; race condition protected |
 | **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | ✅ Done | End-to-end lifecycle works; SLA timer stops at dispatch |
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
-| **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package | ✅ Done | Batch of TNs staged, carrier assigned once, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
+| **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
