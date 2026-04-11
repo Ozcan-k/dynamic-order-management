@@ -154,6 +154,7 @@ All located in `frontend/src/components/shared/`.
 | `OrderTable` | `OrderTable.tsx` | Full inbound order table with delete support |
 | `ScanInput` | `ScanInput.tsx` | Barcode scan input with Enter-to-submit |
 | `ConfirmDialog` | `ConfirmDialog.tsx` | Modal confirmation dialog |
+| `BulkScanModal` | `BulkScanModal.tsx` | Bulk inbound scan — staging list, carrier dropdown, shop combobox; rendered via `createPortal` |
 | `ProtectedRoute` | `ProtectedRoute.tsx` | Auth/role guard wrapper |
 
 ---
@@ -228,7 +229,9 @@ All located in `frontend/src/components/shared/`.
 | `.picker-stat-card` | Clickable picker workload card inside a grid — hover shows pointer cursor and elevated shadow |
 
 ### Modals
-Modals are built inline (not a shared component) with this overlay pattern:
+Modals are built inline (not a shared component).
+
+**Standard pattern** (small/inline modals inside a panel):
 ```tsx
 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000 }}>
   <div style={{ background: '#fff', borderRadius: '14px', maxWidth: '680px', ... }}>
@@ -236,6 +239,24 @@ Modals are built inline (not a shared component) with this overlay pattern:
   </div>
 </div>
 ```
+
+**createPortal pattern** (modals that must escape parent CSS stacking contexts):
+```tsx
+import { createPortal } from 'react-dom'
+
+export default function MyModal({ onClose }: Props) {
+  const modal = (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999 }}>
+      <div style={{ background: '#fff', borderRadius: '16px', ... }}>
+        {/* header / body / footer */}
+      </div>
+    </div>
+  )
+  return createPortal(modal, document.body)
+}
+```
+Use `createPortal` when the parent panel has `transform`, `filter`, `will-change`, or `overflow: hidden` — these break `position: fixed` containment. `BulkScanModal` uses this pattern. `zIndex: 9999` ensures it renders above all other layers.
+
 - Nested modals (e.g. confirm dialog on top of order modal) use `zIndex: 1100`
 - Overlay click closes the modal (`onClick={onClose}` on overlay, `e.stopPropagation()` on inner panel)
 - **Complete** confirm dialogs: green gradient header (`linear-gradient(135deg, #f0fdf4, #f7fef9)`) + checkmark icon
@@ -327,9 +348,10 @@ frontend/src/
     │   ├── PlatformBadge.tsx         ← Platform pill badge
     │   └── SectionHeader.tsx         ← Section h2 + count + actions
     ├── DelayBadge.tsx                ← Delay level badge
-    ├── OrderTable.tsx                ← Inbound order table
+    ├── OrderTable.tsx                ← Inbound order table (carrier + shop columns)
     ├── ScanInput.tsx                 ← Barcode scan input
     ├── ConfirmDialog.tsx             ← Confirm modal
+    ├── BulkScanModal.tsx             ← Phase 10: bulk scan staging modal (createPortal)
     ├── SlaAlertBanner.tsx            ← Phase 9: dismissible D4 alert banner (ADMIN + INBOUND_ADMIN only)
     └── ProtectedRoute.tsx            ← Auth guard
 ```

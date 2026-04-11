@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 1.6.0  
-> **Date:** 2026-04-10  
-> **Status:** In development — Phase 5 + 7 complete (Packer Admin + PackerMobile)
+> **Version:** 1.9.0  
+> **Date:** 2026-04-11  
+> **Status:** In development — Phase 10 complete (Dashboard + Bulk Inbound Scan)
 
 ---
 
@@ -262,7 +262,7 @@ orders ──< picker_assignments >── users (pickers)
 orders ──< packer_assignments >── users (packers)
 ```
 
-> **Design decision:** No `stores` table. Store/seller name is visible on the physical waybill and is not recorded in the system. Inbound requires zero manual input — scan only.
+> **Design decision:** No separate `stores` table. Shop name is stored as a free-text nullable string on the `orders` table (`shop_name`). Distinct values are queried dynamically for the Bulk Scan dropdown — no additional CRUD UI needed.
 
 ### Table Definitions
 
@@ -297,7 +297,9 @@ orders ──< packer_assignments >── users (packers)
 | id | UUID PK | |
 | tenant_id | UUID FK | → tenants |
 | tracking_number | VARCHAR | Unique per tenant |
-| platform | ENUM | `SHOPEE`, `LAZADA`, `TIKTOK`, `OTHER` |
+| platform | ENUM | `SHOPEE`, `LAZADA`, `TIKTOK`, `OTHER` — auto-detected from tracking number prefix |
+| carrier_name | VARCHAR NULLABLE | Logistics carrier (e.g. `SPX`, `JT_EXPRESS`, `FLASH`, `LEX`, `LBC`, `NINJA_VAN`, `OTHER`). Set at scan time via Bulk Scan. Null for legacy single-scan orders. |
+| shop_name | VARCHAR NULLABLE | Seller shop name (e.g. "Picky Farm Official"). Set at scan time via Bulk Scan. Null for legacy orders. |
 | status | ENUM | See status flow |
 | priority | INTEGER | Higher = more urgent; default 0, carryover +100, SLA boosts added on escalation |
 | delay_level | INTEGER | SLA delay level: 0=D0, 1=D1, 2=D2, 3=D3, 4=D4; default 0 |
@@ -359,6 +361,7 @@ CREATE UNIQUE INDEX ON orders (tenant_id, tracking_number);
 CREATE INDEX ON orders (tenant_id, status);
 CREATE INDEX ON orders (tenant_id, created_at DESC);
 CREATE INDEX ON orders (tenant_id, priority DESC, created_at ASC);
+CREATE INDEX ON orders (tenant_id, shop_name);   -- GET /orders/shops distinct query
 CREATE INDEX ON picker_assignments (picker_id, completed_at);
 CREATE INDEX ON packer_assignments (packer_id, completed_at);
 
@@ -418,15 +421,25 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.2 Inbound Panel ✅ Built (Phase 2)
+### 7.2 Inbound Panel ✅ Built (Phase 2 + Phase 10)
 **Visible to:** Admin (edit), Inbound Admin (edit+delete), Picker Admin (view), Packer Admin (view)
 
-**Scan Flow:**
+**Single Scan Flow:**
 1. Worker focuses the scan input field
 2. Scans waybill barcode → tracking number auto-filled, platform auto-detected
-3. Order saved immediately, appears in table — no further input required
+3. Order saved immediately, appears in table — carrier/shop left null
 
-**Order Table Columns:** Tracking Number | Platform | Delay (D-badge) | Scan Time | Scanned By | Actions
+**Bulk Scan Flow (added Phase 10):**
+1. Admin clicks "Bulk Scan" button → `BulkScanModal` opens (rendered via `createPortal`)
+2. Admin scans barcodes one by one → staging list builds up (client-side only, no DB writes yet)
+   - Duplicate TN in same batch: client-side warning, not re-added
+   - Each row shows: index | tracking number | platform badge | remove button
+3. Admin selects **Carrier** (required) from dropdown: SPX / J&T / Flash / LEX / LBC / Ninja Van / Other
+4. Admin selects or types **Shop Name** (optional): dropdown populated from `GET /orders/shops` (distinct past values)
+5. Admin clicks Confirm → `POST /orders/bulk-scan` → all orders created atomically with carrier + shop
+6. Modal closes; success/partial-duplicate banner shown; order table refreshes
+
+**Order Table Columns:** Tracking Number | Platform | Carrier | Shop | Delay (D-badge) | Scan Time | Scanned By | Actions
 
 **Pagination:** 25 orders per page, client-side. Header stats (Total + D0–D4 counts) reflect full dataset regardless of current page.
 
@@ -434,6 +447,13 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 **Actions:**
 - Inbound Admin / Admin: Delete order button (with confirmation dialog)
+
+**API Endpoints:**
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/orders/scan` | ADMIN, INBOUND_ADMIN | Single scan — creates one order, carrier/shop null |
+| `POST` | `/orders/bulk-scan` | ADMIN, INBOUND_ADMIN | Bulk scan — creates up to 200 orders with carrier + shop; returns `{ created, duplicates[] }` |
+| `GET` | `/orders/shops` | ADMIN, INBOUND_ADMIN | Returns distinct shop names used so far (for Bulk Scan dropdown) |
 
 ---
 
@@ -1008,10 +1028,11 @@ On push to main branch:
 | **7** | Packer Device View (mobile-first) — same pattern as Picker Device (green theme) | ✅ Done | Packer confirms on handheld; shared queue; race condition protected |
 | **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | ✅ Done | End-to-end lifecycle works; SLA timer stops at dispatch |
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
-| **10** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
-| **11** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
-| **12** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
-| **13** | Multi-tenant, Docker, CI/CD, versioned deploy | 🔜 | Full regression on test branch; clean deploy to main |
+| **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package | ✅ Done | Batch of TNs staged, carrier assigned once, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
+| **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
+| **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
+| **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
+| **14** | Multi-tenant, Docker, CI/CD, versioned deploy | 🔜 | Full regression on test branch; clean deploy to main |
 
 ---
 
