@@ -8,6 +8,8 @@ interface Order {
   id: string
   trackingNumber: string
   platform: string
+  carrierName?: string | null
+  shopName?: string | null
   delayLevel: number
   createdAt: string
   scannedBy: { username: string }
@@ -50,6 +52,8 @@ export default function OrderTable({ orders, canDelete, onDelete }: OrderTablePr
               <th>#</th>
               <th>Tracking Number</th>
               <th>Platform</th>
+              <th>Carrier</th>
+              <th>Shop</th>
               <th>Delay</th>
               <th>Scanned At</th>
               <th>Scanned By</th>
@@ -70,6 +74,23 @@ export default function OrderTable({ orders, canDelete, onDelete }: OrderTablePr
                     {order.trackingNumber}
                   </td>
                   <td><PlatformBadge platform={order.platform} /></td>
+                  <td>
+                    {order.carrierName ? (
+                      <span style={{
+                        display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                        fontSize: '11px', fontWeight: 600,
+                        background: '#f1f5f9', color: '#374151',
+                        border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                      }}>
+                        {order.carrierName.replace(/_/g, ' ')}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#d1d5db' }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                  </td>
                   <td><DelayBadge level={order.delayLevel} /></td>
                   <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                     {new Date(order.createdAt).toLocaleString('en-GB', {

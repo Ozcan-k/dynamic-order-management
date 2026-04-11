@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors } from '../theme'
 import ScanInput from '../components/ScanInput'
+import BulkScanModal from '../components/BulkScanModal'
 import OrderTable from '../components/OrderTable'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
@@ -14,6 +15,8 @@ interface Order {
   id: string
   trackingNumber: string
   platform: string
+  carrierName?: string | null
+  shopName?: string | null
   delayLevel: number
   createdAt: string
   scannedBy: { username: string }
@@ -26,6 +29,8 @@ export default function Inbound() {
   const queryClient = useQueryClient()
   const [currentPage, setCurrentPage] = useState(1)
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
+  const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkFeedback, setBulkFeedback] = useState<{ created: number; duplicates: string[] } | null>(null)
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -122,6 +127,38 @@ export default function Inbound() {
         disabled={scanMutation.isPending}
       />
 
+      {(user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, marginTop: -12 }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => { setBulkFeedback(null); setShowBulkModal(true) }}
+          >
+            Bulk Scan
+          </button>
+        </div>
+      )}
+
+      {bulkFeedback && (
+        <div
+          className={[
+            'feedback-banner',
+            bulkFeedback.duplicates.length > 0 ? 'feedback-banner--error' : 'feedback-banner--success',
+          ].join(' ')}
+          style={{ marginBottom: '16px' }}
+        >
+          {bulkFeedback.duplicates.length === 0
+            ? `Bulk scan complete — ${bulkFeedback.created} order${bulkFeedback.created !== 1 ? 's' : ''} created.`
+            : `${bulkFeedback.created} order${bulkFeedback.created !== 1 ? 's' : ''} created. Duplicates skipped: ${bulkFeedback.duplicates.join(', ')}`
+          }
+          <button
+            onClick={() => setBulkFeedback(null)}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700, fontSize: '14px', padding: '0 4px' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {scanFeedback && (
         <div
           className={[
@@ -179,6 +216,17 @@ export default function Inbound() {
             </button>
           </div>
         </div>
+      )}
+      {showBulkModal && (
+        <BulkScanModal
+          onClose={() => setShowBulkModal(false)}
+          onSuccess={(created, duplicates) => {
+            setShowBulkModal(false)
+            setBulkFeedback({ created, duplicates })
+            queryClient.invalidateQueries({ queryKey: ['orders'] })
+            queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
+          }}
+        />
       )}
     </PageShell>
   )

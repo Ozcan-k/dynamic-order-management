@@ -87,6 +87,8 @@ model Order {
   tenantId       String      @map("tenant_id")
   trackingNumber String      @map("tracking_number")
   platform       Platform
+  carrierName    String?     @map("carrier_name")
+  shopName       String?     @map("shop_name")
   status         OrderStatus @default(INBOUND)
   priority       Int         @default(0)
   delayLevel     Int         @default(0) @map("delay_level")
@@ -108,6 +110,7 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, priority(sort: Desc), createdAt(sort: Asc)])
+  @@index([tenantId, shopName])
   @@map("orders")
 }
 

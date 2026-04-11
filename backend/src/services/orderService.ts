@@ -6,6 +6,7 @@ export async function scanOrder(
   trackingNumber: string,
   scannedById: string,
   tenantId: string,
+  options?: { carrierName?: string; shopName?: string },
 ) {
   const tn = trackingNumber.trim()
   const platform = detectPlatform(tn)
@@ -22,6 +23,8 @@ export async function scanOrder(
       tenantId,
       trackingNumber: tn,
       platform,
+      carrierName: options?.carrierName ?? null,
+      shopName: options?.shopName ?? null,
       status: OrderStatus.INBOUND,
       priority: 0,
       delayLevel: 0,
@@ -38,6 +41,45 @@ export async function scanOrder(
   })
 
   return { duplicate: false, order }
+}
+
+export async function bulkScanOrders(
+  trackingNumbers: string[],
+  scannedById: string,
+  tenantId: string,
+  carrierName: string,
+  shopName?: string,
+): Promise<{ created: number; duplicates: string[] }> {
+  let created = 0
+  const duplicates: string[] = []
+
+  for (const tn of trackingNumbers) {
+    try {
+      const { duplicate } = await scanOrder(tn, scannedById, tenantId, {
+        carrierName,
+        shopName: shopName?.trim() || undefined,
+      })
+      if (duplicate) {
+        duplicates.push(tn.trim().toUpperCase())
+      } else {
+        created++
+      }
+    } catch {
+      duplicates.push(tn.trim().toUpperCase())
+    }
+  }
+
+  return { created, duplicates }
+}
+
+export async function getDistinctShopNames(tenantId: string): Promise<string[]> {
+  const rows = await prisma.order.findMany({
+    where: { tenantId, shopName: { not: null } },
+    select: { shopName: true },
+    distinct: ['shopName'],
+    orderBy: { shopName: 'asc' },
+  })
+  return rows.map(r => r.shopName as string)
 }
 
 export async function listOrders(tenantId: string) {
@@ -60,7 +102,6 @@ export async function getOrderStats(tenantId: string) {
     prisma.order.count({ where: { tenantId, delayLevel: 3 } }),
     prisma.order.count({ where: { tenantId, delayLevel: 4 } }),
   ])
-  // pendingInbound + inProgressCount + pickerDoneCount === totalScanned always
   return { totalScanned, pendingInbound, inProgressCount, pickerDoneCount, delayBreakdown: [d0, d1, d2, d3, d4] }
 }
 

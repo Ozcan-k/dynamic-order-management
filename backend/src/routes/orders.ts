@@ -1,11 +1,24 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { UserRole, JWTPayload } from '@dom/shared'
+import { UserRole, JWTPayload, Carrier } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
-import { scanOrder, listOrders, deleteOrder, getOrderStats } from '../services/orderService'
+import {
+  scanOrder,
+  bulkScanOrders,
+  getDistinctShopNames,
+  listOrders,
+  deleteOrder,
+  getOrderStats,
+} from '../services/orderService'
 
 const ScanSchema = z.object({
   trackingNumber: z.string().min(1).max(100),
+})
+
+const BulkScanSchema = z.object({
+  trackingNumbers: z.array(z.string().min(1).max(100)).min(1).max(200),
+  carrierName: z.nativeEnum(Carrier),
+  shopName: z.string().min(1).max(100).optional(),
 })
 
 export default async function orderRoutes(fastify: FastifyInstance) {
@@ -28,6 +41,35 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       }
 
       return reply.code(201).send({ order })
+    },
+  )
+
+  // POST /orders/bulk-scan — ADMIN, INBOUND_ADMIN
+  fastify.post(
+    '/bulk-scan',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const result = BulkScanSchema.safeParse(request.body)
+      if (!result.success) {
+        return reply.code(400).send({ error: 'Invalid request body', details: result.error.flatten() })
+      }
+
+      const { userId, tenantId } = request.user as JWTPayload
+      const { trackingNumbers, carrierName, shopName } = result.data
+
+      const summary = await bulkScanOrders(trackingNumbers, userId, tenantId, carrierName, shopName)
+      return reply.code(201).send(summary)
+    },
+  )
+
+  // GET /orders/shops — ADMIN, INBOUND_ADMIN
+  fastify.get(
+    '/shops',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const shops = await getDistinctShopNames(tenantId)
+      return reply.send({ shops })
     },
   )
 

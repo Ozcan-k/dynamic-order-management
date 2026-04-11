@@ -49,3 +49,31 @@ export interface JWTPayload {
   tenantId: string
   role: UserRole
 }
+
+export enum Carrier {
+  SPX        = 'SPX',
+  JT_EXPRESS = 'JT_EXPRESS',
+  FLASH      = 'FLASH',
+  LEX        = 'LEX',
+  LBC        = 'LBC',
+  NINJA_VAN  = 'NINJA_VAN',
+  OTHER      = 'OTHER',
+}
+
+export const CARRIER_LABELS: Record<Carrier, string> = {
+  [Carrier.SPX]:        'SPX / Shopee Express',
+  [Carrier.JT_EXPRESS]: 'J&T Express',
+  [Carrier.FLASH]:      'Flash Express',
+  [Carrier.LEX]:        'LEX / Lazada Logistics',
+  [Carrier.LBC]:        'LBC',
+  [Carrier.NINJA_VAN]:  'Ninja Van',
+  [Carrier.OTHER]:      'Other',
+}
+
+export function detectPlatform(trackingNumber: string): Platform {
+  const tn = trackingNumber.toUpperCase().trim()
+  if (tn.startsWith('PH')) return Platform.SHOPEE
+  if (tn.startsWith('JT')) return Platform.TIKTOK
+  if (tn.startsWith('MP') || tn.startsWith('P')) return Platform.LAZADA
+  return Platform.OTHER
+}
