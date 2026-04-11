@@ -330,5 +330,6 @@ frontend/src/
     ├── OrderTable.tsx                ← Inbound order table
     ├── ScanInput.tsx                 ← Barcode scan input
     ├── ConfirmDialog.tsx             ← Confirm modal
+    ├── SlaAlertBanner.tsx            ← Phase 9: dismissible D4 alert banner (ADMIN + INBOUND_ADMIN only)
     └── ProtectedRoute.tsx            ← Auth guard
 ```

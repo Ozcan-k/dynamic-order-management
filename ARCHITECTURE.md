@@ -741,7 +741,7 @@ frontend/
 │   │   ├── OrderCard.tsx          ← Phase 4: mobile card, touch-friendly, large tap targets
 │   │   ├── ConfirmDialog.tsx      ← reusable confirmation modal
 │   │   ├── DelayBadge.tsx         ← D-level badge: D0=none, D1=yellow, D2=orange, D3=red, D4=red+pulse
-│   │   ├── SlaAlertBanner.tsx     ← Phase 7: dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
+│   │   ├── SlaAlertBanner.tsx     ← Phase 9: dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
 │   │   └── shared/
 │   │       ├── AppLayout.tsx      ← desktop layout wrapper (Sidebar + content area)
 │   │       ├── Sidebar.tsx        ← role-based nav with SVG icons; desktop only
@@ -753,7 +753,7 @@ frontend/
 │   │       └── SectionHeader.tsx  ← section title + count badge
 │   ├── stores/                    ← Zustand global state
 │   │   ├── authStore.ts
-│   │   └── notificationStore.ts   ← Phase 7: d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   └── notificationStore.ts   ← Phase 9: d4Alerts[], addD4Alert(), dismissD4Alert()
 │   ├── api/                       ← TanStack Query hooks
 │   │   ├── orders.ts
 │   │   ├── assignments.ts
