@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
-import { scanOrder, listOrders, deleteOrder } from '../services/orderService'
+import { scanOrder, listOrders, deleteOrder, getOrderStats } from '../services/orderService'
 
 const ScanSchema = z.object({
   trackingNumber: z.string().min(1).max(100),
@@ -44,6 +44,21 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       const { tenantId } = request.user as JWTPayload
       const orders = await listOrders(tenantId)
       return reply.send({ orders })
+    },
+  )
+
+  // GET /orders/stats — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
+  fastify.get(
+    '/stats',
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      return reply.send(await getOrderStats(tenantId))
     },
   )
 

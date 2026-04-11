@@ -48,6 +48,14 @@ export async function listOrders(tenantId: string) {
   })
 }
 
+export async function getOrderStats(tenantId: string) {
+  const [totalScanned, pendingInbound] = await Promise.all([
+    prisma.order.count({ where: { tenantId } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
+  ])
+  return { totalScanned, pendingInbound }
+}
+
 export async function deleteOrder(orderId: string, tenantId: string) {
   const order = await prisma.order.findUnique({ where: { id: orderId } })
   if (!order || order.tenantId !== tenantId) throw new Error('Order not found')

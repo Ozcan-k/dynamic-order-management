@@ -39,11 +39,21 @@ export default function Inbound() {
     refetchInterval: 5000,
   })
 
+  const { data: statsData } = useQuery({
+    queryKey: ['orders-stats'],
+    queryFn: async () => {
+      const res = await api.get<{ totalScanned: number; pendingInbound: number }>('/orders/stats')
+      return res.data
+    },
+    refetchInterval: 5000,
+  })
+
   const scanMutation = useMutation({
     mutationFn: (trackingNumber: string) =>
       api.post('/orders/scan', { trackingNumber }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
       setScanFeedback(null)
     },
     onError: (err: any) => {
@@ -56,6 +66,7 @@ export default function Inbound() {
     mutationFn: (id: string) => api.delete(`/orders/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Delete failed'
@@ -64,8 +75,9 @@ export default function Inbound() {
   })
 
   const allOrders = data ?? []
-  const total = allOrders.length
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const pending = allOrders.length
+  const totalScanned = statsData?.totalScanned ?? pending
+  const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
   const counts = [0, 1, 2, 3, 4].map(level => ({
@@ -76,7 +88,8 @@ export default function Inbound() {
   // Header stats
   const headerStats = (
     <>
-      <StatCard label="Total" value={total} color={colors.primary} />
+      <StatCard label="Total Scanned" value={totalScanned} color={colors.primary} />
+      <StatCard label="Pending" value={pending} color="#6366f1" />
       {counts.map(({ level, count }) => (
         <StatCard key={level} label={`D${level}`} value={count} color={colors.delay[level]} />
       ))}
@@ -135,7 +148,7 @@ export default function Inbound() {
         </div>
       )}
 
-      <SectionHeader title="Pending Orders" count={total} />
+      <SectionHeader title="Pending Orders" count={pending} />
 
       <OrderTable
         orders={pagedOrders}
@@ -146,7 +159,7 @@ export default function Inbound() {
       {totalPages > 1 && (
         <div className="pagination-bar">
           <span className="pagination-info">
-            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total} orders
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, pending)} of {pending} orders
           </span>
           <div className="pagination-controls">
             <button
