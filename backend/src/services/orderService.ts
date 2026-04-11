@@ -49,16 +49,19 @@ export async function listOrders(tenantId: string) {
 }
 
 export async function getOrderStats(tenantId: string) {
-  const [totalScanned, pendingInbound, d0, d1, d2, d3, d4] = await Promise.all([
+  const [totalScanned, pendingInbound, inProgressCount, pickerDoneCount, d0, d1, d2, d3, d4] = await Promise.all([
     prisma.order.count({ where: { tenantId } }),
     prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] } } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_COMPLETE, OrderStatus.OUTBOUND] } } }),
     prisma.order.count({ where: { tenantId, delayLevel: 0 } }),
     prisma.order.count({ where: { tenantId, delayLevel: 1 } }),
     prisma.order.count({ where: { tenantId, delayLevel: 2 } }),
     prisma.order.count({ where: { tenantId, delayLevel: 3 } }),
     prisma.order.count({ where: { tenantId, delayLevel: 4 } }),
   ])
-  return { totalScanned, pendingInbound, delayBreakdown: [d0, d1, d2, d3, d4] }
+  // pendingInbound + inProgressCount + pickerDoneCount === totalScanned always
+  return { totalScanned, pendingInbound, inProgressCount, pickerDoneCount, delayBreakdown: [d0, d1, d2, d3, d4] }
 }
 
 export async function deleteOrder(orderId: string, tenantId: string) {

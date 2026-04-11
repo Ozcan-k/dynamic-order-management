@@ -878,6 +878,16 @@ export default function PickerAdmin() {
     refetchInterval: 5000,
   })
 
+  // Order balance stats — order-status-based counts so header equation always holds
+  const { data: orderStats } = useQuery({
+    queryKey: ['orders-stats'],
+    queryFn: async () => {
+      const res = await api.get<{ totalScanned: number; pendingInbound: number; inProgressCount: number; pickerDoneCount: number }>('/orders/stats')
+      return res.data
+    },
+    refetchInterval: 5000,
+  })
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['picker-admin-orders'] })
     queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
@@ -1010,11 +1020,37 @@ export default function PickerAdmin() {
   // ─── Header stats ──────────────────────────────────────────────────────────
   const headerStats = (
     <>
-      <StatCard label="Inbound" value={orderList.length} color={colors.primary} />
-      <StatCard label="Assigned Today" value={totalAssignedToday} color={colors.success} />
-      <StatCard label="Total Completed" value={totalCompleted} color="#10b981" />
+      <StatCard label="In Queue" value={orderStats?.pendingInbound ?? orderList.length} color={colors.primary} />
+      <StatCard label="In Progress" value={orderStats?.inProgressCount ?? 0} color={colors.success} />
+      <StatCard label="Total Completed" value={orderStats?.pickerDoneCount ?? 0} color="#10b981" />
       <StatCard label="Returned from Packer" value={returnedFromPacker} color="#f59e0b" />
-      <StatCard label="Pickers" value={pickerList.length} color="#7c3aed" />
+      {/* Delay breakdown */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '6px',
+        background: '#f8fafc', border: '1px solid #e2e8f0',
+        borderRadius: '10px', padding: '6px 12px',
+      }}>
+        {[0, 1, 2, 3, 4].map((level) => {
+          const count = orderList.filter(o => o.delayLevel === level).length
+          const delayColors = ['#64748b', '#eab308', '#f97316', '#ef4444', '#991b1b']
+          return (
+            <div key={level} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: '20px', height: '20px', borderRadius: '5px',
+                background: delayColors[level], color: '#fff',
+                fontSize: '10px', fontWeight: 700, padding: '0 4px',
+              }}>
+                D{level}
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', minWidth: '18px' }}>
+                {count}
+              </span>
+              {level < 4 && <span style={{ color: '#cbd5e1', fontSize: '12px' }}>·</span>}
+            </div>
+          )
+        })}
+      </div>
       {ordersLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
           <span className="spinner spinner-sm" />
