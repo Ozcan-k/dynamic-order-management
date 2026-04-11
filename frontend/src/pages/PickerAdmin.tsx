@@ -15,6 +15,8 @@ interface Order {
   id: string
   trackingNumber: string
   platform: string
+  carrierName?: string | null
+  shopName?: string | null
   delayLevel: number
   priority: number
   createdAt: string
@@ -44,6 +46,8 @@ interface PickerOrderRow {
   assignmentId: string
   trackingNumber: string
   platform: string
+  carrierName?: string | null
+  shopName?: string | null
   status: string
   delayLevel: number
   priority: number
@@ -209,7 +213,7 @@ function PickerOrdersModal({
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
-                  {['Tracking Number', 'Platform', 'Status', 'Delay', 'Assigned At', ''].map(h => (
+                  {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Status', 'Delay', 'Assigned At', ''].map(h => (
                     <th key={h} style={{
                       padding: '10px 16px', textAlign: 'left', fontSize: '11px',
                       fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
@@ -226,6 +230,23 @@ function PickerOrdersModal({
                     </td>
                     <td style={{ padding: '11px 16px' }}>
                       <PlatformBadge platform={order.platform} />
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      {order.carrierName ? (
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                          fontSize: '11px', fontWeight: 600,
+                          background: '#f1f5f9', color: '#374151',
+                          border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                        }}>
+                          {order.carrierName.replace(/_/g, ' ')}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#d1d5db' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '11px 16px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
                     </td>
                     <td style={{ padding: '11px 16px' }}>
                       {statusChip(order.status)}
@@ -1256,17 +1277,18 @@ export default function PickerAdmin() {
       ) : (
         <>
         <div className="data-table-wrap">
-          <table style={{ minWidth: '900px' }}>
+          <table style={{ minWidth: '1100px' }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }} />
                 <th style={{ width: 40 }}>#</th>
                 <th>Tracking Number</th>
                 <th>Platform</th>
+                <th>Carrier</th>
+                <th>Shop</th>
                 <th>Delay</th>
                 <th>Scanned At</th>
                 <th>Scanned By</th>
-                <th style={{ textAlign: 'center' }}>Priority</th>
                 <th style={{ textAlign: 'center' }}>Assign</th>
               </tr>
             </thead>
@@ -1306,6 +1328,23 @@ export default function PickerAdmin() {
                       )}
                     </td>
                     <td><PlatformBadge platform={order.platform} /></td>
+                    <td>
+                      {order.carrierName ? (
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                          fontSize: '11px', fontWeight: 600,
+                          background: '#f1f5f9', color: '#374151',
+                          border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                        }}>
+                          {order.carrierName.replace(/_/g, ' ')}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#d1d5db' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                    </td>
                     <td><DelayBadge level={order.delayLevel} /></td>
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                       {new Date(order.createdAt).toLocaleString('en-GB', {
@@ -1316,11 +1355,6 @@ export default function PickerAdmin() {
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#374151', fontWeight: 500 }}>
                         <Avatar username={order.scannedBy.username} size={24} />
                         {order.scannedBy.username}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span style={{ fontWeight: 700, fontSize: '13px', color: colors.priority(order.priority) }}>
-                        {order.priority}
                       </span>
                     </td>
                     <td style={{ textAlign: 'center' }}>

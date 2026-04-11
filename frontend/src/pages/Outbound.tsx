@@ -15,6 +15,8 @@ interface ReadyOrder {
   id: string
   trackingNumber: string
   platform: string
+  carrierName?: string | null
+  shopName?: string | null
   delayLevel: number
   priority: number
   createdAt: string
@@ -370,7 +372,7 @@ export default function Outbound() {
                   style={{ cursor: 'pointer' }}
                 />
               </th>
-              {['Tracking Number', 'Platform', 'Packed By', 'Waiting Since', 'Delay', 'Action'].map((h) => (
+              {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Packed By', 'Waiting Since', 'Delay', 'Action'].map((h) => (
                 <th key={h} style={{
                   padding: '10px 14px', textAlign: 'left', fontSize: '11px',
                   fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
@@ -384,7 +386,7 @@ export default function Outbound() {
           <tbody>
             {ordersLoading ? (
               <tr>
-                <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: colors.textMuted }}>
+                <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: colors.textMuted }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
                     <span className="spinner spinner-sm" />
                     Loading orders...
@@ -393,7 +395,7 @@ export default function Outbound() {
               </tr>
             ) : pagedOrders.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: '40px', textAlign: 'center' }}>
+                <td colSpan={9} style={{ padding: '40px', textAlign: 'center' }}>
                   <div style={{ fontSize: '28px', marginBottom: '8px' }}>🚚</div>
                   <div style={{ fontWeight: 600, color: colors.textPrimary, fontSize: '14px' }}>
                     {trimmed ? 'No orders match your search' : 'No orders waiting to dispatch'}
@@ -425,6 +427,23 @@ export default function Outbound() {
                     </td>
                     <td style={{ padding: '11px 14px' }}>
                       <PlatformBadge platform={order.platform} />
+                    </td>
+                    <td style={{ padding: '11px 14px' }}>
+                      {order.carrierName ? (
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                          fontSize: '11px', fontWeight: 600,
+                          background: '#f1f5f9', color: '#374151',
+                          border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                        }}>
+                          {order.carrierName.replace(/_/g, ' ')}
+                        </span>
+                      ) : (
+                        <span style={{ padding: '11px 0px', fontSize: '12px', color: '#d1d5db' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '11px 14px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
                     </td>
                     <td style={{ padding: '11px 14px', fontSize: '12px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>
                       {assignment?.packer.username ?? '—'}

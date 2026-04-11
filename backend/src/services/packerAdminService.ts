@@ -169,6 +169,8 @@ export async function getPackerOrders(packerId: string, tenantId: string) {
           id: true,
           trackingNumber: true,
           platform: true,
+          carrierName: true,
+          shopName: true,
           status: true,
           delayLevel: true,
           priority: true,

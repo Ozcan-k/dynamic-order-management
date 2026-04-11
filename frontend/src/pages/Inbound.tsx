@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import { colors } from '../theme'
 import ScanInput from '../components/ScanInput'
 import BulkScanModal from '../components/BulkScanModal'
+import QuickScanModal from '../components/QuickScanModal'
 import OrderTable from '../components/OrderTable'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
@@ -31,6 +32,9 @@ export default function Inbound() {
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
   const [showBulkModal, setShowBulkModal] = useState(false)
   const [bulkFeedback, setBulkFeedback] = useState<{ created: number; duplicates: string[] } | null>(null)
+  const [pendingScan, setPendingScan] = useState<string | null>(null)
+  const [lastCarrier, setLastCarrier] = useState(() => localStorage.getItem('quickScan_carrier') ?? '')
+  const [lastShop, setLastShop] = useState(() => localStorage.getItem('quickScan_shop') ?? '')
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -54,8 +58,8 @@ export default function Inbound() {
   })
 
   const scanMutation = useMutation({
-    mutationFn: (trackingNumber: string) =>
-      api.post('/orders/scan', { trackingNumber }),
+    mutationFn: (payload: { trackingNumber: string; carrierName?: string; shopName?: string }) =>
+      api.post('/orders/scan', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
@@ -123,9 +127,27 @@ export default function Inbound() {
       stats={headerStats}
     >
       <ScanInput
-        onScan={(tn) => { setScanFeedback(null); scanMutation.mutate(tn) }}
+        onScan={(tn) => { setScanFeedback(null); setPendingScan(tn) }}
         disabled={scanMutation.isPending}
       />
+
+      {pendingScan && (
+        <QuickScanModal
+          trackingNumber={pendingScan}
+          initialCarrier={lastCarrier}
+          initialShop={lastShop}
+          onConfirm={(carrier, shop) => {
+            localStorage.setItem('quickScan_carrier', carrier)
+            localStorage.setItem('quickScan_shop', shop)
+            setLastCarrier(carrier)
+            setLastShop(shop)
+            const tn = pendingScan
+            setPendingScan(null)
+            scanMutation.mutate({ trackingNumber: tn, carrierName: carrier, shopName: shop })
+          }}
+          onCancel={() => setPendingScan(null)}
+        />
+      )}
 
       {(user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN) && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, marginTop: -12 }}>

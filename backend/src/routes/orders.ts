@@ -13,6 +13,8 @@ import {
 
 const ScanSchema = z.object({
   trackingNumber: z.string().min(1).max(100),
+  carrierName: z.nativeEnum(Carrier).optional(),
+  shopName: z.string().min(1).max(100).optional(),
 })
 
 const BulkScanSchema = z.object({
@@ -33,9 +35,9 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       }
 
       const { userId, tenantId } = request.user as JWTPayload
-      const { trackingNumber } = result.data
+      const { trackingNumber, carrierName, shopName } = result.data
 
-      const { duplicate, order } = await scanOrder(trackingNumber, userId, tenantId)
+      const { duplicate, order } = await scanOrder(trackingNumber, userId, tenantId, { carrierName, shopName })
       if (duplicate) {
         return reply.code(409).send({ error: 'Tracking number already exists', order })
       }
