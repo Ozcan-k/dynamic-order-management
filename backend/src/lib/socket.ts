@@ -6,9 +6,13 @@ import type { JWTPayload } from '@dom/shared'
 let io: Server | null = null
 
 export function initSocket(httpServer: HttpServer): Server {
+  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((o) => o.trim())
+
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+      origin: allowedOrigins,
       credentials: true,
     },
   })

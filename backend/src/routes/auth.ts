@@ -13,7 +13,7 @@ const LoginSchema = z.object({
 const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: process.env.NODE_ENV === 'production',
+  secure: process.env.COOKIE_SECURE === 'true',
   path: '/',
   maxAge: 60 * 60 * 8, // 8 hours
 }
