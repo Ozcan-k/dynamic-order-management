@@ -317,10 +317,10 @@ export default function Archive() {
                       {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
                     </td>
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
-                      {new Date(order.workDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {new Date(order.workDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })}
                     </td>
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
-                      {new Date(order.archivedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(order.archivedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
                     </td>
                     <td><ExpiryBadge days={order.daysUntilExpiry} /></td>
                   </tr>

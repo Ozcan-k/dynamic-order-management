@@ -1,6 +1,7 @@
 import { OrderStatus } from '@dom/shared'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
+import { getManilaStartOfToday } from '../lib/manila'
 
 const RETENTION_DAYS = 180
 
@@ -53,16 +54,18 @@ export async function getArchivedOrders(tenantId: string, params: ArchiveQueryPa
 
   const cutoffDate = params.expiresWithin != null
     ? (() => {
-        const d = new Date()
+        const d = getManilaStartOfToday()
         d.setDate(d.getDate() - (RETENTION_DAYS - params.expiresWithin!))
         return d
       })()
     : undefined
 
+  // dateFrom/dateTo are Manila-local YYYY-MM-DD strings from the UI filter.
+  // Interpret them as Manila midnight by appending the UTC+8 offset.
   const archivedAtFilter: Prisma.DateTimeNullableFilter = {
     not: null,
-    ...(params.dateFrom ? { gte: new Date(params.dateFrom) } : {}),
-    ...(params.dateTo ? { lte: new Date(params.dateTo + 'T23:59:59.999Z') } : {}),
+    ...(params.dateFrom ? { gte: new Date(params.dateFrom + 'T00:00:00+08:00') } : {}),
+    ...(params.dateTo ? { lte: new Date(params.dateTo + 'T23:59:59+08:00') } : {}),
     ...(cutoffDate ? { lte: cutoffDate } : {}),
   }
 
@@ -94,7 +97,7 @@ export async function getArchivedOrders(tenantId: string, params: ArchiveQueryPa
     prisma.order.count({ where }),
   ])
 
-  const now = new Date()
+  const now = getManilaStartOfToday()
   const ordersWithExpiry = orders.map((o) => {
     const expiresAt = new Date(o.archivedAt!)
     expiresAt.setDate(expiresAt.getDate() + RETENTION_DAYS)
@@ -106,7 +109,7 @@ export async function getArchivedOrders(tenantId: string, params: ArchiveQueryPa
 }
 
 export async function getArchiveStats(tenantId: string) {
-  const now = new Date()
+  const now = getManilaStartOfToday()
 
   const cutoff30 = new Date(now)
   cutoff30.setDate(cutoff30.getDate() - (RETENTION_DAYS - 30))

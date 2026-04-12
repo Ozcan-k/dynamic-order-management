@@ -94,7 +94,7 @@ export default function OrderTable({ orders, canDelete, onDelete }: OrderTablePr
                   <td><DelayBadge level={order.delayLevel} /></td>
                   <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                     {new Date(order.createdAt).toLocaleString('en-GB', {
-                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
                     })}
                   </td>
                   <td>

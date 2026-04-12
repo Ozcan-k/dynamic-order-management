@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { connectSocket } from '../lib/socket'
 import { colors } from '../theme'
+import { getManilaDateString } from '../lib/manila'
 import ScanInput from '../components/ScanInput'
 import BulkScanModal from '../components/BulkScanModal'
 import QuickScanModal from '../components/QuickScanModal'
@@ -122,7 +123,7 @@ export default function Inbound() {
     },
   })
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = getManilaDateString()
   const allOrders = data ?? []
   const todayOrders = allOrders.filter(o => o.workDate?.slice(0, 10) === todayStr)
   const carryoverOrders = allOrders.filter(o => o.workDate?.slice(0, 10) < todayStr)

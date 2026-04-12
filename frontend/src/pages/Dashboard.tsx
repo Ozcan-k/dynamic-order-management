@@ -7,6 +7,7 @@ import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
 import { getSocket } from '../lib/socket'
+import { getManilaDateString } from '../lib/manila'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,12 +217,12 @@ export default function Dashboard() {
   const outbound = outboundData ?? DEFAULT_OUTBOUND
   const slaTotal = SLA_KEYS.reduce((s, k) => s + stats.slaSummary[k], 0)
 
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mm = String(now.getMinutes()).padStart(2, '0')
-  const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' })
-  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
+  const hh = now.toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Manila' }).slice(0, 2)
+  const mm = now.toLocaleTimeString('en-GB', { minute: '2-digit', timeZone: 'Asia/Manila' }).slice(-2)
+  const weekday = now.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Manila' })
+  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Manila' })
   const updatedStr = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    ? new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
     : '—'
 
   const dash = (loading: boolean, v: number) => (loading ? '—' : v)

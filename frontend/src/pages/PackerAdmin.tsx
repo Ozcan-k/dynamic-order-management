@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors } from '../theme'
+import { getManilaDateString } from '../lib/manila'
 import DelayBadge from '../components/DelayBadge'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
@@ -170,7 +171,7 @@ function PackerOrdersModal({
                     <td style={{ padding: '11px 16px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
                       {order.completedAt
                         ? new Date(order.completedAt).toLocaleString('en-GB', {
-                            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
                           })
                         : '—'}
                     </td>
@@ -280,7 +281,7 @@ export default function PackerAdmin() {
     refetchInterval: 10_000,
   })
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = getManilaDateString()
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => o.workDate?.slice(0, 10) < todayStr).length
   const statsList = statsData?.stats ?? []
@@ -352,7 +353,7 @@ export default function PackerAdmin() {
   function formatArrived(order: Order) {
     const ts = order.pickerAssignments[0]?.completedAt ?? order.createdAt
     return new Date(ts).toLocaleString('en-GB', {
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
     })
   }
 

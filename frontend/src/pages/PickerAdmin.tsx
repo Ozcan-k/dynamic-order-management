@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { connectSocket } from '../lib/socket'
 import { colors } from '../theme'
+import { getManilaDateString } from '../lib/manila'
 import DelayBadge from '../components/DelayBadge'
 import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
@@ -396,7 +397,7 @@ function PickerOrdersModal({
                       </td>
                       <td style={{ padding: '11px 16px 11px 8px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
                         {new Date(order.assignedAt).toLocaleString('en-GB', {
-                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
                         })}
                       </td>
                       <td style={{ padding: '11px 16px 11px 8px', textAlign: 'right' }}>
@@ -1154,7 +1155,7 @@ export default function PickerAdmin() {
     assignStagedMutation.mutate({ orderIds: stagedOrders.map(o => o.id), pickerId: selectedPickerId })
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = getManilaDateString()
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => o.workDate?.slice(0, 10) < todayStr).length
   const pickerList = pickers ?? []
@@ -1536,7 +1537,7 @@ export default function PickerAdmin() {
                     <td><DelayBadge level={order.delayLevel} /></td>
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                       {new Date(order.createdAt).toLocaleString('en-GB', {
-                        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
                       })}
                     </td>
                     <td>

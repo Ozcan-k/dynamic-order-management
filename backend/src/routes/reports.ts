@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { UserRole, JWTPayload, OrderStatus } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { prisma } from '../lib/prisma'
+import { getManilaStartOfToday } from '../lib/manila'
 
 export default async function reportsRoutes(fastify: FastifyInstance) {
   // GET /reports/dashboard — ADMIN, INBOUND_ADMIN
@@ -11,8 +12,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
 
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
+      const today = getManilaStartOfToday()
 
       const [
         inboundTotal,

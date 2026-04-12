@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { redisConnection } from '../lib/queues'
 import { hardDeleteExpiredOrders } from '../services/archiveService'
 import { OrderStatus } from '@dom/shared'
+import { getManilaStartOfToday, getManilaDateString } from '../lib/manila'
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -51,8 +52,7 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
     return
   }
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = getManilaStartOfToday()
 
   const [
     inboundTotal,
@@ -78,7 +78,7 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
   ])
 
   const remaining = inboundTotal - outboundTotal
-  const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const dateStr = new Date(getManilaDateString()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })
   const from = process.env.SMTP_FROM || 'Order System <noreply@example.com>'
 
   const d4Rows = d4Orders.map(o => {

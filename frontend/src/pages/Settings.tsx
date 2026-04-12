@@ -370,7 +370,7 @@ function UserRoleCard({
                     {u.username}
                   </div>
                   <div style={{ fontSize: '11px', color: colors.textMuted }}>
-                    Added {new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    Added {new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })}
                     {u.createdBy ? ` · by ${u.createdBy.username}` : ''}
                   </div>
                 </div>

@@ -1,6 +1,7 @@
 import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { detectPlatform } from '../lib/platformDetect'
+import { getManilaStartOfToday } from '../lib/manila'
 
 export async function scanOrder(
   trackingNumber: string,
@@ -18,8 +19,7 @@ export async function scanOrder(
     return { duplicate: true, order: existing }
   }
 
-  const workDate = new Date()
-  workDate.setHours(0, 0, 0, 0)
+  const workDate = getManilaStartOfToday()
 
   const order = await prisma.order.create({
     data: {

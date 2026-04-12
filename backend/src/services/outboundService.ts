@@ -1,5 +1,6 @@
 import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
+import { getManilaStartOfToday } from '../lib/manila'
 
 export async function getReadyToDispatch(tenantId: string) {
   return prisma.order.findMany({
@@ -58,8 +59,7 @@ export async function bulkDispatch(
 }
 
 export async function getOutboundStats(tenantId: string) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = getManilaStartOfToday()
 
   const [
     waitingCount,
@@ -108,8 +108,7 @@ export async function getOutboundStats(tenantId: string) {
 }
 
 export async function getGroupedByCarrier(tenantId: string) {
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
+  const startOfDay = getManilaStartOfToday()
 
   const orders = await prisma.order.findMany({
     where: {
