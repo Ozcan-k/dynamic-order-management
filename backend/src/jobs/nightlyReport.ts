@@ -2,6 +2,7 @@ import { Worker } from 'bullmq'
 import nodemailer from 'nodemailer'
 import { prisma } from '../lib/prisma'
 import { redisConnection } from '../lib/queues'
+import { hardDeleteExpiredOrders } from '../services/archiveService'
 import { OrderStatus } from '@dom/shared'
 
 const transporter = nodemailer.createTransport({
@@ -21,6 +22,12 @@ export function startNightlyReportWorker() {
 
       for (const tenant of tenants) {
         await sendNightlyReport(tenant.id, tenant.slug)
+        try {
+          const { deleted } = await hardDeleteExpiredOrders(tenant.id)
+          if (deleted > 0) console.log(`[nightlyReport] Hard-deleted ${deleted} expired archive orders for tenant ${tenant.slug}`)
+        } catch (err) {
+          console.error(`[nightlyReport] Failed to hard-delete expired orders for tenant ${tenant.slug}:`, err)
+        }
       }
     },
     { connection: redisConnection },

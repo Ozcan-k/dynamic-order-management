@@ -3,8 +3,20 @@ import { prisma } from '../lib/prisma'
 
 export async function getInboundOrders(tenantId: string) {
   return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.INBOUND },
-    include: { scannedBy: { select: { username: true } } },
+    where: { tenantId, status: OrderStatus.INBOUND, archivedAt: null },
+    select: {
+      id: true,
+      trackingNumber: true,
+      platform: true,
+      carrierName: true,
+      shopName: true,
+      status: true,
+      priority: true,
+      delayLevel: true,
+      workDate: true,
+      createdAt: true,
+      scannedBy: { select: { username: true } },
+    },
     orderBy: [{ priority: 'desc' }, { delayLevel: 'desc' }, { createdAt: 'asc' }],
   })
 }
@@ -80,7 +92,7 @@ export async function bulkAssignPicker(
 
 export async function lookupOrderByScan(trackingNumber: string, tenantId: string) {
   const order = await prisma.order.findFirst({
-    where: { trackingNumber, tenantId },
+    where: { trackingNumber, tenantId, archivedAt: null },
     select: {
       id: true,
       trackingNumber: true,
@@ -261,7 +273,7 @@ export async function getPickerStats(tenantId: string) {
             where: {
               pickerId: picker.id,
               completedAt: null,
-              order: { tenantId },
+              order: { tenantId, archivedAt: null },
             },
             select: { order: { select: { status: true } } },
           }),
@@ -273,6 +285,8 @@ export async function getPickerStats(tenantId: string) {
               pickerId: picker.id,
               completedAt: null,
               order: {
+                tenantId,
+                archivedAt: null,
                 status: OrderStatus.PICKER_ASSIGNED,
                 statusHistory: {
                   some: {
@@ -310,6 +324,7 @@ export async function getPickerStats(tenantId: string) {
     prisma.order.count({
       where: {
         tenantId,
+        archivedAt: null,
         status: OrderStatus.PICKER_ASSIGNED,
         statusHistory: {
           some: {
@@ -320,7 +335,7 @@ export async function getPickerStats(tenantId: string) {
       },
     }),
     prisma.pickerAssignment.count({
-      where: { completedAt: { not: null }, order: { tenantId } },
+      where: { completedAt: { not: null }, order: { tenantId, archivedAt: null } },
     }),
   ])
 

@@ -3,8 +3,18 @@ import { prisma } from '../lib/prisma'
 
 export async function getPickerCompleteOrders(tenantId: string) {
   return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.PICKER_COMPLETE },
-    include: {
+    where: { tenantId, status: OrderStatus.PICKER_COMPLETE, archivedAt: null },
+    select: {
+      id: true,
+      trackingNumber: true,
+      platform: true,
+      carrierName: true,
+      shopName: true,
+      status: true,
+      priority: true,
+      delayLevel: true,
+      workDate: true,
+      createdAt: true,
       pickerAssignments: {
         where: { completedAt: { not: null } },
         take: 1,
@@ -153,11 +163,12 @@ export async function getPackerStats(tenantId: string) {
     // Previously this counted order.count({ status: PACKER_COMPLETE }) which was wrong:
     // it was identical to the "Waiting to Pack" queue and dropped to 0 after dispatch.
     prisma.packerAssignment.count({
-      where: { completedAt: { not: null }, order: { tenantId } },
+      where: { completedAt: { not: null }, order: { tenantId, archivedAt: null } },
     }),
     prisma.order.count({
       where: {
         tenantId,
+        archivedAt: null,
         status: OrderStatus.PICKER_ASSIGNED,
         statusHistory: {
           some: {

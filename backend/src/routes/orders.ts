@@ -62,8 +62,8 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       const { userId, tenantId } = request.user as JWTPayload
       const tn = result.data.trackingNumber.trim().toUpperCase()
 
-      const existing = await prisma.order.findUnique({
-        where: { tenantId_trackingNumber: { tenantId, trackingNumber: tn } },
+      const existing = await prisma.order.findFirst({
+        where: { tenantId, trackingNumber: tn, archivedAt: null },
       })
       if (existing) {
         return reply.code(409).send({ error: `Already exists: ${tn}` })

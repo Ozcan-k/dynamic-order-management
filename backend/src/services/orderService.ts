@@ -11,12 +11,15 @@ export async function scanOrder(
   const tn = trackingNumber.trim()
   const platform = detectPlatform(tn)
 
-  const existing = await prisma.order.findUnique({
-    where: { tenantId_trackingNumber: { tenantId, trackingNumber: tn } },
+  const existing = await prisma.order.findFirst({
+    where: { tenantId, trackingNumber: tn, archivedAt: null },
   })
   if (existing) {
     return { duplicate: true, order: existing }
   }
+
+  const workDate = new Date()
+  workDate.setHours(0, 0, 0, 0)
 
   const order = await prisma.order.create({
     data: {
@@ -28,6 +31,7 @@ export async function scanOrder(
       status: OrderStatus.INBOUND,
       priority: 0,
       delayLevel: 0,
+      workDate,
       scannedById,
       statusHistory: {
         create: {
@@ -84,7 +88,7 @@ export async function getDistinctShopNames(tenantId: string): Promise<string[]> 
 
 export async function listOrders(tenantId: string) {
   return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.INBOUND },
+    where: { tenantId, status: OrderStatus.INBOUND, archivedAt: null },
     include: { scannedBy: { select: { username: true } } },
     orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
   })
@@ -92,15 +96,15 @@ export async function listOrders(tenantId: string) {
 
 export async function getOrderStats(tenantId: string) {
   const [totalScanned, pendingInbound, inProgressCount, pickerDoneCount, d0, d1, d2, d3, d4] = await Promise.all([
-    prisma.order.count({ where: { tenantId } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
-    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] } } }),
-    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_COMPLETE, OrderStatus.OUTBOUND] } } }),
-    prisma.order.count({ where: { tenantId, delayLevel: 0 } }),
-    prisma.order.count({ where: { tenantId, delayLevel: 1 } }),
-    prisma.order.count({ where: { tenantId, delayLevel: 2 } }),
-    prisma.order.count({ where: { tenantId, delayLevel: 3 } }),
-    prisma.order.count({ where: { tenantId, delayLevel: 4 } }),
+    prisma.order.count({ where: { tenantId, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] }, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_COMPLETE, OrderStatus.OUTBOUND] }, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 0, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 1, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 2, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 3, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, delayLevel: 4, archivedAt: null } }),
   ])
   return { totalScanned, pendingInbound, inProgressCount, pickerDoneCount, delayBreakdown: [d0, d1, d2, d3, d4] }
 }

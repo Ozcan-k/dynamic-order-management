@@ -20,6 +20,7 @@ interface Order {
   shopName?: string | null
   delayLevel: number
   priority: number
+  workDate: string
   createdAt: string
   pickerAssignments: Array<{
     completedAt: string | null
@@ -279,7 +280,9 @@ export default function PackerAdmin() {
     refetchInterval: 10_000,
   })
 
+  const todayStr = new Date().toISOString().slice(0, 10)
   const orderList = orders ?? []
+  const carryoverCount = orderList.filter(o => o.workDate?.slice(0, 10) < todayStr).length
   const statsList = statsData?.stats ?? []
   const totalCompleted = statsData?.totalCompleted ?? 0
   const returnedCount = statsData?.returnedCount ?? 0
@@ -451,7 +454,14 @@ export default function PackerAdmin() {
       </div>
 
       {/* Section heading */}
-      <SectionHeader title="Orders Waiting to Pack" count={filteredList.length} />
+      <SectionHeader title="Orders Waiting to Pack" count={filteredList.length}>
+        {carryoverCount > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#d97706', fontWeight: 600 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            {carryoverCount} carryover
+          </span>
+        )}
+      </SectionHeader>
 
       {/* Toolbar */}
       <div className="toolbar-card">
@@ -547,6 +557,16 @@ export default function PackerAdmin() {
                       <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                       <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                         {order.trackingNumber}
+                        {order.workDate?.slice(0, 10) < todayStr && (
+                          <span style={{
+                            marginLeft: '6px', fontSize: '10px', fontWeight: 700,
+                            background: '#fef3c7', color: '#d97706',
+                            padding: '1px 6px', borderRadius: '9999px', fontFamily: 'sans-serif',
+                            verticalAlign: 'middle', border: '1px solid #fcd34d',
+                          }}>
+                            CARRY
+                          </span>
+                        )}
                       </td>
                       <td><PlatformBadge platform={order.platform} /></td>
                       <td>

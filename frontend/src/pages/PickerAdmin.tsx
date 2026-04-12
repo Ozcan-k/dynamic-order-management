@@ -20,6 +20,7 @@ interface Order {
   shopName?: string | null
   delayLevel: number
   priority: number
+  workDate: string
   createdAt: string
   scannedBy: { username: string }
 }
@@ -1153,7 +1154,9 @@ export default function PickerAdmin() {
     assignStagedMutation.mutate({ orderIds: stagedOrders.map(o => o.id), pickerId: selectedPickerId })
   }
 
+  const todayStr = new Date().toISOString().slice(0, 10)
   const orderList = orders ?? []
+  const carryoverCount = orderList.filter(o => o.workDate?.slice(0, 10) < todayStr).length
   const pickerList = pickers ?? []
   const statsList = statsData?.stats ?? []
   const returnedFromPacker = statsData?.returnedCount ?? 0
@@ -1372,7 +1375,14 @@ export default function PickerAdmin() {
       </div>
 
       {/* Section heading */}
-      <SectionHeader title="Inbound Orders" count={orderList.length} />
+      <SectionHeader title="Inbound Orders" count={orderList.length}>
+        {carryoverCount > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#d97706', fontWeight: 600 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            {carryoverCount} carryover
+          </span>
+        )}
+      </SectionHeader>
 
       {/* Toolbar */}
       <div className="toolbar-card">
@@ -1492,6 +1502,16 @@ export default function PickerAdmin() {
                           verticalAlign: 'middle',
                         }}>
                           STAGED
+                        </span>
+                      )}
+                      {order.workDate?.slice(0, 10) < todayStr && (
+                        <span style={{
+                          marginLeft: '6px', fontSize: '10px', fontWeight: 700,
+                          background: '#fef3c7', color: '#d97706',
+                          padding: '1px 6px', borderRadius: '9999px', fontFamily: 'sans-serif',
+                          verticalAlign: 'middle', border: '1px solid #fcd34d',
+                        }}>
+                          CARRY
                         </span>
                       )}
                     </td>

@@ -14,6 +14,7 @@ interface DashboardStats {
   inboundTotal: number
   outboundTotal: number
   remainingCount: number
+  carryoverCount: number
   pickerSummary: { inbound: number; assigned: number; inProgress: number; complete: number }
   packerSummary: { unassigned: number; assigned: number; inProgress: number; complete: number }
   slaSummary: { d0: number; d1: number; d2: number; d3: number; d4: number }
@@ -161,7 +162,7 @@ const SLA_BADGE: Record<SlaKey, string> = {
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_STATS: DashboardStats = {
-  inboundTotal: 0, outboundTotal: 0, remainingCount: 0,
+  inboundTotal: 0, outboundTotal: 0, remainingCount: 0, carryoverCount: 0,
   pickerSummary: { inbound: 0, assigned: 0, inProgress: 0, complete: 0 },
   packerSummary: { unassigned: 0, assigned: 0, inProgress: 0, complete: 0 },
   slaSummary: { d0: 0, d1: 0, d2: 0, d3: 0, d4: 0 },
@@ -235,6 +236,7 @@ export default function Dashboard() {
           <StatCard label="Total Scanned" value={dash(isLoading, stats.inboundTotal)} color={colors.primary} />
           <StatCard label="Dispatched" value={dash(isLoading, stats.outboundTotal)} color={colors.success} />
           <StatCard label="Remaining" value={dash(isLoading, stats.remainingCount)} color={colors.warning} />
+          <StatCard label="Carryover Active" value={dash(isLoading, stats.carryoverCount)} color="#d97706" subtitle="From previous days" />
           <StatCard label="D4 at Risk" value={dash(isLoading, stats.slaSummary.d4)} color={colors.danger} />
         </>
       }

@@ -20,6 +20,7 @@ interface Order {
   carrierName?: string | null
   shopName?: string | null
   delayLevel: number
+  workDate: string
   createdAt: string
   scannedBy: { username: string }
 }
@@ -121,12 +122,17 @@ export default function Inbound() {
     },
   })
 
+  const todayStr = new Date().toISOString().slice(0, 10)
   const allOrders = data ?? []
+  const todayOrders = allOrders.filter(o => o.workDate?.slice(0, 10) === todayStr)
+  const carryoverOrders = allOrders.filter(o => o.workDate?.slice(0, 10) < todayStr)
   const pending = allOrders.length
   const totalScanned = statsData?.totalScanned ?? pending
   const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const todayPaged = pagedOrders.filter(o => o.workDate?.slice(0, 10) === todayStr)
+  const carryoverPaged = pagedOrders.filter(o => o.workDate?.slice(0, 10) < todayStr)
   // Header stats
   const headerStats = (
     <>
@@ -235,10 +241,27 @@ export default function Inbound() {
         </div>
       )}
 
-      <SectionHeader title="Pending Orders" count={pending} />
+      {carryoverOrders.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 0 4px', color: '#d97706', fontWeight: 600, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Carryover Orders
+            <span style={{ background: '#d97706', color: '#fff', borderRadius: '10px', padding: '1px 8px', fontSize: '11px', fontWeight: 700 }}>{carryoverOrders.length}</span>
+          </div>
+          <div style={{ borderLeft: '3px solid #d97706', paddingLeft: '8px', marginBottom: '16px' }}>
+            <OrderTable
+              orders={carryoverPaged}
+              canDelete={canDelete}
+              onDelete={(id) => deleteMutation.mutate(id)}
+            />
+          </div>
+        </>
+      )}
+
+      <SectionHeader title="Today's Orders" count={todayOrders.length} />
 
       <OrderTable
-        orders={pagedOrders}
+        orders={todayPaged}
         canDelete={canDelete}
         onDelete={(id) => deleteMutation.mutate(id)}
       />

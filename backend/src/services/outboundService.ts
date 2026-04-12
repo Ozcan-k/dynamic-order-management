@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 
 export async function getReadyToDispatch(tenantId: string) {
   return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.PACKER_COMPLETE },
+    where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null },
     include: {
       packerAssignments: {
         where: { completedAt: { not: null } },
@@ -72,20 +72,21 @@ export async function getOutboundStats(tenantId: string) {
     pickerCompleteCount,
     packerCompleteCount,
   ] = await Promise.all([
-    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null } }),
+    // dispatchedToday includes archived — orders dispatched today must remain in count even after archiving
     prisma.order.count({
       where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: today } },
     }),
-    prisma.order.count({ where: { tenantId } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND } }),
+    prisma.order.count({ where: { tenantId, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND, archivedAt: null } }),
     prisma.order.count({
-      where: { tenantId, delayLevel: 4, status: { not: OrderStatus.OUTBOUND } },
+      where: { tenantId, delayLevel: 4, status: { not: OrderStatus.OUTBOUND }, archivedAt: null },
     }),
-    // Per-phase breakdown so UI can verify: inboundQueueCount + pickerActiveCount + pickerCompleteCount + packerCompleteCount + outboundTotal === inboundTotal
-    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND } }),
-    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] } } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.PICKER_COMPLETE } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE } }),
+    // Per-phase breakdown — all exclude archived
+    prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] }, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.PICKER_COMPLETE, archivedAt: null } }),
+    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null } }),
   ])
 
   return {
@@ -141,7 +142,7 @@ export async function getGroupedByCarrier(tenantId: string) {
 
 export async function getStuckOrders(tenantId: string) {
   return prisma.order.findMany({
-    where: { tenantId, status: { not: OrderStatus.OUTBOUND } },
+    where: { tenantId, status: { not: OrderStatus.OUTBOUND }, archivedAt: null },
     select: {
       id: true,
       trackingNumber: true,
