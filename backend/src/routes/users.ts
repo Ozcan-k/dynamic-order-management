@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requireRole } from '../middleware/rbac'
-import { listUsers, createUser, updateUser, CreateUserSchema, UpdateUserSchema } from '../services/userService'
+import { listUsers, createUser, updateUser, deleteUser, CreateUserSchema, UpdateUserSchema } from '../services/userService'
 import { JWTPayload, UserRole } from '@dom/shared'
 
 export default async function userRoutes(fastify: FastifyInstance) {
@@ -29,6 +29,19 @@ export default async function userRoutes(fastify: FastifyInstance) {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to create user'
       return reply.code(409).send({ error: message })
+    }
+  })
+
+  // DELETE /users/:id — soft delete (sets isActive = false)
+  fastify.delete('/:id', { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { tenantId } = request.user as JWTPayload
+    try {
+      const user = await deleteUser(tenantId, id)
+      return reply.send({ user })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete user'
+      return reply.code(message === 'User not found' ? 404 : 400).send({ error: message })
     }
   })
 

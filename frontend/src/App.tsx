@@ -11,6 +11,7 @@ import PackerAdmin from './pages/PackerAdmin'
 import PackerMobile from './pages/PackerMobile'
 import Outbound from './pages/Outbound'
 import Dashboard from './pages/Dashboard'
+import Settings from './pages/Settings'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -94,10 +95,10 @@ export default function App() {
             }
           />
           <Route
-            path="/users"
+            path="/settings"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                <AppLayout><PlaceholderPage title="User Management" /></AppLayout>
+                <AppLayout><Settings /></AppLayout>
               </ProtectedRoute>
             }
           />

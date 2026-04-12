@@ -65,6 +65,16 @@ export async function createUser(
   })
 }
 
+export async function deleteUser(tenantId: string, userId: string) {
+  const user = await prisma.user.findFirst({ where: { id: userId, tenantId } })
+  if (!user) throw new Error('User not found')
+  return prisma.user.update({
+    where: { id: userId },
+    data: { isActive: false },
+    select: { id: true, username: true, role: true, isActive: true },
+  })
+}
+
 export async function updateUser(
   tenantId: string,
   userId: string,
