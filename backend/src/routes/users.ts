@@ -35,9 +35,9 @@ export default async function userRoutes(fastify: FastifyInstance) {
   // DELETE /users/:id — soft delete (sets isActive = false)
   fastify.delete('/:id', { preHandler: adminOnly }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { tenantId } = request.user as JWTPayload
+    const { tenantId, userId } = request.user as JWTPayload
     try {
-      const user = await deleteUser(tenantId, id)
+      const user = await deleteUser(tenantId, id, userId)
       return reply.send({ user })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to delete user'

@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { UserRole } from '@dom/shared'
+import { UserRole, OrderStatus } from '@dom/shared'
 
 export const CreateUserSchema = z.object({
   username: z.string().min(3).max(50),
@@ -65,13 +65,62 @@ export async function createUser(
   })
 }
 
-export async function deleteUser(tenantId: string, userId: string) {
+export async function deleteUser(tenantId: string, userId: string, adminId: string) {
   const user = await prisma.user.findFirst({ where: { id: userId, tenantId } })
   if (!user) throw new Error('User not found')
-  return prisma.user.update({
-    where: { id: userId },
-    data: { isActive: false },
-    select: { id: true, username: true, role: true, isActive: true },
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data: { isActive: false },
+      select: { id: true, username: true, role: true, isActive: true },
+    })
+
+    if (user.role === UserRole.PICKER) {
+      const assignments = await tx.pickerAssignment.findMany({
+        where: { pickerId: userId, completedAt: null },
+        select: { orderId: true },
+      })
+      const orderIds = assignments.map((a) => a.orderId)
+      if (orderIds.length > 0) {
+        await tx.order.updateMany({
+          where: { id: { in: orderIds } },
+          data: { status: OrderStatus.INBOUND },
+        })
+        await tx.orderStatusHistory.createMany({
+          data: orderIds.map((orderId) => ({
+            orderId,
+            fromStatus: null,
+            toStatus: OrderStatus.INBOUND,
+            changedById: adminId,
+          })),
+        })
+      }
+    }
+
+    if (user.role === UserRole.PACKER) {
+      const assignments = await tx.packerAssignment.findMany({
+        where: { packerId: userId, completedAt: null },
+        select: { orderId: true },
+      })
+      const orderIds = assignments.map((a) => a.orderId)
+      if (orderIds.length > 0) {
+        await tx.order.updateMany({
+          where: { id: { in: orderIds } },
+          data: { status: OrderStatus.PICKER_COMPLETE },
+        })
+        await tx.orderStatusHistory.createMany({
+          data: orderIds.map((orderId) => ({
+            orderId,
+            fromStatus: null,
+            toStatus: OrderStatus.PICKER_COMPLETE,
+            changedById: adminId,
+          })),
+        })
+      }
+    }
+
+    return updated
   })
 }
 
