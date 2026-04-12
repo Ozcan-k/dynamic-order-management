@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.1.0  
+> **Version:** 2.2.0  
 > **Date:** 2026-04-12  
-> **Status:** In development — Phase 10 complete + Handheld Admin Scan (v1.11.0)
+> **Status:** In development — Phase 10 complete + Daily Cycle Tracking + Archive (v2.2.0)
 
 ---
 
@@ -20,17 +20,27 @@
 
 ### Core Workflow
 ```
-Inbound (Waybill Scan) ← SLA 4-hour countdown starts (D0)
-        │
+07:00  Inbound Admin scans ~1500 waybills (work_date set to today)
+        │  SLA 4-hour countdown starts (D0)
         ▼
   Picker Admin assigns → Picker prepares on handheld
         │
         ▼
-  Packer Admin queue (auto, no assignment needed) → Packer scans on handheld
+  Packer Admin queue (auto) → Packer scans on handheld
         │   ↑ Remove → auto-reassigns back to original picker
         ▼
      Outbound ← SLA countdown ends
+        │
+19:00  Archive job runs: all OUTBOUND orders → archived_at set
+        │  Active panels show 0 OUTBOUND rows
+        │  Incomplete orders carry over to next day (CARRY badge)
+        ▼
+21:00  Nightly report email + hard-delete of orders > 180 days archived
 ```
+
+**Carryover:** Orders not completed by end of shift remain active the next day. They are shown with an amber **CARRY** badge in all admin panels so supervisors can prioritize them.
+
+**Daily cycle repeats** — new waybills each morning, incomplete orders carry forward, completed orders archived at 19:00.
 
 ### SLA Policy (D0–D4)
 Every order must be completed (reach **OUTBOUND**) within **4 hours** of scanning. If it is not, it escalates through delay levels automatically:
@@ -82,7 +92,8 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
 │  │  BullMQ Job Queue                                                    │ │
-│  │  → Nightly 9:00 PM email report to admins (Nodemailer)               │ │
+│  │  → Archive job 7:00 PM: OUTBOUND orders soft-archived                │ │
+│  │  → Nightly 9:00 PM: email report + hard-delete expired archives      │ │
 │  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
 │  │  → D4 supervisor alert email (triggered by sweep)                    │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
@@ -307,6 +318,8 @@ orders ──< packer_assignments >── users (packers)
 | sla_started_at | TIMESTAMPTZ | Set on INSERT (when order is scanned); never overwritten |
 | sla_completed_at | TIMESTAMPTZ NULLABLE | Set when status → OUTBOUND; null = SLA still active |
 | d4_notified_at | TIMESTAMPTZ NULLABLE | Set when D4 supervisor alert is sent; prevents duplicate alerts |
+| work_date | TIMESTAMPTZ | Start of the day the order was scanned (set explicitly at scan time, not derived from created_at) |
+| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 19:00 daily. |
 | scanned_by | UUID FK | → users (inbound admin) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -358,13 +371,22 @@ Append-only audit log of every D-level transition. Never updated or deleted.
 
 ### Indexes
 ```sql
-CREATE UNIQUE INDEX ON orders (tenant_id, tracking_number);
+-- Active orders unique constraint (partial — archived orders with same TN can co-exist)
+CREATE UNIQUE INDEX orders_tenant_tracking_active_unique
+  ON orders (tenant_id, tracking_number)
+  WHERE archived_at IS NULL;
+
 CREATE INDEX ON orders (tenant_id, status);
 CREATE INDEX ON orders (tenant_id, created_at DESC);
 CREATE INDEX ON orders (tenant_id, priority DESC, created_at ASC);
 CREATE INDEX ON orders (tenant_id, shop_name);   -- GET /orders/shops distinct query
 CREATE INDEX ON picker_assignments (picker_id, completed_at);
 CREATE INDEX ON packer_assignments (packer_id, completed_at);
+
+-- Daily cycle & archive indexes
+CREATE INDEX ON orders (tenant_id, work_date);
+CREATE INDEX ON orders (tenant_id, archived_at);
+CREATE INDEX ON orders (tenant_id, status, archived_at);  -- all active status queries
 
 -- SLA sweep index: fast scan for escalation-eligible orders (partial — excludes completed orders)
 CREATE INDEX ON orders (tenant_id, delay_level, sla_started_at)
@@ -378,6 +400,8 @@ CREATE INDEX ON orders (tenant_id, delay_level)
 CREATE INDEX ON sla_escalations (order_id);
 CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 ```
+
+> **Important:** The old `@@unique([tenantId, trackingNumber])` full unique constraint has been replaced by the partial index above. This allows the same tracking number to be re-scanned after the original order is archived (e.g. a redelivery the next day).
 
 ---
 
@@ -398,6 +422,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **Outbound Panel** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **User Management** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Reports (all)** | ✅ | ✅ | Picker only | Packer only | ❌ | ❌ |
+| **Archive Panel** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### User Creation Rules
 - Only **Admin** can create, edit, or deactivate users
@@ -416,6 +441,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 - "Dynamic Order Management" logo and branding
 - Real-time stats updated via WebSocket:
   - Inbound order count | Outbound order count | Remaining order count
+  - **Carryover Active** — orders scanned on a previous day still not completed (amber card)
   - Remaining orders breakdown by department (Picker / Packer)
 - **Picker Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **Packer Summary:** Total | Unassigned | Assigned | In Progress | Complete
@@ -424,8 +450,10 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 
 ---
 
-### 7.2 Inbound Panel ✅ Built (Phase 2 + Phase 10)
+### 7.2 Inbound Panel ✅ Built (Phase 2 + Phase 10 + Daily Cycle)
 **Visible to:** Admin (edit), Inbound Admin (edit+delete), Picker Admin (view), Packer Admin (view)
+
+**Carryover Section:** Orders scanned on a previous day (`work_date < today`) that are still in INBOUND status appear in a separate "Carryover Orders" section above "Today's Orders", with an amber left-border and clock icon.
 
 **Single Scan Flow:**
 1. Worker focuses the scan input field
@@ -486,6 +514,8 @@ Bulk Scan mode:
 
 ### 7.3 Picker Admin Panel ✅ Built (Phase 3 + 4 + 5 + Handheld PIN Management)
 **Visible to:** Admin, Picker Admin
+
+**Carryover:** Orders scanned on a previous day (`work_date < today`) are shown with an amber **CARRY** badge in the Inbound table. The section header shows a carryover count next to an amber clock icon so supervisors can prioritize them.
 
 **Header Stats Bar:** Inbound count | Assigned Today | Total Completed | Returned from Packer | Pickers count | Sync indicator
 
@@ -650,6 +680,8 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 
 Orders appear here **automatically** when a picker marks an order PICKER_COMPLETE — no manual assignment step required.
 
+**Carryover:** Orders from a previous day (`work_date < today`) appear with an amber **CARRY** badge in the order table. The section header shows a carryover count with an amber clock icon.
+
 **Header Stats Bar:** Waiting to Pack | Total Packed | Returned to Picker | Packers count | Sync indicator
 
 > **Returned to Picker** stat: counts orders currently back in PICKER_ASSIGNED state (returned by packer admin). Updates every 5 seconds.
@@ -790,6 +822,69 @@ Refetch: 10 s (less frequent than dispatch queue's 5 s).
 
 ---
 
+### 7.8 Archive Panel ✅ Built (v2.2.0)
+**Visible to:** Admin only  
+**Route:** `/archive`
+
+The Archive Panel gives admins full visibility into soft-archived orders and control over the end-of-day archive cycle and long-term data retention.
+
+#### Header Stats Bar
+| Card | Value | Color |
+|---|---|---|
+| Total Archived | All orders with `archived_at IS NOT NULL` | Primary blue |
+| Expiring in 30d | Archived orders whose `archived_at + 180 days <= now + 30 days` | Amber |
+| Expiring in 7d | Archived orders whose `archived_at + 180 days <= now + 7 days` | Red |
+
+**"Archive OUTBOUND Now" button** — appears alongside the stat cards. Opens a confirmation dialog: *"This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 7:00 PM. Proceed?"* On confirm: calls `POST /archive/trigger`.
+
+#### Filter Bar
+| Filter | Type | Behavior |
+|---|---|---|
+| Tracking number search | Text input | Partial match on `tracking_number` |
+| Platform | Dropdown | SHOPEE / LAZADA / TIKTOK / OTHER |
+| Archived date range | Two date pickers (From / To) | Filters `archived_at` |
+| Expiring within | Dropdown (7d / 14d / 30d / 60d) | Shows orders expiring in ≤ N days |
+
+A **"Clear filters"** button appears when any filter is active.
+
+#### Archived Orders Table
+**Columns:** # | Checkbox | Tracking Number | Platform | Carrier | Shop | Work Date | Archived At | Expires In (badge)
+
+**Expires In badge** color coding:
+- **Green** — more than 30 days remaining
+- **Amber** — 7–30 days remaining
+- **Red** — fewer than 7 days remaining
+
+**Pagination:** 25 orders per page.
+
+#### Bulk Delete
+- Checkbox per row + "select all" header checkbox
+- **"Delete Selected (N)"** danger button appears when any rows are checked
+- Opens `ConfirmDialog` (variant: danger): *"You are about to permanently delete N archived orders. This action cannot be undone. All history records will also be deleted. Are you sure?"*
+- On confirm: `POST /archive/bulk-delete` — hard-deletes orders and all child table records (assignments, status history, SLA escalations) for the selected IDs
+
+#### Archive API Endpoints
+| Method | Path | Role | Description |
+|---|---|---|---|
+| `GET` | `/archive` | ADMIN | Paginated archive list. Query: `page`, `pageSize`, `search`, `platform`, `dateFrom`, `dateTo`, `expiresWithin` |
+| `GET` | `/archive/stats` | ADMIN | Summary: `{ total, expiring30, expiring7 }` |
+| `POST` | `/archive/trigger` | ADMIN | Immediately archives all OUTBOUND orders for the caller's tenant; also enqueues background job |
+| `POST` | `/archive/bulk-delete` | ADMIN | Body: `{ orderIds: string[] }`. Hard-deletes with cascade. Admin confirmation required in UI before calling. |
+
+#### Archive Job
+- **Queue:** `archiveOutbound` (BullMQ)
+- **Schedule:** `0 19 * * *` — every day at 19:00
+- **Action:** Sets `archived_at = NOW()` on all `status=OUTBOUND, archived_at IS NULL` orders (all tenants)
+- **Manual trigger:** `POST /archive/trigger` → calls archive synchronously for the requester's tenant, then enqueues for background processing
+
+#### Retention (6-Month Policy)
+- **Hard-delete job** piggybacks on `nightlyReport` at 21:00
+- Deletes orders where `archived_at <= NOW() - 180 days`
+- Cascade-deletes all child records (`picker_assignments`, `packer_assignments`, `order_status_history`, `sla_escalations`)
+- Per-tenant, per-order error catch — one failure does not abort the sweep
+
+---
+
 ## 8. Frontend Structure
 
 ```
@@ -808,6 +903,7 @@ frontend/
 │   │   │                              "Returned to Picker" + "Total Packed" stats)
 │   │   ├── PackerMobile.tsx       ← /packer ✅ PIN auth + shared queue + scan complete (green theme)
 │   │   ├── Outbound.tsx           ← /outbound ✅ Phase 8 (dispatch queue, comparison report, stuck orders)
+│   │   ├── Archive.tsx            ← /archive ✅ v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
 │   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
 │   ├── components/
 │   │   ├── ScanInput.tsx          ← HID barcode scanner input (desktop inbound only)
@@ -823,7 +919,7 @@ frontend/
 │   │       ├── PageShell.tsx      ← sticky header + scrollable body for each panel
 │   │       ├── Avatar.tsx         ← initials avatar component
 │   │       ├── PlatformBadge.tsx  ← color-coded platform label (Shopee/Lazada/TikTok)
-│   │       ├── StatCard.tsx       ← stat number card used in panel headers
+│   │       ├── StatCard.tsx       ← stat number card used in panel headers (supports optional subtitle prop)
 │   │       └── SectionHeader.tsx  ← section title + count badge
 │   ├── stores/                    ← Zustand global state
 │   │   ├── authStore.ts
@@ -849,6 +945,7 @@ frontend/
 /packer-admin         → ADMIN, PACKER_ADMIN
 /packer               → PACKER            (mobile-first — PackerDevice.tsx)
 /outbound             → ADMIN, INBOUND_ADMIN
+/archive              → ADMIN only
 /users                → ADMIN only
 ```
 
@@ -866,7 +963,8 @@ backend/
 │   │   ├── orders.ts
 │   │   ├── assignments.ts
 │   │   ├── users.ts
-│   │   └── reports.ts
+│   │   ├── reports.ts
+│   │   └── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
 │   ├── plugins/
 │   │   ├── auth.ts                ← JWT verification plugin
 │   │   ├── cors.ts
@@ -874,7 +972,8 @@ backend/
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
-│   │   ├── nightlyReport.ts       ← BullMQ job: 9pm email (extended with SLA data)
+│   │   ├── nightlyReport.ts       ← BullMQ job: 9pm email + hardDeleteExpiredOrders() call
+│   │   ├── archiveOutbound.ts     ← BullMQ job: 7pm daily, sets archived_at on OUTBOUND orders
 │   │   ├── slaEscalation.ts       ← BullMQ job: every 15min sweep, D0→D4 escalation + priority boost
 │   │   └── slaD4Email.ts          ← BullMQ job: supervisor alert email when order hits D4
 │   ├── services/
@@ -882,6 +981,7 @@ backend/
 │   │   ├── assignmentService.ts
 │   │   ├── reportService.ts
 │   │   ├── emailService.ts
+│   │   ├── archiveService.ts      ← archiveOutboundOrders(), getArchivedOrders(), bulkDeleteArchivedOrders(), hardDeleteExpiredOrders()
 │   │   └── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
 │   └── middleware/
 │       └── rbac.ts                ← Role-based access control
@@ -919,6 +1019,10 @@ backend/
 | GET | `/reports/picker` | ADMIN, PICKER_ADMIN | Picker reports |
 | GET | `/reports/packer` | ADMIN, PACKER_ADMIN | Packer reports |
 | GET | `/reports/sla` | ADMIN, INBOUND_ADMIN | SLA summary: count by D-level, D4 order list, avg time-to-OUTBOUND |
+| GET | `/archive` | ADMIN | Paginated archived orders. Query: `page`, `pageSize`, `search`, `platform`, `dateFrom`, `dateTo`, `expiresWithin` |
+| GET | `/archive/stats` | ADMIN | Archive summary: `{ total, expiring30, expiring7 }` |
+| POST | `/archive/trigger` | ADMIN | Manually archive all OUTBOUND orders for the caller's tenant |
+| POST | `/archive/bulk-delete` | ADMIN | Permanently delete archived orders. Body: `{ orderIds: string[] }`. Cascades child tables. |
 | GET | `/users` | ADMIN | List users |
 | POST | `/users` | ADMIN | Create user |
 | PATCH | `/users/:id` | ADMIN | Update/deactivate user |
@@ -1084,6 +1188,7 @@ On push to main branch:
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
+| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 daily); `hardDeleteExpiredOrders` in nightly report (21:00, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger | ✅ Done | OUTBOUND orders hidden from active panels at 7 PM; CARRY badge appears on previous-day orders; Archive Panel shows paginated list with expiry color-coding; bulk delete with ConfirmDialog works; 6-month retention enforced nightly |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
