@@ -41,14 +41,32 @@ export default function Inbound() {
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
 
+  // On mount: check Redis-backed pending handheld scans (catches events sent before page opened)
+  useEffect(() => {
+    api.get<{ single: string | null; bulk: string[] | null }>('/orders/pending-handheld')
+      .then(res => {
+        if (res.data.bulk && res.data.bulk.length > 0) {
+          setBulkInitialTNs(res.data.bulk)
+          setShowBulkModal(true)
+        } else if (res.data.single) {
+          setPendingScan(res.data.single)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // Real-time: handheld single scan → open QuickScanModal on desktop
   // Real-time: handheld bulk scan → open BulkScanModal pre-filled on desktop
   useEffect(() => {
     const socket = connectSocket()
     socket.on('order:handheld-scan', (data: { trackingNumber: string }) => {
+      // Clear any Redis-backed pending so it's not shown twice on next page load
+      api.get('/orders/pending-handheld').catch(() => {})
       setPendingScan(data.trackingNumber)
     })
     socket.on('order:handheld-bulk-scan', (data: { trackingNumbers: string[] }) => {
+      // Clear any Redis-backed pending so it's not shown twice on next page load
+      api.get('/orders/pending-handheld').catch(() => {})
       setBulkInitialTNs(data.trackingNumbers)
       setShowBulkModal(true)
     })
@@ -146,7 +164,16 @@ export default function Inbound() {
       stats={headerStats}
     >
       <ScanInput
-        onScan={(tn) => { setScanFeedback(null); setPendingScan(tn) }}
+        onScan={(tn) => {
+          setScanFeedback(null)
+          const normalized = tn.trim().toUpperCase()
+          const alreadyInList = allOrders.some(o => o.trackingNumber.toUpperCase() === normalized)
+          if (alreadyInList) {
+            setScanFeedback({ type: 'error', message: `Already in inbound list: ${tn}` })
+            return
+          }
+          setPendingScan(tn)
+        }}
         disabled={scanMutation.isPending}
       />
 

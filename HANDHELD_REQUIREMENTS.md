@@ -2,7 +2,7 @@
 
 > **Status:** Pending hardware evaluation  
 > **Date:** 2026-04-12  
-> **Updated:** Handheld Admin Scan pages added (v1.11.0) — INBOUND_ADMIN & PICKER_ADMIN can now scan from phone
+> **Updated:** v1.12.0 — Scan feedback (beep + vibration), Redis-backed event relay, immediate validation, readability improvements
 
 ---
 
@@ -156,7 +156,26 @@ INBOUND_ADMIN and PICKER_ADMIN users work primarily on their desktop computers. 
 Both pages have two modes selectable via a toggle:
 
 - **Single Scan** — scan one barcode → immediately sent to desktop
-- **Bulk Scan** — scan multiple barcodes → accumulated on phone → tap "Send X Items to Desktop" → all sent at once
+- **Bulk Scan (Inbound)** — scan multiple barcodes → accumulated on phone → tap "Send X Items to Desktop" → all sent at once
+- **Bulk Scan (Picker Admin)** — each scan is validated immediately against the server; only waybills that exist in the system are added to the list; invalid scans are rejected with feedback on the phone
+
+### Scan Feedback (v1.12.0)
+
+Every scan triggers immediate sensory feedback on the phone:
+
+| Result | Sound | Vibration |
+|---|---|---|
+| Success | Two-tone ascending beep | Single 100ms pulse |
+| Duplicate / Warning | Low buzz | Double pulse (80-60-80ms) |
+| Error | Low square-wave buzz | Double pulse (80-60-80ms) |
+
+### Missed Event Recovery (v1.12.0)
+
+If the desktop Inbound or PickerAdmin page is not open when a scan is sent from the phone,
+the event is persisted in Redis (5-minute TTL). When the page is opened later, it automatically
+reads the pending event from Redis and opens the correct modal/staging area.
+
+This means **the desktop page does not need to be open at the exact moment of scanning**.
 
 ### Login Flow
 
@@ -174,7 +193,9 @@ Camera access (`getUserMedia`) requires HTTPS on Android Chrome (except localhos
 
 ### Duplicate Protection
 
-If the same waybill barcode is scanned twice on the handheld, the backend checks the DB before emitting the socket event. A **yellow warning** is shown on the phone and nothing is sent to the desktop.
+- **Handheld single scan:** backend checks DB before emitting the socket event — yellow warning shown on phone, nothing sent to desktop.
+- **Picker Admin bulk scan:** each scan is validated immediately; not-found or already-assigned waybills are rejected on the phone before being added to the list.
+- **Inbound desktop scan:** `allOrders` list checked client-side before opening QuickScanModal — instant error without going through carrier/shop selection.
 
 ---
 

@@ -259,6 +259,111 @@ API'den gelen mevcut shop'larla birleştirilir (`Set` ile dedup), dropdown'da he
 
 ---
 
+## [2026-04-11] Handheld Socket Event Kayboluyor — Sayfa Kapalıyken Send Basılıyor
+
+### Sorun
+Telefonda (InboundScan / PickerAdminScan) "Send to Desktop" basıldığında backend socket event emit eder.
+Ancak desktop'ta Inbound veya PickerAdmin sayfası o anda açık değilse event uçup gidiyor —
+sayfa sonradan açıldığında hiçbir şey olmuyor.
+
+### Kök Neden
+Socket event fire-and-forget'dir. Listener o an bağlı değilse event kaybolur, kuyruklanmaz.
+
+### Çözüm
+İki katmanlı yaklaşım:
+
+**1. Backend — Redis'e yaz (TTL 5 dk):**
+- `POST /orders/handheld-scan` → `redis.setex('pending:handheld:single:{userId}', 300, tn)`
+- `POST /orders/handheld-bulk-scan` → `redis.setex('pending:handheld:bulk:{userId}', 300, JSON.stringify(tns))`
+- `POST /picker-admin/scan` → `redis.rpush('pending:staged:{userId}', JSON.stringify(order))`
+- Yeni GET endpoint'ler: `/orders/pending-handheld` ve `/picker-admin/pending-staged`
+
+**2. Frontend — sayfa mount'unda Redis'i kontrol et:**
+```tsx
+useEffect(() => {
+  api.get('/orders/pending-handheld').then(res => {
+    if (res.data.bulk?.length > 0) { setBulkInitialTNs(res.data.bulk); setShowBulkModal(true) }
+    else if (res.data.single) { setPendingScan(res.data.single) }
+  }).catch(() => {})
+}, [])
+```
+
+Socket event gelirse önce Redis temizlenir (çifte gösterim önlenir).
+
+### İlgili Dosyalar
+- `backend/src/routes/orders.ts` — Redis yazma + `GET /pending-handheld`
+- `backend/src/routes/pickerAdmin.ts` — Redis yazma + `GET /pending-staged`
+- `frontend/src/pages/Inbound.tsx` — mount effect
+- `frontend/src/pages/PickerAdmin.tsx` — mount effect
+
+---
+
+## [2026-04-11] Docker Backend Değişikliği Yansımıyor
+
+### Sorun
+`backend/src/` dosyaları değiştirildi, ancak container'da eski davranış devam ediyor.
+
+### Kök Neden
+Docker container `node backend/dist/index.js` çalıştırır. `src/` dosyaları volume olarak mount edilir
+ama `dist/` image build sırasında derlenir ve sabit kalır. `tsx watch` yoktur.
+
+### Çözüm
+Backend her değiştiğinde image rebuild edilmeli:
+```bash
+docker-compose up --build backend -d
+```
+
+---
+
+## [2026-04-11] PickerAdminScan Bulk — Sistemde Olmayan Waybill Listeye Ekleniyor
+
+### Sorun
+Bulk modda scan edilen waybill önce listeye ekleniyor, "Send" basılınca backend not_found hatası dönüyor.
+Kullanıcı listeye yanlış ürün eklendiğini fark etmiyor.
+
+### Çözüm
+Bulk modda her scan için anında `/picker-admin/scan` endpoint'i çağrılır.
+- Başarılı → listeye `status: staged` ile eklenir
+- Hata (404/409) → beep + titreme + hata mesajı, **listeye eklenmez**
+
+```tsx
+const bulkValidateMutation = useMutation({
+  mutationFn: (tn: string) => api.post('/picker-admin/scan', { trackingNumber: tn }),
+  onSuccess: (res) => { /* listeye ekle */ },
+  onError: (err, tn) => { playBeep(false); vibrate([80,60,80]); setFeedback(error) }
+})
+```
+
+### İlgili Dosyalar
+- `frontend/src/pages/PickerAdminScan.tsx`
+
+---
+
+## [2026-04-11] Inbound — Duplicate Waybill QuickScanModal Açıyor
+
+### Sorun
+Zaten inbound listesinde olan bir waybill scan edilince QuickScanModal açılıyor.
+Kullanıcı carrier/shop seçiyor, Confirm'e basıyor, sonra backend 409 hatası dönüyor.
+Gereksiz UX adımı.
+
+### Çözüm
+`onScan` callback'inde modal açılmadan önce `allOrders` listesine karşı anlık kontrol:
+```tsx
+<ScanInput
+  onScan={(tn) => {
+    const exists = allOrders.some(o => o.trackingNumber.toUpperCase() === tn.trim().toUpperCase())
+    if (exists) { setScanFeedback({ type: 'error', message: `Already in inbound list: ${tn}` }); return }
+    setPendingScan(tn)
+  }}
+/>
+```
+Backend 409 güvenlik ağı olarak korunur (farklı statüdeki order'lar için).
+
+### İlgili Dosyalar
+- `frontend/src/pages/Inbound.tsx`
+
+---
+
 ## Genel Kurallar
 
 - Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan

@@ -4,6 +4,7 @@ import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { prisma } from '../lib/prisma'
 import { getIO } from '../lib/socket'
+import { redis } from '../lib/redis'
 import {
   getInboundOrders,
   getPickers,
@@ -83,6 +84,10 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await lookupOrderByScan(trackingNumber.trim(), tenantId)
+      // Persist staged order in Redis so desktop picks it up even if page opens after this event
+      const key = `pending:staged:${userId}`
+      await redis.rpush(key, JSON.stringify(order))
+      await redis.expire(key, 300)
       try { getIO().to(`user:${userId}`).emit('order:staged', { order }) } catch {}
       return reply.send({ order })
     } catch (err) {
@@ -90,6 +95,16 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
       const code = message.includes('not found') ? 404 : 409
       return reply.code(code).send({ error: message })
     }
+  })
+
+  // GET /picker-admin/pending-staged — desktop polls on page load to catch missed socket events
+  fastify.get('/pending-staged', { preHandler }, async (request, reply) => {
+    const { userId } = request.user as JWTPayload
+    const key = `pending:staged:${userId}`
+    const raw = await redis.lrange(key, 0, -1)
+    await redis.del(key)
+    const orders = raw.map(r => JSON.parse(r))
+    return reply.send({ orders })
   })
 
   // POST /picker-admin/handheld-bulk-scan — phone sends multiple TNs to desktop staging

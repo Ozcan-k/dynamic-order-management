@@ -4,6 +4,7 @@ import { UserRole, JWTPayload, Carrier } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { getIO } from '../lib/socket'
 import { prisma } from '../lib/prisma'
+import { redis } from '../lib/redis'
 import {
   scanOrder,
   bulkScanOrders,
@@ -12,6 +13,8 @@ import {
   deleteOrder,
   getOrderStats,
 } from '../services/orderService'
+
+const PENDING_TTL = 300 // 5 minutes
 
 const ScanSchema = z.object({
   trackingNumber: z.string().min(1).max(100),
@@ -66,6 +69,8 @@ export default async function orderRoutes(fastify: FastifyInstance) {
         return reply.code(409).send({ error: `Already exists: ${tn}` })
       }
 
+      // Persist in Redis so desktop picks it up even if the page opens after this event
+      await redis.setex(`pending:handheld:single:${userId}`, PENDING_TTL, tn)
       try { getIO().to(`user:${userId}`).emit('order:handheld-scan', { trackingNumber: tn }) } catch {}
       return reply.send({ ok: true })
     },
@@ -79,8 +84,26 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       const result = z.object({ trackingNumbers: z.array(z.string().min(1).max(100)).min(1).max(200) }).safeParse(request.body)
       if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
       const { userId } = request.user as JWTPayload
-      try { getIO().to(`user:${userId}`).emit('order:handheld-bulk-scan', { trackingNumbers: result.data.trackingNumbers }) } catch {}
+      const tns = result.data.trackingNumbers
+      // Persist in Redis so desktop picks it up even if the page opens after this event
+      await redis.setex(`pending:handheld:bulk:${userId}`, PENDING_TTL, JSON.stringify(tns))
+      try { getIO().to(`user:${userId}`).emit('order:handheld-bulk-scan', { trackingNumbers: tns }) } catch {}
       return reply.send({ ok: true })
+    },
+  )
+
+  // GET /orders/pending-handheld — desktop polls on page load to catch missed socket events
+  fastify.get(
+    '/pending-handheld',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { userId } = request.user as JWTPayload
+      const [single, bulkRaw] = await Promise.all([
+        redis.getdel(`pending:handheld:single:${userId}`),
+        redis.getdel(`pending:handheld:bulk:${userId}`),
+      ])
+      const bulk = bulkRaw ? (JSON.parse(bulkRaw) as string[]) : null
+      return reply.send({ single: single ?? null, bulk })
     },
   )
 

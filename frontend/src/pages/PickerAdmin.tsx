@@ -774,10 +774,30 @@ export default function PickerAdmin() {
   const [stagedOrders, setStagedOrders] = useState<Order[]>([])
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
 
+  // On mount: check Redis-backed pending staged orders (catches events sent before page opened)
+  useEffect(() => {
+    api.get<{ orders: Order[] }>('/picker-admin/pending-staged')
+      .then(res => {
+        if (res.data.orders.length > 0) {
+          setStagedOrders(prev => {
+            const existing = new Set(prev.map(o => o.id))
+            const fresh = res.data.orders.filter(o => !existing.has(o.id))
+            if (fresh.length === 0) return prev
+            setScanFeedback({ type: 'success', message: `${fresh.length} handheld scan${fresh.length !== 1 ? 's' : ''} loaded` })
+            setTimeout(() => setScanFeedback(null), 3000)
+            return [...prev, ...fresh]
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // Real-time: handheld scan event → auto-add order to staging area
   useEffect(() => {
     const socket = connectSocket()
     socket.on('order:staged', (data: { order: Order }) => {
+      // Clear Redis-backed pending so it's not shown twice on next page load
+      api.get('/picker-admin/pending-staged').catch(() => {})
       setStagedOrders(prev => {
         if (prev.find(o => o.id === data.order.id)) return prev
         return [...prev, data.order]
