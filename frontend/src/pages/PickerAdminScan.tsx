@@ -247,23 +247,24 @@ export default function PickerAdminScan() {
 
         {/* Camera overlay */}
         {cameraOpen && (
-          <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ position: 'relative', width: '100%', maxWidth: '500px' }}>
-              <video ref={videoRef} playsInline muted style={{ width: '100%', display: 'block' }} />
-              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '72%', height: '130px', pointerEvents: 'none' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, width: 28, height: 28, borderTop: '3px solid #7c3aed', borderLeft: '3px solid #7c3aed', borderRadius: '3px 0 0 0' }} />
-                <div style={{ position: 'absolute', top: 0, right: 0, width: 28, height: 28, borderTop: '3px solid #7c3aed', borderRight: '3px solid #7c3aed', borderRadius: '0 3px 0 0' }} />
-                <div style={{ position: 'absolute', bottom: 0, left: 0, width: 28, height: 28, borderBottom: '3px solid #7c3aed', borderLeft: '3px solid #7c3aed', borderRadius: '0 0 0 3px' }} />
-                <div style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderBottom: '3px solid #7c3aed', borderRight: '3px solid #7c3aed', borderRadius: '0 0 3px 0' }} />
-                <div style={{ position: 'absolute', top: '50%', left: '5%', right: '5%', height: '2px', background: 'linear-gradient(90deg, transparent, #7c3aed, transparent)', animation: 'scanline 1.5s ease-in-out infinite' }} />
-                <div style={{ position: 'absolute', inset: 0, boxShadow: '0 0 0 9999px rgba(0,0,0,0.65)' }} />
-              </div>
+          <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, overflow: 'hidden' }}>
+            <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            {/* Scan frame */}
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -55%)', width: '92%', height: '270px', pointerEvents: 'none' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: 48, height: 48, borderTop: '5px solid #7c3aed', borderLeft: '5px solid #7c3aed', borderRadius: '5px 0 0 0' }} />
+              <div style={{ position: 'absolute', top: 0, right: 0, width: 48, height: 48, borderTop: '5px solid #7c3aed', borderRight: '5px solid #7c3aed', borderRadius: '0 5px 0 0' }} />
+              <div style={{ position: 'absolute', bottom: 0, left: 0, width: 48, height: 48, borderBottom: '5px solid #7c3aed', borderLeft: '5px solid #7c3aed', borderRadius: '0 0 0 5px' }} />
+              <div style={{ position: 'absolute', bottom: 0, right: 0, width: 48, height: 48, borderBottom: '5px solid #7c3aed', borderRight: '5px solid #7c3aed', borderRadius: '0 0 5px 0' }} />
+              <div style={{ position: 'absolute', top: '50%', left: '3%', right: '3%', height: '2px', background: 'linear-gradient(90deg, transparent, #7c3aed, transparent)', animation: 'scanline 1.5s ease-in-out infinite' }} />
+              <div style={{ position: 'absolute', inset: 0, boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)' }} />
             </div>
-            <p style={{ color: '#cbd5e1', fontSize: '16px', marginTop: '28px', fontWeight: 600 }}>Align barcode within the frame</p>
-            <button onClick={stopCamera} style={{ marginTop: '20px', padding: '16px 56px', borderRadius: '14px', border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.18)', color: '#f87171', fontSize: '17px', fontWeight: 700, cursor: 'pointer' }}>
+            {/* Label */}
+            <p style={{ position: 'absolute', top: '58%', left: 0, right: 0, textAlign: 'center', color: '#cbd5e1', fontSize: '16px', fontWeight: 600, margin: 0 }}>Align barcode within the frame</p>
+            {/* Cancel button */}
+            <button onClick={stopCamera} style={{ position: 'absolute', bottom: '48px', left: '50%', transform: 'translateX(-50%)', padding: '18px 72px', borderRadius: '16px', border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.18)', color: '#f87171', fontSize: '18px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               Cancel
             </button>
-            <style>{`@keyframes scanline { 0%,100%{opacity:.3;transform:translateY(-24px)}50%{opacity:1;transform:translateY(24px)} }`}</style>
+            <style>{`@keyframes scanline { 0%,100%{opacity:.3;transform:translateY(-40px)}50%{opacity:1;transform:translateY(40px)} }`}</style>
           </div>
         )}
 

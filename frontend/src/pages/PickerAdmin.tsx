@@ -69,6 +69,9 @@ function PickerOrdersModal({
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [completeTarget, setCompleteTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<'remove' | 'complete' | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['picker-orders', picker.id],
@@ -76,7 +79,7 @@ function PickerOrdersModal({
       const res = await api.get<{ orders: PickerOrderRow[] }>(`/picker-admin/picker/${picker.id}/orders`)
       return res.data.orders
     },
-    refetchInterval: 3000,
+    refetchInterval: 10_000,
   })
 
   const completeMutation = useMutation({
@@ -101,6 +104,49 @@ function PickerOrdersModal({
   })
 
   const orders = data ?? []
+  // Only non-completed orders are selectable
+  const selectableOrders = orders.filter(o => o.status !== 'PICKER_COMPLETE')
+  const allSelected = selectableOrders.length > 0 && selectableOrders.every(o => selectedIds.has(o.id))
+  const someSelected = selectedIds.size > 0
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(selectableOrders.map(o => o.id)))
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function executeBulkAction(action: 'remove' | 'complete') {
+    setBulkBusy(true)
+    setModalError(null)
+    const orderIds = Array.from(selectedIds)
+    try {
+      if (action === 'complete') {
+        await api.post('/picker-admin/bulk-complete', { orderIds, pickerId: picker.id })
+      } else {
+        await api.post('/picker-admin/bulk-unassign', { orderIds, pickerId: picker.id })
+      }
+      setSelectedIds(new Set())
+      queryClient.invalidateQueries({ queryKey: ['picker-orders', picker.id] })
+      queryClient.invalidateQueries({ queryKey: ['picker-admin-orders'] })
+      onComplete()
+    } catch (err: any) {
+      setModalError(err?.response?.data?.error ?? `Bulk ${action} failed`)
+    } finally {
+      setBulkBusy(false)
+      setBulkAction(null)
+    }
+  }
 
   function handleComplete(orderId: string, tracking: string) {
     setCompleteTarget({ id: orderId, tracking })
@@ -122,7 +168,7 @@ function PickerOrdersModal({
     setRemoveTarget(null)
   }
 
-  const isBusy = completeMutation.isPending || unassignMutation.isPending
+  const isBusy = completeMutation.isPending || unassignMutation.isPending || bulkBusy
 
   const statusChip = (status: string) => {
     const map: Record<string, { label: string; bg: string; color: string }> = {
@@ -152,7 +198,7 @@ function PickerOrdersModal({
     >
       <div
         style={{
-          background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '680px',
+          background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '720px',
           boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
           maxHeight: '85vh', display: 'flex', flexDirection: 'column',
         }}
@@ -186,6 +232,65 @@ function PickerOrdersModal({
           </button>
         </div>
 
+        {/* Bulk action bar — visible only when items are selected */}
+        {someSelected && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '10px 20px',
+            background: '#eff6ff',
+            borderBottom: `1px solid #bfdbfe`,
+          }}>
+            <span style={{
+              fontSize: '13px', fontWeight: 600, color: '#1d4ed8', flex: 1,
+            }}>
+              {selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''} selected
+            </span>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              style={{
+                padding: '5px 12px', border: `1px solid #93c5fd`,
+                borderRadius: '6px', background: '#fff', color: '#3b82f6',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Deselect All
+            </button>
+            <button
+              onClick={() => setBulkAction('remove')}
+              disabled={isBusy}
+              style={{
+                padding: '5px 14px', border: 'none',
+                borderRadius: '6px', background: colors.danger, color: '#fff',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                opacity: isBusy ? 0.6 : 1,
+                display: 'flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+              Remove Selected
+            </button>
+            <button
+              onClick={() => setBulkAction('complete')}
+              disabled={isBusy}
+              style={{
+                padding: '5px 14px', border: 'none',
+                borderRadius: '6px', background: colors.success, color: '#fff',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                opacity: isBusy ? 0.6 : 1,
+                display: 'flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Complete Selected
+            </button>
+          </div>
+        )}
+
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {modalError && (
@@ -214,9 +319,21 @@ function PickerOrdersModal({
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
+                  {/* Select All checkbox */}
+                  <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
+                    {selectableOrders.length > 0 && (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        title={allSelected ? 'Deselect all' : 'Select all'}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: colors.primary }}
+                      />
+                    )}
+                  </th>
                   {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Status', 'Delay', 'Assigned At', ''].map(h => (
                     <th key={h} style={{
-                      padding: '10px 16px', textAlign: 'left', fontSize: '11px',
+                      padding: '10px 16px 10px 8px', textAlign: 'left', fontSize: '11px',
                       fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
                       letterSpacing: '0.05em', whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -224,95 +341,205 @@ function PickerOrdersModal({
                 </tr>
               </thead>
               <tbody>
-                {orders.map(order => (
-                  <tr key={order.id} style={{ borderBottom: `1px solid #f1f5f9` }}>
-                    <td style={{ padding: '11px 16px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
-                      {order.trackingNumber}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <PlatformBadge platform={order.platform} />
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      {order.carrierName ? (
-                        <span style={{
-                          display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
-                          fontSize: '11px', fontWeight: 600,
-                          background: '#f1f5f9', color: '#374151',
-                          border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
-                        }}>
-                          {order.carrierName.replace(/_/g, ' ')}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#d1d5db' }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 16px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      {statusChip(order.status)}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <DelayBadge level={order.delayLevel} />
-                    </td>
-                    <td style={{ padding: '11px 16px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
-                      {new Date(order.assignedAt).toLocaleString('en-GB', {
-                        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-                      })}
-                    </td>
-                    <td style={{ padding: '11px 16px', textAlign: 'right' }}>
-                      {order.status !== 'PICKER_COMPLETE' && (
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                          <button
-                            onClick={() => handleRemove(order.id, order.trackingNumber)}
-                            disabled={isBusy}
-                            style={{
-                              padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
-                              borderRadius: '6px', background: '#fff', color: colors.danger,
-                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                              transition: 'all 0.15s',
-                            }}
-                            onMouseEnter={e => {
-                              (e.currentTarget as HTMLButtonElement).style.background = colors.danger
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
-                            }}
-                            onMouseLeave={e => {
-                              (e.currentTarget as HTMLButtonElement).style.background = '#fff'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.danger
-                            }}
-                          >
-                            Remove
-                          </button>
-                          <button
-                            onClick={() => handleComplete(order.id, order.trackingNumber)}
-                            disabled={isBusy}
-                            style={{
-                              padding: '4px 12px', border: `1px solid ${colors.success}`,
-                              borderRadius: '6px', background: '#fff', color: colors.success,
-                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                              transition: 'all 0.15s',
-                            }}
-                            onMouseEnter={e => {
-                              (e.currentTarget as HTMLButtonElement).style.background = colors.success
-                              ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
-                            }}
-                            onMouseLeave={e => {
-                              (e.currentTarget as HTMLButtonElement).style.background = '#fff'
-                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.success
-                            }}
-                          >
-                            Complete
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {orders.map(order => {
+                  const isSelectable = order.status !== 'PICKER_COMPLETE'
+                  const isSelected = selectedIds.has(order.id)
+                  return (
+                    <tr
+                      key={order.id}
+                      style={{
+                        borderBottom: `1px solid #f1f5f9`,
+                        background: isSelected ? '#eff6ff' : undefined,
+                        transition: 'background 0.1s',
+                      }}
+                    >
+                      {/* Row checkbox */}
+                      <td style={{ padding: '11px 8px 11px 16px' }}>
+                        {isSelectable && (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(order.id)}
+                            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: colors.primary }}
+                          />
+                        )}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
+                        {order.trackingNumber}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        <PlatformBadge platform={order.platform} />
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        {order.carrierName ? (
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                            fontSize: '11px', fontWeight: 600,
+                            background: '#f1f5f9', color: '#374151',
+                            border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                          }}>
+                            {order.carrierName.replace(/_/g, ' ')}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#d1d5db' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        {statusChip(order.status)}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        <DelayBadge level={order.delayLevel} />
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
+                        {new Date(order.assignedAt).toLocaleString('en-GB', {
+                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', textAlign: 'right' }}>
+                        {isSelectable && (
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => handleRemove(order.id, order.trackingNumber)}
+                              disabled={isBusy}
+                              style={{
+                                padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
+                                borderRadius: '6px', background: '#fff', color: colors.danger,
+                                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                                transition: 'all 0.15s',
+                              }}
+                              onMouseEnter={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = colors.danger
+                                ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                              }}
+                              onMouseLeave={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                                ;(e.currentTarget as HTMLButtonElement).style.color = colors.danger
+                              }}
+                            >
+                              Remove
+                            </button>
+                            <button
+                              onClick={() => handleComplete(order.id, order.trackingNumber)}
+                              disabled={isBusy}
+                              style={{
+                                padding: '4px 12px', border: `1px solid ${colors.success}`,
+                                borderRadius: '6px', background: '#fff', color: colors.success,
+                                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                                transition: 'all 0.15s',
+                              }}
+                              onMouseEnter={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = colors.success
+                                ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                              }}
+                              onMouseLeave={e => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                                ;(e.currentTarget as HTMLButtonElement).style.color = colors.success
+                              }}
+                            >
+                              Complete
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
         </div>
       </div>
+
+      {/* Bulk action confirmation dialog */}
+      {bulkAction && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => !bulkBusy && setBulkAction(null)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '400px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: bulkAction === 'complete'
+                ? 'linear-gradient(135deg, #f0fdf4, #f7fef9)'
+                : 'linear-gradient(135deg, #fef2f2, #fff5f5)',
+              padding: '22px 24px 18px',
+              borderBottom: `1px solid ${bulkAction === 'complete' ? '#bbf7d0' : colors.dangerBorder}`,
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px',
+                background: bulkAction === 'complete' ? '#dcfce7' : '#fee2e2',
+                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {bulkAction === 'complete' ? (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  {bulkAction === 'complete' ? 'Complete Selected Orders?' : 'Remove Selected Orders?'}
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  {bulkAction === 'complete'
+                    ? <>This will mark <strong>{selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''}</strong> as Picker Complete for <strong>{picker.username}</strong>.</>
+                    : <>This will unassign <strong>{selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''}</strong> from <strong>{picker.username}</strong> and return them to the inbound queue.</>
+                  }
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setBulkAction(null)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: `1px solid ${colors.border}`,
+                  borderRadius: '8px', background: '#fff', color: colors.textSecondary,
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => executeBulkAction(bulkAction)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: 'none',
+                  borderRadius: '8px',
+                  background: bulkAction === 'complete' ? '#16a34a' : colors.danger,
+                  color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  opacity: bulkBusy ? 0.7 : 1,
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                {bulkBusy
+                  ? <><span className="spinner spinner-sm" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> Processing...</>
+                  : bulkAction === 'complete' ? `✓ Complete ${selectedIds.size}` : `Remove ${selectedIds.size}`
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Complete confirmation dialog */}
       {completeTarget && (
@@ -819,7 +1046,7 @@ export default function PickerAdmin() {
       const res = await api.get<{ orders: Order[] }>('/picker-admin/orders')
       return res.data.orders
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   // Pickers query
@@ -838,7 +1065,7 @@ export default function PickerAdmin() {
       const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number }>('/picker-admin/stats')
       return res.data
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   // Order balance stats — order-status-based counts so header equation always holds
@@ -848,7 +1075,7 @@ export default function PickerAdmin() {
       const res = await api.get<{ totalScanned: number; pendingInbound: number; inProgressCount: number; pickerDoneCount: number }>('/orders/stats')
       return res.data
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const invalidateAll = () => {
@@ -889,11 +1116,10 @@ export default function PickerAdmin() {
       api.post<{ order: Order }>('/picker-admin/scan', { trackingNumber }),
     onSuccess: (res) => {
       const order = res.data.order
-      if (stagedOrders.find(o => o.id === order.id)) {
-        setScanFeedback({ type: 'warning', message: `Already staged: ${order.trackingNumber}` })
-        return
-      }
-      setStagedOrders(prev => [...prev, order])
+      setStagedOrders(prev => {
+        if (prev.find(o => o.id === order.id)) return prev  // socket already added it
+        return [...prev, order]
+      })
       setScanFeedback({ type: 'success', message: `Staged: ${order.trackingNumber}` })
     },
     onError: (err: any) => {
@@ -1329,15 +1555,20 @@ export default function PickerAdmin() {
               >
                 ← Prev
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}
-                >
-                  {page}
-                </button>
-              ))}
+              {(() => {
+                const delta = 2
+                const start = Math.max(1, safePage - delta)
+                const end = Math.min(totalPages, safePage + delta)
+                const pages: (number | 'ellipsis-start' | 'ellipsis-end')[] = []
+                if (start > 1) { pages.push(1); if (start > 2) pages.push('ellipsis-start') }
+                for (let p = start; p <= end; p++) pages.push(p)
+                if (end < totalPages) { if (end < totalPages - 1) pages.push('ellipsis-end'); pages.push(totalPages) }
+                return pages.map((page, i) =>
+                  typeof page === 'string'
+                    ? <span key={page} style={{ padding: '0 4px', color: '#94a3b8', alignSelf: 'center' }}>…</span>
+                    : <button key={page} onClick={() => setCurrentPage(page)} className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}>{page}</button>
+                )
+              })()}
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}

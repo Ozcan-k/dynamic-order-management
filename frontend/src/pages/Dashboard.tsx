@@ -184,7 +184,7 @@ export default function Dashboard() {
     const id = setInterval(() => {
       setNow(new Date())
       setColon((v) => !v)
-    }, 500)
+    }, 1000)
     return () => clearInterval(id)
   }, [])
 
@@ -217,12 +217,10 @@ export default function Dashboard() {
 
   const hh = String(now.getHours()).padStart(2, '0')
   const mm = String(now.getMinutes()).padStart(2, '0')
-  const ss = String(now.getSeconds()).padStart(2, '0')
-  const dateStr = now.toLocaleDateString('en-GB', {
-    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' })
+  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
   const updatedStr = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    ? new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : '—'
 
   const dash = (loading: boolean, v: number) => (loading ? '—' : v)
@@ -243,39 +241,73 @@ export default function Dashboard() {
     >
 
       {/* ── Clock ─────────────────────────────────────────────────── */}
-      <Card style={{ padding: '18px 24px', marginBottom: '20px' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px' }}>
-            <span style={{
-              fontSize: '42px', fontWeight: 800, color: colors.textPrimary,
-              fontVariantNumeric: 'tabular-nums', fontFamily: font.mono,
-              letterSpacing: '-1.5px', lineHeight: 1,
+      <Card style={{ padding: '20px 28px', marginBottom: '20px' }}>
+        <div className="clock-card-row">
+          {/* Time + Date */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {/* Clock icon */}
+            <div style={{
+              width: 44, height: 44, borderRadius: '12px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
             }}>
-              {hh}
-              <span style={{ opacity: colon ? 1 : 0.15, transition: 'opacity 0.1s' }}>:</span>
-              {mm}
-              <span style={{
-                fontSize: '28px', fontWeight: 500, color: colors.textSecondary,
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            {/* Time */}
+            <div>
+              <div className="clock-time" style={{
+                color: colors.textPrimary,
+                fontFamily: font.mono,
               }}>
-                <span style={{ opacity: colon ? 1 : 0.15, transition: 'opacity 0.1s' }}>:</span>
-                {ss}
-              </span>
-            </span>
-            <span style={{ fontSize: font.sizeLg, color: colors.textSecondary }}>{dateStr}</span>
+                {hh}
+                <span style={{
+                  opacity: colon ? 1 : 0.2,
+                  transition: 'opacity 0.15s',
+                  display: 'inline-block', width: '0.38em', textAlign: 'center',
+                }}>:</span>
+                {mm}
+              </div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                marginTop: '4px',
+              }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: colors.textSecondary, letterSpacing: '0.02em' }}>
+                  {weekday}
+                </span>
+                <span style={{ color: colors.border, fontSize: '12px' }}>·</span>
+                <span style={{ fontSize: '13px', color: colors.textMuted }}>
+                  {dateStr}
+                </span>
+              </div>
+            </div>
           </div>
+
+          {/* Live indicator */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '7px',
-            fontSize: font.sizeSm, color: colors.textMuted,
+            display: 'flex', alignItems: 'center', gap: '8px',
+            background: colors.surfaceAlt,
+            border: `1px solid ${colors.border}`,
+            borderRadius: '10px',
+            padding: '8px 14px',
           }}>
             <span style={{
               display: 'inline-block', width: '8px', height: '8px',
               borderRadius: '50%', background: '#10b981',
               boxShadow: '0 0 0 3px rgba(16,185,129,0.2)',
+              flexShrink: 0,
             }} />
-            Live · refreshed {updatedStr}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Live
+              </span>
+              <span style={{ fontSize: '12px', color: colors.textMuted }}>
+                Updated {updatedStr}
+              </span>
+            </div>
           </div>
         </div>
       </Card>

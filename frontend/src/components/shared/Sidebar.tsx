@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
+import { useMobileSidebar } from '../../lib/mobileSidebar'
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -65,11 +66,20 @@ const LogoutIcon = () => (
   </svg>
 )
 
+const CloseIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+
 const DomLogo = () => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-    <line x1="12" y1="22.08" x2="12" y2="12" />
+  <svg width="26" height="26" viewBox="0 0 72 72" fill="none">
+    <path d="M36 14 L54 24 L36 34 L18 24 Z"
+          fill="rgba(255,255,255,0.2)" stroke="white" strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M18 24 L18 46 L36 56 L36 34 Z"
+          fill="rgba(255,255,255,0.12)" stroke="white" strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M54 24 L54 46 L36 56 L36 34 Z"
+          fill="rgba(255,255,255,0.06)" stroke="white" strokeWidth="2.5" strokeLinejoin="round" />
   </svg>
 )
 
@@ -143,6 +153,7 @@ export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
   const navigate = useNavigate()
+  const { isOpen, close } = useMobileSidebar()
 
   const visibleItems = NAV_ITEMS.filter(item =>
     user?.role && item.roles.includes(user.role)
@@ -159,16 +170,24 @@ export default function Sidebar() {
   }
 
   return (
-    <nav className="sidebar">
-      {/* Logo */}
+    <nav className={['sidebar', isOpen ? 'sidebar--mobile-open' : ''].filter(Boolean).join(' ')}>
+      {/* Logo + mobile close button */}
       <div className="sidebar-logo">
         <div className="sidebar-logo-icon">
           <DomLogo />
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <div className="sidebar-logo-title">DOM</div>
           <div className="sidebar-logo-sub">Warehouse System</div>
         </div>
+        {/* Close button — mobile only */}
+        <button
+          className="sidebar-close-btn"
+          onClick={close}
+          aria-label="Close menu"
+        >
+          <CloseIcon />
+        </button>
       </div>
 
       {/* Nav label */}
@@ -180,6 +199,7 @@ export default function Sidebar() {
           <NavLink
             key={item.path}
             to={item.path}
+            onClick={close}
             className={({ isActive }) =>
               ['sidebar-link', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
             }

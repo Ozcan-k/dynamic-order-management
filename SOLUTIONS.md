@@ -364,9 +364,72 @@ Backend 409 güvenlik ağı olarak korunur (farklı statüdeki order'lar için).
 
 ---
 
+---
+
+## [2026-04-11] Rate Limiter Tetikleniyor — Sayfa Yüklenmiyor (429)
+
+### Sorun
+Backend tüm isteklere `Too many requests. Please slow down.` (500/429) hatası dönüyor.
+Orderlar, stats ve diğer veriler yüklenemiyor.
+
+### Kök Neden
+İki katmanlı sorun:
+1. **Bulk action `Promise.all`**: Seçili tüm orderlar için aynı anda N istek atıldı. 50 order = 50 eşzamanlı request → rate limit aşıldı.
+2. **Agresif polling**: Her sayfa 3–5 saniyede bir birden fazla endpoint polling yapıyordu. Birden fazla tab/kullanıcı olunca katlanarak artıyor (3 tab × 3 query × 12/dk = 108 req/dk → 100 limitini aşar).
+
+### Çözüm (3 katman)
+
+**1. Backend: Tek bulk endpoint**
+```
+POST /picker-admin/bulk-complete   { orderIds[], pickerId }
+POST /picker-admin/bulk-unassign   { orderIds[], pickerId }
+```
+Backend içinde sequential for-loop ile işler — N işlem için tek HTTP request.
+
+**2. Backend: Rate limit artırıldı**
+`backend/src/plugins/rateLimit.ts` → `max: 100` → `max: 500`
+
+**3. Frontend: Polling aralığı uzatıldı**
+Tüm `refetchInterval: 3000 / 5000` → `10_000` ms
+Socket zaten real-time güncelliyor; polling sadece fallback — 10 sn yeterli.
+
+### İlgili Dosyalar
+- `backend/src/services/pickerAdminService.ts` — `bulkCompleteOrders`, `bulkUnassignOrders`
+- `backend/src/routes/pickerAdmin.ts` — `/bulk-complete`, `/bulk-unassign`
+- `backend/src/plugins/rateLimit.ts` — max: 500
+- `frontend/src/pages/PickerAdmin.tsx` — `executeBulkAction` tek API çağrısı
+- `frontend/src/pages/Inbound.tsx`, `Outbound.tsx`, `PackerAdmin.tsx` — polling 10s
+
+---
+
+## [2026-04-11] `docker cp` Sonrası Backend Crash Loop (exit code 0)
+
+### Sorun
+`docker cp backend/dist/... dom_backend:/app/...` ile dist dosyası güncellendi.
+Ardından `docker compose up -d backend` çalıştırılınca container sürekli restart loop'a girdi (exit code 0).
+
+### Kök Neden
+`docker compose up` mevcut container'ı yeniden oluşturur (recreate).
+Yeni container image'dan açılır → `docker cp` ile yapılan değişiklikler kaybolur.
+Eksik JS dosyası runtime'da import hatası yerine sessiz çıkışa neden olabilir.
+
+### Çözüm
+Backend kodu her değiştiğinde **image rebuild** zorunlu:
+```bash
+docker compose build backend
+docker compose up -d backend
+```
+`docker compose restart` mevcut container'ı yeniden başlatır (cp değişiklikleri korunur).
+`docker compose up` yeni container açar (cp değişiklikleri kaybolur) — dikkat.
+
+---
+
 ## Genel Kurallar
 
 - Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan
 - `@dom/shared` güncellenince mutlaka `npm run build` çalıştır
 - Birden fazla Vite process çalışıyorsa beyaz sayfa veya stale kod görünebilir
 - `npx tsc --noEmit` her değişiklikten sonra çalıştırılmalı
+- Backend değişikliklerinde `docker compose build backend && docker compose up -d backend`
+- Bulk API işlemlerinde asla `Promise.all(tümIDs)` kullanma — backend'e single bulk endpoint ekle
+- Frontend polling: socket real-time güncelleme varsa `refetchInterval` en az 10_000 ms olmalı

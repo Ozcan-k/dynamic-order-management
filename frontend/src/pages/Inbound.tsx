@@ -82,7 +82,7 @@ export default function Inbound() {
       const res = await api.get<{ orders: Order[] }>('/orders')
       return res.data.orders
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const { data: statsData } = useQuery({
@@ -91,7 +91,7 @@ export default function Inbound() {
       const res = await api.get<{ totalScanned: number; pendingInbound: number; delayBreakdown: number[] }>('/orders/stats')
       return res.data
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const scanMutation = useMutation({
@@ -256,15 +256,20 @@ export default function Inbound() {
             >
               ← Prev
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}
-              >
-                {page}
-              </button>
-            ))}
+            {(() => {
+              const delta = 2
+              const start = Math.max(1, safePage - delta)
+              const end = Math.min(totalPages, safePage + delta)
+              const pages: (number | 'ellipsis-start' | 'ellipsis-end')[] = []
+              if (start > 1) { pages.push(1); if (start > 2) pages.push('ellipsis-start') }
+              for (let p = start; p <= end; p++) pages.push(p)
+              if (end < totalPages) { if (end < totalPages - 1) pages.push('ellipsis-end'); pages.push(totalPages) }
+              return pages.map((page) =>
+                typeof page === 'string'
+                  ? <span key={page} style={{ padding: '0 4px', color: '#94a3b8', alignSelf: 'center' }}>…</span>
+                  : <button key={page} onClick={() => setCurrentPage(page)} className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}>{page}</button>
+              )
+            })()}
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}

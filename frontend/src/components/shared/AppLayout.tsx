@@ -3,34 +3,40 @@ import Sidebar from './Sidebar'
 import SlaAlertBanner from '../SlaAlertBanner'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
 import { useAuthStore } from '../../stores/authStore'
+import { MobileSidebarProvider, useMobileSidebar } from '../../lib/mobileSidebar'
 
-interface AppLayoutProps {
-  children: ReactNode
-}
-
-/**
- * AppLayout — desktop layout wrapper: sidebar on left, content on right.
- * Used for all non-mobile roles (ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN).
- * PICKER and PACKER use their own mobile layout — do not wrap with AppLayout.
- */
-export default function AppLayout({ children }: AppLayoutProps) {
+function AppLayoutInner({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
+  const { isOpen, close } = useMobileSidebar()
 
   useEffect(() => {
     if (!user) return
     connectSocket()
-    return () => {
-      disconnectSocket()
-    }
+    return () => { disconnectSocket() }
   }, [user])
 
   return (
     <div className="app-layout">
       <Sidebar />
+
+      {/* Mobile backdrop overlay */}
+      <div
+        className={['sidebar-mobile-overlay', isOpen ? 'sidebar-mobile-overlay--visible' : ''].filter(Boolean).join(' ')}
+        onClick={close}
+      />
+
       <div className="app-content">
         <SlaAlertBanner />
         {children}
       </div>
     </div>
+  )
+}
+
+export default function AppLayout({ children }: { children: ReactNode }) {
+  return (
+    <MobileSidebarProvider>
+      <AppLayoutInner>{children}</AppLayoutInner>
+    </MobileSidebarProvider>
   )
 }

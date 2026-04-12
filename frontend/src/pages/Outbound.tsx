@@ -161,7 +161,7 @@ export default function Outbound() {
       const res = await api.get<{ orders: ReadyOrder[] }>('/outbound/orders')
       return res.data.orders
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const { data: statsData } = useQuery({
@@ -170,7 +170,7 @@ export default function Outbound() {
       const res = await api.get<OutboundStats>('/outbound/stats')
       return res.data
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const orderList = orders ?? []

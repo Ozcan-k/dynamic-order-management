@@ -61,7 +61,7 @@ function PackerOrdersModal({
       const res = await api.get<{ orders: PackerOrderRow[] }>(`/packer-admin/packer/${packer.id}/orders`)
       return res.data.orders
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const orders = data ?? []
@@ -267,7 +267,7 @@ export default function PackerAdmin() {
       const res = await api.get<{ orders: Order[] }>('/packer-admin/orders')
       return res.data.orders
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const { data: statsData } = useQuery({
@@ -276,7 +276,7 @@ export default function PackerAdmin() {
       const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number }>('/packer-admin/stats')
       return res.data
     },
-    refetchInterval: 5000,
+    refetchInterval: 10_000,
   })
 
   const orderList = orders ?? []

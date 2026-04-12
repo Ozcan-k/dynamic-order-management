@@ -210,6 +210,42 @@ export async function completeOrder(
   })
 }
 
+export async function bulkCompleteOrders(
+  orderIds: string[],
+  pickerId: string,
+  tenantId: string,
+): Promise<{ completed: number; skipped: number }> {
+  let completed = 0
+  let skipped = 0
+  for (const orderId of orderIds) {
+    try {
+      await completeOrder(orderId, pickerId, tenantId)
+      completed++
+    } catch {
+      skipped++
+    }
+  }
+  return { completed, skipped }
+}
+
+export async function bulkUnassignOrders(
+  orderIds: string[],
+  pickerId: string,
+  tenantId: string,
+): Promise<{ unassigned: number; skipped: number }> {
+  let unassigned = 0
+  let skipped = 0
+  for (const orderId of orderIds) {
+    try {
+      await unassignOrder(orderId, pickerId, tenantId)
+      unassigned++
+    } catch {
+      skipped++
+    }
+  }
+  return { unassigned, skipped }
+}
+
 export async function getPickerStats(tenantId: string) {
   const pickers = await prisma.user.findMany({
     where: { tenantId, role: UserRole.PICKER },

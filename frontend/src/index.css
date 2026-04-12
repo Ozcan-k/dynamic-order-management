@@ -728,6 +728,35 @@ button {
   color: #fff !important;
 }
 
+/* ─── Clock Card ────────────────────────────────────────────────────────── */
+
+.clock-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.clock-time {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -2px;
+}
+
+@media (max-width: 480px) {
+  .clock-time {
+    font-size: 32px;
+    letter-spacing: -1.5px;
+  }
+
+  .clock-card-row {
+    gap: 10px;
+  }
+}
+
 /* ─── Picker Stat Card ──────────────────────────────────────────────────── */
 
 .picker-stat-card {
@@ -743,6 +772,66 @@ button {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
+/* ─── Hamburger + Sidebar Close Button ──────────────────────────────────── */
+
+.sidebar-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: #64748b;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-hamburger:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.sidebar-close-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-close-btn:hover {
+  background: rgba(255,255,255,0.15);
+  color: #f1f5f9;
+}
+
+/* ─── Mobile Sidebar Overlay ────────────────────────────────────────────── */
+
+.sidebar-mobile-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 199;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-mobile-overlay--visible {
+  opacity: 1;
+}
+
 /* ─── Responsive ────────────────────────────────────────────────────────── */
 
 @media (max-width: 1024px) {
@@ -754,12 +843,58 @@ button {
 }
 
 @media (max-width: 768px) {
+  /* Sidebar becomes a fixed drawer */
+  .sidebar {
+    position: fixed;
+    left: -248px;
+    top: 0;
+    height: 100vh;
+    z-index: 200;
+    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.25s ease;
+    box-shadow: none;
+  }
+
+  .sidebar--mobile-open {
+    left: 0;
+    box-shadow: 6px 0 32px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Show overlay when sidebar is open */
+  .sidebar-mobile-overlay {
+    display: block;
+    pointer-events: none;
+  }
+
+  .sidebar-mobile-overlay--visible {
+    pointer-events: auto;
+  }
+
+  /* Show hamburger and close buttons */
+  .sidebar-hamburger {
+    display: flex;
+  }
+
+  .sidebar-close-btn {
+    display: flex;
+  }
+
+  /* Remove sidebar space from layout on mobile */
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .app-content {
+    width: 100%;
+  }
+
   .panel-header-inner {
-    padding: 12px 16px;
+    padding: 10px 14px;
+    min-height: 56px;
   }
 
   .panel-body {
-    padding: 16px;
+    padding: 14px;
   }
 
   .toolbar-card {
@@ -774,15 +909,26 @@ button {
   .stats-grid {
     grid-template-columns: 1fr 1fr;
   }
+
+  /* Stat cards smaller on mobile */
+  .stat-card {
+    padding: 8px 12px;
+    min-width: 80px;
+  }
+
+  .stat-card-value {
+    font-size: 18px;
+  }
 }
 
 @media (max-width: 480px) {
   .panel-header-inner {
-    padding: 10px 12px;
+    padding: 8px 12px;
+    min-height: 52px;
   }
 
   .panel-body {
-    padding: 12px;
+    padding: 10px;
   }
 
   .stats-grid {
@@ -792,6 +938,20 @@ button {
   .btn-primary,
   .btn-outline {
     width: 100%;
+  }
+
+  /* Stat cards wrap to 2-column grid in header */
+  .stat-card {
+    padding: 6px 10px;
+    min-width: 70px;
+  }
+
+  .stat-card-value {
+    font-size: 16px;
+  }
+
+  .stat-card-label {
+    font-size: 10px;
   }
 }
 
@@ -837,28 +997,32 @@ button {
   }
 
   .login-brand {
-    padding: 32px 24px 24px;
-    gap: 16px;
+    padding: 28px 24px 20px;
+    gap: 12px;
+    flex: 0 0 auto;
   }
 
   .login-brand-features {
-    display: none;
-  }
-
-  .login-brand-title {
-    font-size: 26px !important;
-  }
-
-  .login-brand-subtitle {
-    font-size: 14px !important;
+    display: none !important;
   }
 
   .login-form-panel {
     width: 100%;
     flex: 1;
-    padding: 32px 24px 40px;
+    padding: 28px 24px 40px;
     border-radius: 24px 24px 0 0;
-    margin-top: -20px;
+    margin-top: -16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-brand {
+    padding: 20px 20px 16px;
+    gap: 8px;
+  }
+
+  .login-form-panel {
+    padding: 24px 20px 32px;
   }
 }
 

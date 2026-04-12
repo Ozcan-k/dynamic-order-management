@@ -10,6 +10,8 @@ import {
   getPickers,
   assignPicker,
   bulkAssignPicker,
+  bulkCompleteOrders,
+  bulkUnassignOrders,
   getPickerStats,
   getPickerOrders,
   completeOrder,
@@ -23,6 +25,11 @@ const AssignSchema = z.object({
 })
 
 const BulkAssignSchema = z.object({
+  orderIds: z.array(z.string().min(1)).min(1).max(200),
+  pickerId: z.string().min(1),
+})
+
+const BulkActionSchema = z.object({
   orderIds: z.array(z.string().min(1)).min(1).max(200),
   pickerId: z.string().min(1),
 })
@@ -158,6 +165,26 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
       const message = err instanceof Error ? err.message : 'Unassign failed'
       return reply.code(400).send({ error: message })
     }
+  })
+
+  // POST /picker-admin/bulk-complete
+  fastify.post('/bulk-complete', { preHandler }, async (request, reply) => {
+    const result = BulkActionSchema.safeParse(request.body)
+    if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+    const { tenantId } = request.user as JWTPayload
+    const { orderIds, pickerId } = result.data
+    const summary = await bulkCompleteOrders(orderIds, pickerId, tenantId)
+    return reply.send(summary)
+  })
+
+  // POST /picker-admin/bulk-unassign
+  fastify.post('/bulk-unassign', { preHandler }, async (request, reply) => {
+    const result = BulkActionSchema.safeParse(request.body)
+    if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+    const { tenantId } = request.user as JWTPayload
+    const { orderIds, pickerId } = result.data
+    const summary = await bulkUnassignOrders(orderIds, pickerId, tenantId)
+    return reply.send(summary)
   })
 
   // POST /picker-admin/complete
