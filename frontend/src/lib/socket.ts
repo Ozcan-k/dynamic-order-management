@@ -2,13 +2,13 @@ import { io, Socket } from 'socket.io-client'
 
 let socket: Socket | null = null
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
-
 export function connectSocket(): Socket {
   if (socket?.connected) return socket
 
-  socket = io(BACKEND_URL, {
-    withCredentials: true, // sends the access_token cookie automatically
+  // Connect to current origin — socket.io goes through the Vite HTTPS proxy (/socket.io)
+  // This avoids mixed-content blocks (HTTPS page → ws:// direct backend)
+  socket = io('', {
+    withCredentials: true,
     autoConnect: true,
   })
 

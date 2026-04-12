@@ -70,6 +70,7 @@ services:
     volumes:
       - ./frontend/src:/app/frontend/src
       - ./shared/src:/app/shared/src
+      - ./certs:/app/certs:ro
 
 volumes:
   postgres_data:

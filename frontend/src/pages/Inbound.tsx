@@ -32,6 +32,7 @@ export default function Inbound() {
   const [currentPage, setCurrentPage] = useState(1)
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
   const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkInitialTNs, setBulkInitialTNs] = useState<string[] | undefined>(undefined)
   const [bulkFeedback, setBulkFeedback] = useState<{ created: number; duplicates: string[] } | null>(null)
   const [pendingScan, setPendingScan] = useState<string | null>(null)
   const [lastCarrier, setLastCarrier] = useState(() => localStorage.getItem('quickScan_carrier') ?? '')
@@ -40,15 +41,22 @@ export default function Inbound() {
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
 
-  // Real-time: handheld scan event → refresh order list immediately
+  // Real-time: handheld single scan → open QuickScanModal on desktop
+  // Real-time: handheld bulk scan → open BulkScanModal pre-filled on desktop
   useEffect(() => {
     const socket = connectSocket()
-    socket.on('order:scanned', () => {
-      queryClient.invalidateQueries({ queryKey: ['orders'] })
-      queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
+    socket.on('order:handheld-scan', (data: { trackingNumber: string }) => {
+      setPendingScan(data.trackingNumber)
     })
-    return () => { socket.off('order:scanned') }
-  }, [queryClient])
+    socket.on('order:handheld-bulk-scan', (data: { trackingNumbers: string[] }) => {
+      setBulkInitialTNs(data.trackingNumbers)
+      setShowBulkModal(true)
+    })
+    return () => {
+      socket.off('order:handheld-scan')
+      socket.off('order:handheld-bulk-scan')
+    }
+  }, [])
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['orders'],
@@ -160,16 +168,6 @@ export default function Inbound() {
         />
       )}
 
-      {(user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN) && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, marginTop: -12 }}>
-          <button
-            className="btn btn-primary"
-            onClick={() => { setBulkFeedback(null); setShowBulkModal(true) }}
-          >
-            Bulk Scan
-          </button>
-        </div>
-      )}
 
       {bulkFeedback && (
         <div
@@ -252,9 +250,11 @@ export default function Inbound() {
       )}
       {showBulkModal && (
         <BulkScanModal
-          onClose={() => setShowBulkModal(false)}
+          initialTrackingNumbers={bulkInitialTNs}
+          onClose={() => { setShowBulkModal(false); setBulkInitialTNs(undefined) }}
           onSuccess={(created, duplicates) => {
             setShowBulkModal(false)
+            setBulkInitialTNs(undefined)
             setBulkFeedback({ created, duplicates })
             queryClient.invalidateQueries({ queryKey: ['orders'] })
             queryClient.invalidateQueries({ queryKey: ['orders-stats'] })

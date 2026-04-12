@@ -1,115 +1,138 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { BrowserMultiFormatReader } from '@zxing/browser'
-import { NotFoundException } from '@zxing/library'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
-interface ScannedEntry {
+type ScanMode = 'single' | 'bulk'
+
+interface BulkEntry {
   trackingNumber: string
-  status: 'ok' | 'duplicate' | 'error'
+  duplicate: boolean
 }
 
 export default function InboundScan() {
   const user = useAuthStore((s) => s.user)
-  const [value, setValue] = useState('')
+  const [mode, setMode] = useState<ScanMode>('single')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'duplicate'; message: string } | null>(null)
-  const [history, setHistory] = useState<ScannedEntry[]>([])
+  const [bulkItems, setBulkItems] = useState<BulkEntry[]>([])
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const controlsRef = useRef<any>(null)
+  const didSubmitRef = useRef(false)
 
-  const scanMutation = useMutation({
-    mutationFn: (trackingNumber: string) =>
-      api.post<{ order: { trackingNumber: string } }>('/orders/scan', { trackingNumber }),
-    onSuccess: (res) => {
-      const tn = res.data.order.trackingNumber
-      setFeedback({ type: 'success', message: `Added: ${tn}` })
-      setHistory(prev => [{ trackingNumber: tn, status: 'ok' }, ...prev].slice(0, 10))
-      setValue('')
+  // Single scan — sends one TN to desktop, desktop opens QuickScanModal
+  const singleMutation = useMutation({
+    mutationFn: (tn: string) => api.post('/orders/handheld-scan', { trackingNumber: tn }),
+    onSuccess: (_res, tn) => {
+      setFeedback({ type: 'success', message: `Sent to desktop: ${tn}` })
       setTimeout(() => setFeedback(null), 2500)
     },
-    onError: (err: any, trackingNumber) => {
-      if (err?.response?.status === 409) {
-        setFeedback({ type: 'duplicate', message: `Already exists: ${trackingNumber}` })
-        setHistory(prev => [{ trackingNumber, status: 'duplicate' }, ...prev].slice(0, 10))
-      } else {
-        setFeedback({ type: 'error', message: err?.response?.data?.error ?? 'Scan failed' })
-        setHistory(prev => [{ trackingNumber, status: 'error' }, ...prev].slice(0, 10))
-      }
-      setValue('')
+    onError: (err: any, tn) => {
+      const isDuplicate = err?.response?.status === 409
+      setFeedback({
+        type: isDuplicate ? 'duplicate' : 'error',
+        message: isDuplicate ? `Already in system: ${tn}` : (err?.response?.data?.error ?? 'Failed to send'),
+      })
+      setTimeout(() => setFeedback(null), 3500)
+    },
+  })
+
+  // Bulk send — sends all accumulated TNs to desktop, desktop opens BulkScanModal
+  const bulkMutation = useMutation({
+    mutationFn: (tns: string[]) => api.post('/orders/handheld-bulk-scan', { trackingNumbers: tns }),
+    onSuccess: (_res, tns) => {
+      setFeedback({ type: 'success', message: `${tns.length} item${tns.length !== 1 ? 's' : ''} sent to desktop` })
+      setBulkItems([])
+      setTimeout(() => setFeedback(null), 3000)
+    },
+    onError: (err: any) => {
+      setFeedback({ type: 'error', message: err?.response?.data?.error ?? 'Failed to send' })
       setTimeout(() => setFeedback(null), 3000)
     },
   })
 
-  const submitScan = useCallback((tn: string) => {
-    const cleaned = tn.trim()
-    if (!cleaned || scanMutation.isPending) return
-    scanMutation.mutate(cleaned)
-  }, [scanMutation])
-
-  const stopCamera = useCallback(async () => {
-    if (readerRef.current) {
-      await BrowserMultiFormatReader.releaseAllStreams()
-      readerRef.current = null
-    }
+  const stopCamera = useCallback(() => {
+    controlsRef.current?.stop()
+    controlsRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
     setCameraOpen(false)
     setCameraError(null)
+    didSubmitRef.current = false
   }, [])
 
-  const startCamera = useCallback(async () => {
-    setCameraError(null)
-    try {
-      const reader = new BrowserMultiFormatReader()
-      readerRef.current = reader
-      setCameraOpen(true)
+  useEffect(() => {
+    if (!cameraOpen) return
+    if (!videoRef.current || !streamRef.current) return
 
-      // Wait for video element to mount
-      await new Promise(r => setTimeout(r, 200))
-      if (!videoRef.current) return
+    const video = videoRef.current
+    video.srcObject = streamRef.current
 
-      await reader.decodeFromConstraints(
-        { video: { facingMode: 'environment' } },
-        videoRef.current,
-        (result, err) => {
-          if (result) {
+    const reader = new BrowserMultiFormatReader()
+
+    video.play().then(() => {
+      reader.decodeFromStream(
+        streamRef.current!,
+        video,
+        (result, _err, controls) => {
+          if (controls && !controlsRef.current) controlsRef.current = controls
+          if (result && !didSubmitRef.current) {
+            didSubmitRef.current = true
             const code = result.getText()
             stopCamera()
-            submitScan(code)
-          } else if (err && !(err instanceof NotFoundException)) {
-            // NotFoundException is normal (no barcode in frame yet), ignore it
+
+            if (mode === 'single') {
+              singleMutation.mutate(code)
+            } else {
+              // Bulk: add to list (deduplicate)
+              setBulkItems(prev => {
+                const exists = prev.some(i => i.trackingNumber === code)
+                return exists
+                  ? prev.map(i => i.trackingNumber === code ? { ...i, duplicate: true } : i)
+                  : [...prev, { trackingNumber: code, duplicate: false }]
+              })
+              setFeedback({ type: 'success', message: `Added: ${code}` })
+              setTimeout(() => setFeedback(null), 1500)
+            }
           }
         }
-      )
+      ).then(controls => {
+        if (!controlsRef.current) controlsRef.current = controls
+      }).catch(() => {})
+    }).catch(() => {
+      setCameraError('Could not start video stream.')
+      setCameraOpen(false)
+    })
+
+    return () => { reader.stopAsyncDecode?.() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOpen])
+
+  useEffect(() => () => stopCamera(), [stopCamera])
+
+  const openCamera = useCallback(async () => {
+    setCameraError(null)
+    didSubmitRef.current = false
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      })
+      streamRef.current = stream
+      setCameraOpen(true)
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
-        ? 'Camera permission denied. Please allow camera access and try again.'
+        ? 'Camera permission denied. Please allow camera access.'
         : err?.name === 'NotFoundError'
         ? 'No camera found on this device.'
-        : 'Could not open camera: ' + (err?.message ?? '')
+        : 'Could not open camera.'
       setCameraError(msg)
-      setCameraOpen(false)
     }
-  }, [stopCamera, submitScan])
+  }, [])
 
-  useEffect(() => {
-    return () => { stopCamera() }
-  }, [stopCamera])
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    submitScan(value)
-  }
-
-  const feedbackStyle = feedback
-    ? feedback.type === 'success'
-      ? { bg: '#d1fae5', border: '#6ee7b7', text: '#065f46' }
-      : feedback.type === 'duplicate'
-      ? { bg: '#fef9c3', border: '#fde68a', text: '#92400e' }
-      : { bg: '#fee2e2', border: '#fca5a5', text: '#991b1b' }
-    : null
+  const isPending = singleMutation.isPending || bulkMutation.isPending
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 16px' }}>
@@ -125,28 +148,48 @@ export default function InboundScan() {
         </div>
       </div>
 
+      {/* Mode toggle */}
+      <div style={{ width: '100%', maxWidth: '420px', display: 'flex', background: '#e2e8f0', borderRadius: '12px', padding: '4px', marginBottom: '16px' }}>
+        {(['single', 'bulk'] as ScanMode[]).map(m => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); setFeedback(null) }}
+            style={{
+              flex: 1, padding: '10px 0', borderRadius: '9px', border: 'none',
+              fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+              background: mode === m ? '#fff' : 'transparent',
+              color: mode === m ? '#0f172a' : '#64748b',
+              boxShadow: mode === m ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+              transition: 'all 0.15s',
+            }}
+          >
+            {m === 'single' ? 'Single Scan' : 'Bulk Scan'}
+          </button>
+        ))}
+      </div>
+
+      {/* Info banner */}
+      <div style={{ width: '100%', maxWidth: '420px', marginBottom: '16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#1d4ed8' }}>
+        {mode === 'single'
+          ? 'Scan one waybill — desktop will prompt for carrier & shop.'
+          : 'Scan multiple waybills, then send all to desktop at once.'}
+      </div>
+
       {/* Camera overlay */}
       {cameraOpen && (
         <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'relative', width: '100%', maxWidth: '500px' }}>
-            <video
-              ref={videoRef}
-              style={{ width: '100%', borderRadius: '12px', display: 'block' }}
-              playsInline
-              muted
-            />
-            {/* Aim guide */}
+            <video ref={videoRef} playsInline muted style={{ width: '100%', borderRadius: '12px', display: 'block' }} />
             <div style={{
               position: 'absolute', top: '50%', left: '50%',
               transform: 'translate(-50%, -50%)',
-              width: '72%', height: '100px',
+              width: '75%', height: '110px',
               border: '3px solid #22c55e', borderRadius: '8px',
-              boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)',
+              boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
+              pointerEvents: 'none',
             }} />
           </div>
-          <p style={{ color: '#fff', fontSize: '14px', marginTop: '20px', fontWeight: 500, textAlign: 'center' }}>
-            Point camera at barcode
-          </p>
+          <p style={{ color: '#fff', fontSize: '14px', marginTop: '20px', fontWeight: 500 }}>Point camera at barcode</p>
           <button
             onClick={stopCamera}
             style={{ marginTop: '16px', padding: '12px 40px', borderRadius: '10px', border: 'none', background: '#ef4444', color: '#fff', fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}
@@ -158,90 +201,82 @@ export default function InboundScan() {
 
       {/* Scan card */}
       <div style={{ width: '100%', maxWidth: '420px', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', padding: '24px', marginBottom: '16px' }}>
-
-        {/* Primary camera button */}
         <button
-          onClick={startCamera}
-          disabled={scanMutation.isPending || cameraOpen}
+          onClick={openCamera}
+          disabled={isPending || cameraOpen}
           style={{
             width: '100%', padding: '20px 0', borderRadius: '12px', border: 'none',
             background: '#2563eb', color: '#fff', fontSize: '18px', fontWeight: 700,
-            cursor: 'pointer', marginBottom: '16px',
+            cursor: isPending || cameraOpen ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+            opacity: isPending || cameraOpen ? 0.6 : 1,
           }}
         >
           <span style={{ fontSize: '24px' }}>📷</span>
-          Scan Barcode
+          {mode === 'single' ? 'Scan Barcode' : 'Scan Next Barcode'}
         </button>
 
         {cameraError && (
-          <div style={{ marginBottom: '14px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#991b1b', fontWeight: 500 }}>
+          <div style={{ marginTop: '14px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#991b1b', fontWeight: 500 }}>
             {cameraError}
           </div>
         )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
-          <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500 }}>or enter manually</span>
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            placeholder="Type tracking number..."
-            disabled={scanMutation.isPending}
-            style={{
-              width: '100%', padding: '14px', fontSize: '15px', borderRadius: '10px',
-              border: '2px solid #e2e8f0', outline: 'none', color: '#0f172a',
-              boxSizing: 'border-box', marginBottom: '10px',
-            }}
-            onFocus={e => (e.target.style.borderColor = '#3b82f6')}
-            onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-          />
-          <button
-            type="submit"
-            disabled={!value.trim() || scanMutation.isPending}
-            style={{
-              width: '100%', padding: '13px 0', borderRadius: '10px', border: 'none',
-              background: !value.trim() || scanMutation.isPending ? '#94a3b8' : '#0f172a',
-              color: '#fff', fontSize: '14px', fontWeight: 700,
-              cursor: !value.trim() || scanMutation.isPending ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {scanMutation.isPending ? 'Adding...' : 'Add Manually'}
-          </button>
-        </form>
       </div>
 
       {/* Feedback */}
-      {feedbackStyle && feedback && (
-        <div style={{ width: '100%', maxWidth: '420px', background: feedbackStyle.bg, border: `1px solid ${feedbackStyle.border}`, borderRadius: '10px', padding: '12px 16px', fontSize: '14px', fontWeight: 600, color: feedbackStyle.text, marginBottom: '16px' }}>
+      {feedback && (
+        <div style={{
+          width: '100%', maxWidth: '420px',
+          background: feedback.type === 'success' ? '#d1fae5' : feedback.type === 'duplicate' ? '#fef9c3' : '#fee2e2',
+          border: `1px solid ${feedback.type === 'success' ? '#6ee7b7' : feedback.type === 'duplicate' ? '#fde68a' : '#fca5a5'}`,
+          borderRadius: '10px', padding: '12px 16px', fontSize: '14px', fontWeight: 600,
+          color: feedback.type === 'success' ? '#065f46' : feedback.type === 'duplicate' ? '#92400e' : '#991b1b',
+          marginBottom: '16px',
+        }}>
           {feedback.message}
         </div>
       )}
 
-      {/* History */}
-      {history.length > 0 && (
+      {/* Bulk list + send button */}
+      {mode === 'bulk' && bulkItems.length > 0 && (
         <div style={{ width: '100%', maxWidth: '420px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Recent Scans</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {history.map((entry, i) => (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Scanned ({bulkItems.length})
+            </div>
+            <button
+              onClick={() => setBulkItems([])}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
+            {bulkItems.map((entry, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', borderRadius: '8px', padding: '10px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{entry.trackingNumber}</span>
-                <span style={{
-                  fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '9999px',
-                  background: entry.status === 'ok' ? '#d1fae5' : entry.status === 'duplicate' ? '#fef9c3' : '#fee2e2',
-                  color: entry.status === 'ok' ? '#065f46' : entry.status === 'duplicate' ? '#92400e' : '#991b1b',
-                }}>
-                  {entry.status === 'ok' ? '✓ Added' : entry.status === 'duplicate' ? 'Duplicate' : 'Error'}
-                </span>
+                {entry.duplicate && (
+                  <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '9999px', background: '#fef9c3', color: '#92400e' }}>
+                    Duplicate
+                  </span>
+                )}
               </div>
             ))}
           </div>
+
+          <button
+            onClick={() => bulkMutation.mutate(bulkItems.map(i => i.trackingNumber))}
+            disabled={bulkMutation.isPending}
+            style={{
+              width: '100%', padding: '14px 0', borderRadius: '12px', border: 'none',
+              background: bulkMutation.isPending ? '#94a3b8' : '#16a34a',
+              color: '#fff', fontSize: '15px', fontWeight: 700,
+              cursor: bulkMutation.isPending ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {bulkMutation.isPending ? 'Sending...' : `Send ${bulkItems.length} Item${bulkItems.length !== 1 ? 's' : ''} to Desktop`}
+          </button>
         </div>
       )}
     </div>

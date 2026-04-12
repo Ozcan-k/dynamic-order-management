@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { UserRole, JWTPayload, Carrier } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { getIO } from '../lib/socket'
+import { prisma } from '../lib/prisma'
 import {
   scanOrder,
   bulkScanOrders,
@@ -45,6 +46,41 @@ export default async function orderRoutes(fastify: FastifyInstance) {
 
       try { getIO().to(`user:${userId}`).emit('order:scanned', { order }) } catch {}
       return reply.code(201).send({ order })
+    },
+  )
+
+  // POST /orders/handheld-scan — phone signals desktop to open QuickScanModal (no DB write)
+  fastify.post(
+    '/handheld-scan',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const result = z.object({ trackingNumber: z.string().min(1).max(100) }).safeParse(request.body)
+      if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+      const { userId, tenantId } = request.user as JWTPayload
+      const tn = result.data.trackingNumber.trim().toUpperCase()
+
+      const existing = await prisma.order.findUnique({
+        where: { tenantId_trackingNumber: { tenantId, trackingNumber: tn } },
+      })
+      if (existing) {
+        return reply.code(409).send({ error: `Already exists: ${tn}` })
+      }
+
+      try { getIO().to(`user:${userId}`).emit('order:handheld-scan', { trackingNumber: tn }) } catch {}
+      return reply.send({ ok: true })
+    },
+  )
+
+  // POST /orders/handheld-bulk-scan — phone signals desktop to open BulkScanModal (no DB write)
+  fastify.post(
+    '/handheld-bulk-scan',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const result = z.object({ trackingNumbers: z.array(z.string().min(1).max(100)).min(1).max(200) }).safeParse(request.body)
+      if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+      const { userId } = request.user as JWTPayload
+      try { getIO().to(`user:${userId}`).emit('order:handheld-bulk-scan', { trackingNumbers: result.data.trackingNumbers }) } catch {}
+      return reply.send({ ok: true })
     },
   )
 

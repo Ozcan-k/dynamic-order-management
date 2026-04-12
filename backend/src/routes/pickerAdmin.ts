@@ -92,6 +92,30 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // POST /picker-admin/handheld-bulk-scan — phone sends multiple TNs to desktop staging
+  fastify.post('/handheld-bulk-scan', { preHandler }, async (request, reply) => {
+    const { trackingNumbers } = request.body as { trackingNumbers?: string[] }
+    if (!Array.isArray(trackingNumbers) || trackingNumbers.length === 0) {
+      return reply.code(400).send({ error: 'trackingNumbers array is required' })
+    }
+    const { userId, tenantId } = request.user as JWTPayload
+    const results: { trackingNumber: string; status: 'staged' | 'not_found' | 'error'; message?: string }[] = []
+
+    for (const tn of trackingNumbers) {
+      const trimmed = tn.trim()
+      try {
+        const order = await lookupOrderByScan(trimmed, tenantId)
+        try { getIO().to(`user:${userId}`).emit('order:staged', { order }) } catch {}
+        results.push({ trackingNumber: trimmed, status: 'staged' })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Lookup failed'
+        results.push({ trackingNumber: trimmed, status: message.includes('not found') ? 'not_found' : 'error', message })
+      }
+    }
+
+    return reply.send({ results })
+  })
+
   // GET /picker-admin/stats
   fastify.get('/stats', { preHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload

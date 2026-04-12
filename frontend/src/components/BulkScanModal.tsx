@@ -10,6 +10,7 @@ import PlatformBadge from './shared/PlatformBadge'
 interface BulkScanModalProps {
   onClose: () => void
   onSuccess: (created: number, duplicates: string[]) => void
+  initialTrackingNumbers?: string[]
 }
 
 type StagedItem = {
@@ -41,8 +42,14 @@ const PRESET_SHOPS = [
   'Raven_Wellnes',
 ]
 
-export default function BulkScanModal({ onClose, onSuccess }: BulkScanModalProps) {
-  const [stagedItems, setStagedItems] = useState<StagedItem[]>([])
+export default function BulkScanModal({ onClose, onSuccess, initialTrackingNumbers }: BulkScanModalProps) {
+  const [stagedItems, setStagedItems] = useState<StagedItem[]>(() =>
+    (initialTrackingNumbers ?? []).map(tn => ({
+      id: crypto.randomUUID(),
+      trackingNumber: tn.trim().toUpperCase(),
+      platform: detectPlatform(tn.trim().toUpperCase()),
+    }))
+  )
   const [selectedCarrier, setSelectedCarrier] = useState<Carrier | ''>('')
   const [shopName, setShopName] = useState('')
   const [shopInputMode, setShopInputMode] = useState<'select' | 'text'>('select')
