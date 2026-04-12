@@ -58,8 +58,6 @@ model User {
   username     String
   passwordHash String   @map("password_hash")
   email        String?  @map("email")
-  pickerPin    String?  @map("picker_pin")
-  packerPin    String?  @map("packer_pin")
   role         UserRole
   isActive     Boolean  @default(true) @map("is_active")
   createdById  String?  @map("created_by")
@@ -77,8 +75,6 @@ model User {
   statusHistoryChanges OrderStatusHistory[]
 
   @@unique([tenantId, username])
-  @@unique([tenantId, pickerPin])
-  @@unique([tenantId, packerPin])
   @@map("users")
 }
 

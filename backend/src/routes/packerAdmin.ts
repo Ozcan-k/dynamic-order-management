@@ -73,35 +73,4 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /packer-admin/packer/:packerId/pin — set packer device PIN
-  fastify.patch('/packer/:packerId/pin', { preHandler }, async (request, reply) => {
-    const { packerId } = request.params as { packerId: string }
-    const { pin } = request.body as { pin?: string }
-    const { tenantId } = request.user as JWTPayload
-
-    if (!pin || !/^\d{4}$/.test(pin)) {
-      return reply.code(400).send({ error: 'PIN must be exactly 4 digits' })
-    }
-
-    const target = await prisma.user.findFirst({
-      where: { id: packerId, tenantId, role: UserRole.PACKER },
-    })
-    if (!target) return reply.code(404).send({ error: 'Packer not found' })
-
-    const conflict = await prisma.user.findFirst({
-      where: {
-        tenantId,
-        id: { not: packerId },
-        OR: [{ pickerPin: pin }, { packerPin: pin }],
-      },
-    })
-    if (conflict) return reply.code(409).send({ error: 'PIN already in use by another handheld device' })
-
-    const updated = await prisma.user.update({
-      where: { id: packerId },
-      data: { packerPin: pin },
-      select: { id: true, username: true, packerPin: true },
-    })
-    return reply.send({ packer: updated })
-  })
 }

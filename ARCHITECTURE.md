@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.3.0  
+> **Version:** 2.4.0  
 > **Date:** 2026-04-12  
-> **Status:** In development — Phase 10 complete + Daily Cycle Tracking + Archive + Timezone Localization (v2.3.0)
+> **Status:** In development — Phase 10 complete + Daily Cycle + Archive + Timezone + Username/Password auth for all roles (v2.4.0)
 
 ---
 
@@ -295,8 +295,6 @@ orders ──< packer_assignments >── users (packers)
 | tenant_id | UUID FK | → tenants |
 | username | VARCHAR | Unique per tenant |
 | password_hash | VARCHAR | bcrypt |
-| picker_pin | VARCHAR NULLABLE | 4-digit PIN for PICKER handheld login; globally unique per tenant (no picker or packer may share a PIN) |
-| packer_pin | VARCHAR NULLABLE | 4-digit PIN for PACKER handheld login; globally unique per tenant (no picker or packer may share a PIN) |
 | role | ENUM | See roles below |
 | is_active | BOOLEAN | |
 | created_by | UUID FK | → users (admin who created) |
@@ -608,7 +606,6 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 
 - Grid of picker cards (auto-fill, min 240px per card)
 - Each card shows: Avatar + username | active count badge | Assigned / Done status chips | segmented progress bar (blue/green)
-- **Device PIN section** (bottom of each card): shows current PIN or "not set"; **Set PIN / Change** button → inline 4-digit input → PATCH `/picker-admin/picker/:id/pin` — PIN is validated globally: a PIN already used by any picker or packer is rejected with 409
 - **Click on any card → opens Order Detail Modal**
 
 **Order Detail Modal (per picker):**
@@ -633,7 +630,7 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 - Shows tracking number in a styled pill
 - Cancel / Yes, Remove buttons
 
-**Seed data:** 20 pickers (Picker 1–20, password: picker123) created by seed script
+**Seed data:** 20 pickers (Picker 1–20, password: `picker123`) created by seed script. Pickers log in via the standard `/login` page with username + password.
 
 ---
 
@@ -643,17 +640,16 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 **Target device:** Android/iOS handheld — Chrome browser over WiFi (same LAN as server)  
 **Design:** Mobile-first, touch-optimized, no sidebar, dark PIN screen + light order list
 
-**Authentication — PIN based:**
-- Each picker has a 4-digit `picker_pin` set by Picker Admin from the workload section
-- Device opens `http://<server-ip>:5173/picker` → PIN numpad screen shown
-- Picker enters PIN → `POST /picker/auth { pin }` → JWT cookie set (8h session)
-- Session persists in localStorage (Zustand) — device reopened without re-entering PIN
-- Logout button → session cleared → PIN screen shown again
+**Authentication — Username + Password:**
+- Picker opens `http://<server-ip>:5173/login` on the handheld browser (Chrome over WiFi)
+- Enters username + password → standard JWT cookie set (same `/auth/login` endpoint as all roles)
+- After login, automatically redirected to `/picker` (role-based routing)
+- Session persists via JWT cookie — device reopened without re-entering credentials
+- Logout button → session cleared → redirected to `/login`
 
 **Connection setup (one-time per device):**
-1. Picker Admin sets PIN for the picker in the admin panel
-2. IT/admin opens `http://<server-ip>:5173/picker` on the handheld browser
-3. Save/bookmark as home screen shortcut
+1. IT/admin opens `http://<server-ip>:5173/login` on the handheld browser
+2. Save/bookmark as home screen shortcut
 
 **Order list (after PIN auth):**
 - Header: picker username + active order count + Logout button
@@ -669,7 +665,6 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 5. No match → error toast "not found in your assigned orders"
 
 **API endpoints (PICKER role only):**
-- `POST /picker/auth` — PIN login (public, no auth required)
 - `GET /picker/orders` — fetch own active orders (PICKER_ASSIGNED + PICKING statuses)
 - `POST /picker/complete { trackingNumber }` — complete order by tracking number scan
 
@@ -733,14 +728,12 @@ POST /packer-admin/remove   { orderId }    → PICKER_ASSIGNED (auto-reassign) o
 #### Packer Workload Section (bottom)
 
 - Grid of packer cards (auto-fill, min 220px)
-- Each card: Avatar | username | `X packed` | Done chip | Device PIN management
+- Each card: Avatar | username | `X packed` | Done chip
 - **Click card → Order Detail Modal:** table of that packer's completed orders (Tracking | Platform | Delay | Completed At)
-- **PIN management:** shows current packerPin or "not set"; Set PIN / Change inline form → `PATCH /packer-admin/packer/:id/pin` — PIN is validated globally: a PIN already used by any picker or packer is rejected with 409
 - **Backend endpoints:**
 ```
 GET  /packer-admin/packers                         → active PACKER users
 GET  /packer-admin/packer/:packerId/orders         → packer's completed orders (last 50)
-PATCH /packer-admin/packer/:packerId/pin { pin }   → set 4-digit packerPin
 ```
 
 ---
@@ -751,10 +744,11 @@ PATCH /packer-admin/packer/:packerId/pin { pin }   → set 4-digit packerPin
 **Target device:** Android handheld — same hardware as Picker Device View  
 **Design:** Mobile-first, green/teal theme (vs blue for picker)
 
-**Authentication — PIN based:**
-- Each packer has a 4-digit `packer_pin` set by Packer Admin from the workload section
-- Device opens `http://<server-ip>:5173/packer` → PIN numpad screen (green gradient)
-- Packer enters PIN → `POST /packer/auth { pin }` → JWT cookie (8h)
+**Authentication — Username + Password:**
+- Packer opens `http://<server-ip>:5173/login` on the handheld browser (Chrome over WiFi)
+- Enters username + password → standard JWT cookie set (same `/auth/login` endpoint as all roles)
+- After login, automatically redirected to `/packer` (role-based routing)
+- Session persists via JWT cookie — device reopened without re-entering credentials
 
 **Order queue (shared — all packers see the same list):**
 - All PICKER_COMPLETE orders (not pre-assigned; first packer to scan completes it)
@@ -771,7 +765,6 @@ PATCH /packer-admin/packer/:packerId/pin { pin }   → set 4-digit packerPin
 6. Race condition protection: if two packers scan simultaneously, one gets success, the other gets "Order already completed"
 
 **API endpoints (PACKER role only):**
-- `POST /packer/auth` — PIN login (public)
 - `GET /packer/orders` — all PICKER_COMPLETE orders (shared queue)
 - `POST /packer/complete { trackingNumber }` — complete by tracking number scan
 
@@ -1192,7 +1185,7 @@ On push to main branch:
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
-| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'` | ✅ Done | OUTBOUND orders hidden from active panels at 7 PM PHT; CARRY badge appears on previous-day orders; Archive Panel shows paginated list with expiry color-coding; bulk delete with ConfirmDialog works; 6-month retention enforced nightly; all clocks/timestamps display in Philippine time regardless of browser timezone |
+| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 7 PM PHT; CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
