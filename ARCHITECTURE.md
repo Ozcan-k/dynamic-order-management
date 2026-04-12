@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.2.0  
+> **Version:** 2.3.0  
 > **Date:** 2026-04-12  
-> **Status:** In development — Phase 10 complete + Daily Cycle Tracking + Archive (v2.2.0)
+> **Status:** In development — Phase 10 complete + Daily Cycle Tracking + Archive + Timezone Localization (v2.3.0)
 
 ---
 
@@ -13,6 +13,7 @@
 ### Business Context
 - A single warehouse company currently, with architecture ready to support multiple companies (multi-tenant)
 - Orders arrive daily from multiple e-commerce platforms: **Shopee**, **Lazada**, **TikTok Shop**
+- **Timezone:** All timestamps, schedules, and "start of day" calculations are anchored to **Asia/Manila (UTC+8, PHT — no DST)**. The cron jobs use UTC values that map to Manila local time. The frontend displays all dates and times in Manila time regardless of the user's browser timezone.
 - Physical waybills are scanned using barcode scanners to enter orders into the system
 - 50–100 staff members use the system simultaneously
 - Daily volume: ~10,000 orders
@@ -92,8 +93,8 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
 │  │  BullMQ Job Queue                                                    │ │
-│  │  → Archive job 7:00 PM: OUTBOUND orders soft-archived                │ │
-│  │  → Nightly 9:00 PM: email report + hard-delete expired archives      │ │
+│  │  → Archive job 7:00 PM PHT (11:00 UTC): OUTBOUND orders archived     │ │
+│  │  → Nightly 9:00 PM PHT (13:00 UTC): email + hard-delete expired     │ │
 │  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
 │  │  → D4 supervisor alert email (triggered by sweep)                    │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
@@ -446,7 +447,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 - **Picker Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **Packer Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **SLA Summary Card:** Live D-level breakdown bar (D0 / D1 / D2 / D3 / D4 counts); D4 count highlighted in red; updates via Socket.io `sla:escalated` event
-- **Nightly Report:** Automated email sent at 9:00 PM daily to all Admin users
+- **Nightly Report:** Automated email sent at **9:00 PM PHT** (13:00 UTC) daily to all Admin users
 
 ---
 
@@ -873,12 +874,12 @@ A **"Clear filters"** button appears when any filter is active.
 
 #### Archive Job
 - **Queue:** `archiveOutbound` (BullMQ)
-- **Schedule:** `0 19 * * *` — every day at 19:00
+- **Schedule:** `0 11 * * *` (UTC) — every day at **19:00 PHT** (Asia/Manila)
 - **Action:** Sets `archived_at = NOW()` on all `status=OUTBOUND, archived_at IS NULL` orders (all tenants)
 - **Manual trigger:** `POST /archive/trigger` → calls archive synchronously for the requester's tenant, then enqueues for background processing
 
 #### Retention (6-Month Policy)
-- **Hard-delete job** piggybacks on `nightlyReport` at 21:00
+- **Hard-delete job** piggybacks on `nightlyReport` at **21:00 PHT (13:00 UTC)**
 - Deletes orders where `archived_at <= NOW() - 180 days`
 - Cascade-deletes all child records (`picker_assignments`, `packer_assignments`, `order_status_history`, `sla_escalations`)
 - Per-tenant, per-order error catch — one failure does not abort the sweep
@@ -931,7 +932,8 @@ frontend/
 │   │   └── reports.ts
 │   ├── lib/
 │   │   ├── platformDetect.ts      ← tracking number → platform logic
-│   │   └── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
+│   │   ├── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
+│   │   └── manila.ts              ← timezone utilities: getManilaDateString() — Asia/Manila UTC+8, no deps
 │   ├── theme.ts                   ← design tokens: colors, radius, shadow, font — single source of truth
 │   └── index.css                  ← global design system CSS
 ```
@@ -983,6 +985,8 @@ backend/
 │   │   ├── emailService.ts
 │   │   ├── archiveService.ts      ← archiveOutboundOrders(), getArchivedOrders(), bulkDeleteArchivedOrders(), hardDeleteExpiredOrders()
 │   │   └── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
+│   ├── lib/
+│   │   └── manila.ts              ← getManilaStartOfToday(), getManilaDateString() — pure UTC+8 arithmetic, no deps
 │   └── middleware/
 │       └── rbac.ts                ← Role-based access control
 └── prisma/
@@ -1079,7 +1083,7 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 ## 13. Reporting
 
 ### Automated
-- **Nightly email at 9:00 PM** to all Admin users
+- **Nightly email at 9:00 PM PHT** (13:00 UTC) to all Admin users
 - Contains: Inbound count, Outbound count, Remaining count, Picker & Packer summaries, **SLA data: D4 orders reached today (resolved vs still open), avg time-to-OUTBOUND, D-level breakdown at 9pm snapshot**
 
 ### On-Demand (in-app)
@@ -1188,7 +1192,7 @@ On push to main branch:
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
-| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 daily); `hardDeleteExpiredOrders` in nightly report (21:00, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger | ✅ Done | OUTBOUND orders hidden from active panels at 7 PM; CARRY badge appears on previous-day orders; Archive Panel shows paginated list with expiry color-coding; bulk delete with ConfirmDialog works; 6-month retention enforced nightly |
+| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'` | ✅ Done | OUTBOUND orders hidden from active panels at 7 PM PHT; CARRY badge appears on previous-day orders; Archive Panel shows paginated list with expiry color-coding; bulk delete with ConfirmDialog works; 6-month retention enforced nightly; all clocks/timestamps display in Philippine time regardless of browser timezone |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
