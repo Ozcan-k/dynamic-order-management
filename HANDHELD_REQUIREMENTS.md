@@ -1,8 +1,8 @@
-# Handheld Device Requirements — Picker & Packer Applications
+# Handheld Device Requirements — All Handheld Roles
 
 > **Status:** Pending hardware evaluation  
 > **Date:** 2026-04-12  
-> **Updated:** PIN auth replaced with username/password login (v2.0.0)
+> **Updated:** Handheld Admin Scan pages added (v1.11.0) — INBOUND_ADMIN & PICKER_ADMIN can now scan from phone
 
 ---
 
@@ -135,6 +135,46 @@ Order removed from list ✓
 ```
 
 > **Note:** Session is valid for 8 hours. Workers do not need to log in again during a shift unless they press **Sign Out**.
+
+---
+
+---
+
+## Admin Handheld Scan Setup (INBOUND_ADMIN & PICKER_ADMIN)
+
+INBOUND_ADMIN and PICKER_ADMIN users work primarily on their desktop computers. They use a **second device (phone/tablet) only for barcode scanning** — the scan result is relayed in real-time to their desktop.
+
+### How It Works
+
+| Role | Handheld URL | Desktop Effect |
+|---|---|---|
+| INBOUND_ADMIN | `https://<ip>:5173/inbound-scan` | QuickScanModal (Single) or BulkScanModal (Bulk) opens on desktop — admin fills Carrier + Shop then saves |
+| PICKER_ADMIN | `https://<ip>:5173/picker-admin-scan` | Scanned order auto-appears in Staging area — admin selects Picker and assigns |
+
+### Scan Modes
+
+Both pages have two modes selectable via a toggle:
+
+- **Single Scan** — scan one barcode → immediately sent to desktop
+- **Bulk Scan** — scan multiple barcodes → accumulated on phone → tap "Send X Items to Desktop" → all sent at once
+
+### Login Flow
+
+1. Open `https://192.168.1.119:5173/inbound-scan` (or `/picker-admin-scan`) on the phone
+2. Browser redirects to login page with `?next=` param
+3. Log in with admin credentials → automatically redirected to scan page
+4. A **separate session** is created for the handheld (`deviceType: handheld`) so the desktop session remains active simultaneously
+
+### HTTPS Requirement
+
+Camera access (`getUserMedia`) requires HTTPS on Android Chrome (except localhost).
+- The Vite dev server runs with a **custom self-signed SSL certificate** (`certs/cert.pem`) that includes the server's local IP (`192.168.1.119`) in the SAN field.
+- On first visit, Chrome shows "Your connection is not private" → tap **Advanced** → **Proceed** to accept.
+- Socket.io is routed through the Vite HTTPS proxy (`/socket.io`) to avoid mixed-content browser blocks.
+
+### Duplicate Protection
+
+If the same waybill barcode is scanned twice on the handheld, the backend checks the DB before emitting the socket event. A **yellow warning** is shown on the phone and nothing is sent to the desktop.
 
 ---
 

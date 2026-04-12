@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.0.0  
+> **Version:** 2.1.0  
 > **Date:** 2026-04-12  
-> **Status:** In development — Phase 10 complete + Username/Password handheld auth
+> **Status:** In development — Phase 10 complete + Handheld Admin Scan (v1.11.0)
 
 ---
 
@@ -59,8 +59,9 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │  ┌──────────────────────────────────┐  ┌────────────────────────────────┐ │
 │  │  Desktop Browser (React)         │  │  Handheld Device (Android)     │ │
 │  │  Admin / Inbound / Picker Admin  │  │  Picker & Packer               │ │
-│  │  Packer Admin / Outbound         │  │  Chrome browser — any network   │ │
-│  │  + HID Barcode Scanner (inbound) │  │  Mobile-optimized UI           │ │
+│  │  Packer Admin / Outbound         │  │  + Inbound Admin Scan          │ │
+│  │  + HID Barcode Scanner (inbound) │  │  + Picker Admin Scan           │ │
+│  │                                  │  │  Chrome browser — HTTPS/LAN    │ │
 │  └──────────────────┬───────────────┘  └──────────────┬─────────────────┘ │
 └─────────────────────┼────────────────────────────────── ┼──────────────────┘
                       │         HTTPS + WSS               │
@@ -389,6 +390,8 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **Inbound — scan & add** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Inbound — delete** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Picker Admin Panel** | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **Inbound Handheld Scan** (`/inbound-scan`) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Picker Admin Handheld Scan** (`/picker-admin-scan`) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | **Picker Device View** (handheld) | ❌ | ❌ | ❌ | ❌ | Own only | ❌ |
 | **Packer Admin Panel** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Packer Device View** (handheld) | ❌ | ❌ | ❌ | ❌ | ❌ | Own only |
@@ -451,9 +454,33 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 **API Endpoints:**
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/orders/scan` | ADMIN, INBOUND_ADMIN | Single scan — creates one order, carrier/shop null |
+| `POST` | `/orders/scan` | ADMIN, INBOUND_ADMIN | Single scan — creates one order with carrier + shop |
 | `POST` | `/orders/bulk-scan` | ADMIN, INBOUND_ADMIN | Bulk scan — creates up to 200 orders with carrier + shop; returns `{ created, duplicates[] }` |
 | `GET` | `/orders/shops` | ADMIN, INBOUND_ADMIN | Returns distinct shop names used so far (for Bulk Scan dropdown) |
+| `POST` | `/orders/handheld-scan` | ADMIN, INBOUND_ADMIN | Phone signals desktop (no DB write) — checks duplicate, emits `order:handheld-scan` socket event |
+| `POST` | `/orders/handheld-bulk-scan` | ADMIN, INBOUND_ADMIN | Phone sends multiple TNs to desktop (no DB write) — emits `order:handheld-bulk-scan` socket event |
+
+**Handheld Scan Flow (phone → desktop):**
+
+```
+Phone (/inbound-scan)                     Desktop (Inbound Panel)
+──────────────────                        ───────────────────────
+Single Scan mode:
+  Camera scans barcode
+  → POST /orders/handheld-scan
+    (backend checks duplicate)
+    → emits order:handheld-scan ────────→ QuickScanModal opens
+                                           Admin selects Carrier + Shop
+                                           → POST /orders/scan → order saved
+
+Bulk Scan mode:
+  Camera scans multiple barcodes
+  → accumulate list on phone
+  → POST /orders/handheld-bulk-scan
+    → emits order:handheld-bulk-scan ──→ BulkScanModal opens (pre-filled)
+                                          Admin selects Carrier + Shop
+                                          → POST /orders/bulk-scan → orders saved
+```
 
 ---
 
@@ -496,6 +523,33 @@ POST /picker-admin/scan   { trackingNumber }
   → 200: order data (id, trackingNumber, platform, delayLevel, priority, status, createdAt)
   → 404: Order not found
   → 409: Order is not available (status: ...)
+```
+
+**Handheld Scan Flow — Picker Admin Phone (`/picker-admin-scan`):**
+
+```
+Phone (/picker-admin-scan)                Desktop (Picker Admin Panel)
+──────────────────────────                ────────────────────────────
+Single Scan mode:
+  Camera scans barcode
+  → POST /picker-admin/scan
+    (validates order is INBOUND)
+    → emits order:staged ─────────────→ Order auto-appears in Staging area
+                                          Admin selects Picker from dropdown
+                                          → Assign Staged Orders
+
+Bulk Scan mode:
+  Camera scans multiple barcodes
+  → accumulate list on phone
+  → POST /picker-admin/handheld-bulk-scan
+    (validates each TN)
+    → emits order:staged per valid TN → Orders added to Staging area
+                                          Admin selects Picker → Assign all
+```
+
+```
+POST /picker-admin/handheld-bulk-scan   { trackingNumbers: string[] }
+  → 200: { results: [{ trackingNumber, status: 'staged'|'not_found'|'error' }] }
 ```
 This endpoint performs a lookup only — it does NOT create orders. Order creation is handled exclusively by the Inbound Panel (`POST /orders/scan`).
 
@@ -1029,6 +1083,7 @@ On push to main branch:
 | **8** | Outbound Panel; `sla_completed_at` set on OUTBOUND | ✅ Done | End-to-end lifecycle works; SLA timer stops at dispatch |
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
+| **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | 🔜 | Live stats update; email received at 9pm with SLA section |
 | **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
