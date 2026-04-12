@@ -106,6 +106,39 @@ export async function getOutboundStats(tenantId: string) {
   }
 }
 
+export async function getGroupedByCarrier(tenantId: string) {
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+
+  const orders = await prisma.order.findMany({
+    where: {
+      tenantId,
+      status: OrderStatus.OUTBOUND,
+      slaCompletedAt: { gte: startOfDay },
+    },
+    select: { carrierName: true, shopName: true },
+  })
+
+  const map = new Map<string, Map<string, number>>()
+  for (const o of orders) {
+    const carrier = o.carrierName ?? 'OTHER'
+    const shop = o.shopName ?? 'Unknown'
+    if (!map.has(carrier)) map.set(carrier, new Map())
+    const shopMap = map.get(carrier)!
+    shopMap.set(shop, (shopMap.get(shop) ?? 0) + 1)
+  }
+
+  return Array.from(map.entries())
+    .map(([carrierName, shopMap]) => ({
+      carrierName,
+      totalOrders: Array.from(shopMap.values()).reduce((a, b) => a + b, 0),
+      shops: Array.from(shopMap.entries())
+        .map(([shopName, count]) => ({ shopName, count }))
+        .sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.totalOrders - a.totalOrders)
+}
+
 export async function getStuckOrders(tenantId: string) {
   return prisma.order.findMany({
     where: { tenantId, status: { not: OrderStatus.OUTBOUND } },

@@ -36,7 +36,8 @@ export async function completeOrder(
 
   const now = new Date()
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.order.update({
+    // PICKER_COMPLETE → PACKER_COMPLETE
+    await tx.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.PACKER_COMPLETE },
     })
@@ -56,6 +57,21 @@ export async function completeOrder(
         orderId,
         fromStatus: OrderStatus.PICKER_COMPLETE,
         toStatus: OrderStatus.PACKER_COMPLETE,
+        changedById: packerId,
+      },
+    })
+
+    // PACKER_COMPLETE → OUTBOUND (auto-dispatch)
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.OUTBOUND, slaCompletedAt: now },
+    })
+
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId,
+        fromStatus: OrderStatus.PACKER_COMPLETE,
+        toStatus: OrderStatus.OUTBOUND,
         changedById: packerId,
       },
     })

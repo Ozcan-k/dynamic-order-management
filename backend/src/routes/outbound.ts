@@ -8,6 +8,7 @@ import {
   bulkDispatch,
   getOutboundStats,
   getStuckOrders,
+  getGroupedByCarrier,
 } from '../services/outboundService'
 
 const BulkDispatchSchema = z.object({
@@ -16,6 +17,12 @@ const BulkDispatchSchema = z.object({
 
 export default async function outboundRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)]
+
+  // GET /outbound/grouped — today's OUTBOUND orders grouped by carrier → shop
+  fastify.get('/grouped', { preHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getGroupedByCarrier(tenantId))
+  })
 
   // GET /outbound/orders — PACKER_COMPLETE orders ready to dispatch
   fastify.get('/orders', { preHandler }, async (request, reply) => {
