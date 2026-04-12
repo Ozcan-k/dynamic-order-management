@@ -23,11 +23,6 @@ export default function PickerMobile() {
   const setUser = useAuthStore((s) => s.setUser)
   const queryClient = useQueryClient()
 
-  const isPickerSession = user?.role === 'PICKER'
-
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [loginError, setLoginError] = useState<string | null>(null)
   const [pendingOrder, setPendingOrder] = useState<PickerOrder | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -46,35 +41,6 @@ export default function PickerMobile() {
     return () => clearTimeout(t)
   }, [successMsg])
 
-  // ── Login Auth ───────────────────────────────────────────────────────────────
-  const loginMutation = useMutation({
-    mutationFn: () =>
-      api.post<{ user: { id: string; username: string; role: string; tenantId: string } }>(
-        '/auth/login',
-        { username: username.trim(), password },
-      ),
-    onSuccess: (res) => {
-      if (res.data.user.role !== 'PICKER') {
-        setLoginError('This account does not have picker access.')
-        return
-      }
-      setUser(res.data.user as Parameters<typeof setUser>[0])
-    },
-    onError: () => {
-      setLoginError('Invalid username or password.')
-    },
-  })
-
-  function handleLogin() {
-    setLoginError(null)
-    if (!username.trim() || !password) return
-    loginMutation.mutate()
-  }
-
-  function handleLoginKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') handleLogin()
-  }
-
   // ── Orders ──────────────────────────────────────────────────────────────────
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['picker-orders'],
@@ -82,7 +48,7 @@ export default function PickerMobile() {
       const res = await api.get<{ orders: PickerOrder[] }>('/picker/orders')
       return res.data.orders
     },
-    enabled: isPickerSession,
+    enabled: true,
     refetchInterval: 15_000,
   })
 
@@ -115,129 +81,10 @@ export default function PickerMobile() {
   async function handleLogout() {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     setUser(null)
-    setUsername('')
-    setPassword('')
-    setLoginError(null)
   }
 
   function formatTime(iso: string) {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
-
-  // ── Login Screen ────────────────────────────────────────────────────────────
-  if (!isPickerSession) {
-    const inputStyle: React.CSSProperties = {
-      width: '100%', padding: '13px 14px', fontSize: '15px',
-      background: '#263347', border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '12px', color: '#f1f5f9', outline: 'none',
-      boxSizing: 'border-box',
-    }
-    return (
-      <div style={{
-        minHeight: '100vh', background: 'linear-gradient(160deg, #0f172a 0%, #1e2d45 100%)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '20px',
-      }}>
-        <div style={{
-          background: '#1e293b', borderRadius: '24px', padding: '36px 28px',
-          width: '100%', maxWidth: '340px',
-          boxShadow: '0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)',
-        }}>
-          {/* Brand */}
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, #2563eb, #4f46e5)',
-              borderRadius: '16px', width: '60px', height: '60px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 16px',
-              boxShadow: '0 8px 24px rgba(37,99,235,0.4)',
-            }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                <line x1="12" y1="22.08" x2="12" y2="12" />
-              </svg>
-            </div>
-            <h1 style={{ color: '#f1f5f9', fontSize: '20px', fontWeight: 700, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
-              Picker Login
-            </h1>
-            <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Sign in with your credentials</p>
-          </div>
-
-          {/* Error */}
-          {loginError && (
-            <div style={{
-              color: '#fca5a5', fontSize: '13px', textAlign: 'center',
-              marginBottom: '16px', background: 'rgba(239,68,68,0.12)',
-              border: '1px solid rgba(239,68,68,0.2)',
-              padding: '10px 14px', borderRadius: '10px', fontWeight: 500,
-            }}>
-              {loginError}
-            </div>
-          )}
-
-          {/* Form */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Username
-              </label>
-              <input
-                type="text"
-                autoComplete="username"
-                autoCapitalize="none"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                onKeyDown={handleLoginKeyDown}
-                disabled={loginMutation.isPending}
-                style={inputStyle}
-                placeholder="Enter username"
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Password
-              </label>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={handleLoginKeyDown}
-                disabled={loginMutation.isPending}
-                style={inputStyle}
-                placeholder="Enter password"
-              />
-            </div>
-            <button
-              onClick={handleLogin}
-              disabled={loginMutation.isPending || !username.trim() || !password}
-              style={{
-                marginTop: '4px', padding: '14px', fontSize: '15px', fontWeight: 700,
-                background: loginMutation.isPending || !username.trim() || !password
-                  ? '#334155'
-                  : 'linear-gradient(135deg, #2563eb, #4f46e5)',
-                color: loginMutation.isPending || !username.trim() || !password ? '#64748b' : '#fff',
-                border: 'none', borderRadius: '12px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                minHeight: '50px', transition: 'opacity 0.15s',
-              }}
-            >
-              {loginMutation.isPending ? (
-                <>
-                  <div style={{
-                    width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)',
-                    borderTopColor: '#fff', borderRadius: '50%',
-                    animation: 'spin 0.7s linear infinite',
-                  }} />
-                  Signing in...
-                </>
-              ) : 'Sign In'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   // ── Order List Screen ────────────────────────────────────────────────────────

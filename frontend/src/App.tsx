@@ -120,9 +120,22 @@ export default function App() {
             }
           />
           {/* Mobile routes — no sidebar */}
-          {/* /picker and /packer are public — they handle PIN auth internally */}
-          <Route path="/picker" element={<PickerMobile />} />
-          <Route path="/packer" element={<PackerMobile />} />
+          <Route
+            path="/picker"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.PICKER]}>
+                <PickerMobile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/packer"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.PACKER]}>
+                <PackerMobile />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/unauthorized"
             element={<PlaceholderPage title="403 — Forbidden" />}

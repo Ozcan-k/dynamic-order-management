@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
 
-const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan']
+const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
 
 function DomLogo({ size = 72 }: { size?: number }) {
   return (
