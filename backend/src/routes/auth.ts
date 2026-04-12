@@ -7,6 +7,7 @@ import { JWTPayload } from '@dom/shared'
 const LoginSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
+  deviceType: z.enum(['desktop', 'handheld']).optional().default('desktop'),
 })
 
 const COOKIE_OPTIONS = {
@@ -25,7 +26,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Invalid request body', details: result.error.flatten() })
     }
 
-    const { username, password } = result.data
+    const { username, password, deviceType } = result.data
     const user = await findUserByUsername(username)
     if (!user || !user.tenant.isActive) {
       return reply.code(401).send({ error: 'Invalid credentials' })
@@ -40,6 +41,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       userId: user.id,
       tenantId: user.tenantId,
       role: user.role as JWTPayload['role'],
+      deviceType,
     }
 
     const token = fastify.jwt.sign(payload)
@@ -62,8 +64,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
     '/logout',
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
-      const { userId } = request.user as JWTPayload
-      await deleteSession(userId)
+      const { userId, deviceType } = request.user as JWTPayload
+      await deleteSession(userId, deviceType ?? 'desktop')
       return reply
         .clearCookie('access_token', { path: '/' })
         .send({ message: 'Logged out successfully' })

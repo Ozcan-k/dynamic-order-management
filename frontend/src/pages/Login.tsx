@@ -1,10 +1,15 @@
 import { useState, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
 
+const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan']
+
 export default function Login() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const nextRoute = searchParams.get('next') ?? null
+  const isHandheld = nextRoute !== null && HANDHELD_ROUTES.includes(nextRoute)
   const setUser = useAuthStore((s) => s.setUser)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -16,9 +21,10 @@ export default function Login() {
     setError(null)
     setLoading(true)
     try {
-      const { data } = await api.post<{ user: AuthUser }>('/auth/login', { username, password })
+      const deviceType = isHandheld ? 'handheld' : 'desktop'
+      const { data } = await api.post<{ user: AuthUser }>('/auth/login', { username, password, deviceType })
       setUser(data.user)
-      navigate(getDefaultRoute(data.user.role))
+      navigate(nextRoute ?? getDefaultRoute(data.user.role))
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||

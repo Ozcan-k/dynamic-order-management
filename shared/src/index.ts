@@ -48,6 +48,7 @@ export interface JWTPayload {
   userId: string
   tenantId: string
   role: UserRole
+  deviceType?: 'desktop' | 'handheld'
 }
 
 export enum Carrier {

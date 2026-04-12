@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { prisma } from '../lib/prisma'
+import { getIO } from '../lib/socket'
 import {
   getInboundOrders,
   getPickers,
@@ -79,9 +80,10 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   fastify.post('/scan', { preHandler }, async (request, reply) => {
     const { trackingNumber } = request.body as { trackingNumber?: string }
     if (!trackingNumber?.trim()) return reply.code(400).send({ error: 'trackingNumber is required' })
-    const { tenantId } = request.user as JWTPayload
+    const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await lookupOrderByScan(trackingNumber.trim(), tenantId)
+      try { getIO().to(`user:${userId}`).emit('order:staged', { order }) } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Lookup failed'

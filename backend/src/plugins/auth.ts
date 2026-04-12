@@ -7,20 +7,21 @@ import { redis } from '../lib/redis'
 
 const SESSION_TTL = 60 * 60 * 8 // 8 hours in seconds
 
-export function sessionKey(userId: string) {
-  return `session:${userId}`
+export function sessionKey(userId: string, deviceType: 'desktop' | 'handheld' = 'desktop') {
+  return `session:${userId}:${deviceType}`
 }
 
 export async function setSession(userId: string, payload: JWTPayload) {
-  await redis.set(sessionKey(userId), JSON.stringify(payload), 'EX', SESSION_TTL)
+  const key = sessionKey(userId, payload.deviceType ?? 'desktop')
+  await redis.set(key, JSON.stringify(payload), 'EX', SESSION_TTL)
 }
 
-export async function deleteSession(userId: string) {
-  await redis.del(sessionKey(userId))
+export async function deleteSession(userId: string, deviceType: 'desktop' | 'handheld' = 'desktop') {
+  await redis.del(sessionKey(userId, deviceType))
 }
 
-export async function getSession(userId: string): Promise<JWTPayload | null> {
-  const data = await redis.get(sessionKey(userId))
+export async function getSession(userId: string, deviceType: 'desktop' | 'handheld' = 'desktop'): Promise<JWTPayload | null> {
+  const data = await redis.get(sessionKey(userId, deviceType))
   if (!data) return null
   return JSON.parse(data) as JWTPayload
 }
@@ -58,7 +59,7 @@ export default fp(async (fastify: FastifyInstance) => {
       try {
         await request.jwtVerify()
         const payload = request.user as JWTPayload
-        const session = await getSession(payload.userId)
+        const session = await getSession(payload.userId, payload.deviceType ?? 'desktop')
         if (!session) {
           return reply.code(401).send({ error: 'Session expired. Please log in again.' })
         }

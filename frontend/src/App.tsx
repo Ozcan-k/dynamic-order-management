@@ -3,7 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import Login from './pages/Login'
 import Inbound from './pages/Inbound'
+import InboundScan from './pages/InboundScan'
 import PickerAdmin from './pages/PickerAdmin'
+import PickerAdminScan from './pages/PickerAdminScan'
 import PickerMobile from './pages/PickerMobile'
 import PackerAdmin from './pages/PackerAdmin'
 import PackerMobile from './pages/PackerMobile'
@@ -96,6 +98,23 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
                 <AppLayout><PlaceholderPage title="User Management" /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Handheld scan pages — no sidebar, role-protected */}
+          <Route
+            path="/inbound-scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+                <InboundScan />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/picker-admin-scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN]}>
+                <PickerAdminScan />
               </ProtectedRoute>
             }
           />

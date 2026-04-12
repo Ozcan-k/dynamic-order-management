@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
+import { connectSocket } from '../lib/socket'
 import { colors } from '../theme'
 import DelayBadge from '../components/DelayBadge'
 import ScanInput from '../components/ScanInput'
@@ -772,6 +773,20 @@ export default function PickerAdmin() {
   // Staging state
   const [stagedOrders, setStagedOrders] = useState<Order[]>([])
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
+
+  // Real-time: handheld scan event → auto-add order to staging area
+  useEffect(() => {
+    const socket = connectSocket()
+    socket.on('order:staged', (data: { order: Order }) => {
+      setStagedOrders(prev => {
+        if (prev.find(o => o.id === data.order.id)) return prev
+        return [...prev, data.order]
+      })
+      setScanFeedback({ type: 'success', message: `Handheld staged: ${data.order.trackingNumber}` })
+      setTimeout(() => setScanFeedback(null), 3000)
+    })
+    return () => { socket.off('order:staged') }
+  }, [])
 
   // Orders query — refetch every 5 s
   const {

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
+import { connectSocket } from '../lib/socket'
 import { colors } from '../theme'
 import ScanInput from '../components/ScanInput'
 import BulkScanModal from '../components/BulkScanModal'
@@ -38,6 +39,16 @@ export default function Inbound() {
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
+
+  // Real-time: handheld scan event → refresh order list immediately
+  useEffect(() => {
+    const socket = connectSocket()
+    socket.on('order:scanned', () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['orders-stats'] })
+    })
+    return () => { socket.off('order:scanned') }
+  }, [queryClient])
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['orders'],

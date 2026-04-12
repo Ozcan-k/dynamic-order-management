@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload, Carrier } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+import { getIO } from '../lib/socket'
 import {
   scanOrder,
   bulkScanOrders,
@@ -42,6 +43,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
         return reply.code(409).send({ error: 'Tracking number already exists', order })
       }
 
+      try { getIO().to(`user:${userId}`).emit('order:scanned', { order }) } catch {}
       return reply.code(201).send({ order })
     },
   )
