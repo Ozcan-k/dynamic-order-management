@@ -29,7 +29,7 @@ interface Picker {
 }
 
 interface PickerStat {
-  picker: { id: string; username: string; pickerPin: string | null }
+  picker: { id: string; username: string }
   statusCounts: {
     PICKER_ASSIGNED: number
     PICKING: number
@@ -502,26 +502,7 @@ function PickerOrdersModal({
 
 // ─── Per-picker stat card ────────────────────────────────────────────────────
 function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => void }) {
-  const queryClient = useQueryClient()
   const hasOrders = stat.total > 0 || stat.completed > 0
-  const [pinInput, setPinInput] = useState('')
-  const [showPinForm, setShowPinForm] = useState(false)
-  const [pinFeedback, setPinFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null)
-
-  const setPinMutation = useMutation({
-    mutationFn: (pin: string) =>
-      api.patch(`/picker-admin/picker/${stat.picker.id}/pin`, { pin }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
-      setPinFeedback({ type: 'ok', msg: 'PIN saved' })
-      setShowPinForm(false)
-      setPinInput('')
-      setTimeout(() => setPinFeedback(null), 2500)
-    },
-    onError: (err: any) => {
-      setPinFeedback({ type: 'err', msg: err?.response?.data?.error ?? 'Failed to save PIN' })
-    },
-  })
 
   return (
     <div
@@ -612,80 +593,6 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
         </div>
       )}
 
-      {/* PIN management */}
-      <div
-        style={{ marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${colors.border}` }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {pinFeedback && (
-          <div style={{
-            fontSize: '11px', fontWeight: 600, marginBottom: '6px',
-            color: pinFeedback.type === 'ok' ? '#065f46' : '#991b1b',
-          }}>
-            {pinFeedback.msg}
-          </div>
-        )}
-        {!showPinForm ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: colors.textMuted }}>
-              Device PIN: {stat.picker.pickerPin ? (
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: colors.textPrimary }}>
-                  {stat.picker.pickerPin}
-                </span>
-              ) : (
-                <span style={{ fontStyle: 'italic' }}>not set</span>
-              )}
-            </span>
-            <button
-              onClick={() => { setShowPinForm(true); setPinFeedback(null) }}
-              style={{
-                marginLeft: 'auto', fontSize: '11px', fontWeight: 600,
-                background: '#eff6ff', color: '#1d4ed8', border: 'none',
-                borderRadius: '6px', padding: '3px 8px', cursor: 'pointer',
-              }}
-            >
-              {stat.picker.pickerPin ? 'Change' : 'Set PIN'}
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="4 digits"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              style={{
-                flex: 1, padding: '5px 8px', fontSize: '13px', fontFamily: 'monospace',
-                border: `1px solid ${colors.border}`, borderRadius: '6px', outline: 'none',
-              }}
-            />
-            <button
-              onClick={() => setPinMutation.mutate(pinInput)}
-              disabled={pinInput.length !== 4 || setPinMutation.isPending}
-              style={{
-                fontSize: '11px', fontWeight: 700, padding: '5px 10px',
-                background: pinInput.length === 4 ? '#3b82f6' : '#e2e8f0',
-                color: pinInput.length === 4 ? '#fff' : '#94a3b8',
-                border: 'none', borderRadius: '6px', cursor: pinInput.length === 4 ? 'pointer' : 'not-allowed',
-              }}
-            >
-              Save
-            </button>
-            <button
-              onClick={() => { setShowPinForm(false); setPinInput(''); setPinFeedback(null) }}
-              style={{
-                fontSize: '11px', fontWeight: 600, padding: '5px 8px',
-                background: '#f1f5f9', color: '#64748b',
-                border: 'none', borderRadius: '6px', cursor: 'pointer',
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

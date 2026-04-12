@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 1.9.0  
-> **Date:** 2026-04-11  
-> **Status:** In development — Phase 10 complete (Dashboard + Bulk Inbound Scan)
+> **Version:** 2.0.0  
+> **Date:** 2026-04-12  
+> **Status:** In development — Phase 10 complete + Username/Password handheld auth
 
 ---
 
@@ -59,7 +59,7 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │  ┌──────────────────────────────────┐  ┌────────────────────────────────┐ │
 │  │  Desktop Browser (React)         │  │  Handheld Device (Android)     │ │
 │  │  Admin / Inbound / Picker Admin  │  │  Picker & Packer               │ │
-│  │  Packer Admin / Outbound         │  │  Chrome browser — WiFi         │ │
+│  │  Packer Admin / Outbound         │  │  Chrome browser — any network   │ │
 │  │  + HID Barcode Scanner (inbound) │  │  Mobile-optimized UI           │ │
 │  └──────────────────┬───────────────┘  └──────────────┬─────────────────┘ │
 └─────────────────────┼────────────────────────────────── ┼──────────────────┘

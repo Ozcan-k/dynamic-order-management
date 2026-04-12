@@ -25,8 +25,9 @@ export default function PickerMobile() {
 
   const isPickerSession = user?.role === 'PICKER'
 
-  const [pin, setPin] = useState('')
-  const [pinError, setPinError] = useState<string | null>(null)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [pendingOrder, setPendingOrder] = useState<PickerOrder | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -45,31 +46,33 @@ export default function PickerMobile() {
     return () => clearTimeout(t)
   }, [successMsg])
 
-  // ── PIN Auth ────────────────────────────────────────────────────────────────
-  const pinMutation = useMutation({
-    mutationFn: (p: string) =>
+  // ── Login Auth ───────────────────────────────────────────────────────────────
+  const loginMutation = useMutation({
+    mutationFn: () =>
       api.post<{ user: { id: string; username: string; role: string; tenantId: string } }>(
-        '/picker/auth',
-        { pin: p },
+        '/auth/login',
+        { username: username.trim(), password },
       ),
     onSuccess: (res) => {
+      if (res.data.user.role !== 'PICKER') {
+        setLoginError('This account does not have picker access.')
+        return
+      }
       setUser(res.data.user as Parameters<typeof setUser>[0])
     },
     onError: () => {
-      setPinError('Invalid PIN. Try again.')
-      setPin('')
+      setLoginError('Invalid username or password.')
     },
   })
 
-  function handleNumpad(digit: string) {
-    setPinError(null)
-    if (digit === 'back') {
-      setPin((p) => p.slice(0, -1))
-    } else if (pin.length < 4) {
-      const next = pin + digit
-      setPin(next)
-      if (next.length === 4) pinMutation.mutate(next)
-    }
+  function handleLogin() {
+    setLoginError(null)
+    if (!username.trim() || !password) return
+    loginMutation.mutate()
+  }
+
+  function handleLoginKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') handleLogin()
   }
 
   // ── Orders ──────────────────────────────────────────────────────────────────
@@ -112,16 +115,23 @@ export default function PickerMobile() {
   async function handleLogout() {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     setUser(null)
-    setPin('')
-    setPinError(null)
+    setUsername('')
+    setPassword('')
+    setLoginError(null)
   }
 
   function formatTime(iso: string) {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
-  // ── PIN Screen ──────────────────────────────────────────────────────────────
+  // ── Login Screen ────────────────────────────────────────────────────────────
   if (!isPickerSession) {
+    const inputStyle: React.CSSProperties = {
+      width: '100%', padding: '13px 14px', fontSize: '15px',
+      background: '#263347', border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '12px', color: '#f1f5f9', outline: 'none',
+      boxSizing: 'border-box',
+    }
     return (
       <div style={{
         minHeight: '100vh', background: 'linear-gradient(160deg, #0f172a 0%, #1e2d45 100%)',
@@ -137,8 +147,7 @@ export default function PickerMobile() {
           <div style={{ textAlign: 'center', marginBottom: '32px' }}>
             <div style={{
               background: 'linear-gradient(135deg, #2563eb, #4f46e5)',
-              borderRadius: '16px',
-              width: '60px', height: '60px',
+              borderRadius: '16px', width: '60px', height: '60px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               margin: '0 auto 16px',
               boxShadow: '0 8px 24px rgba(37,99,235,0.4)',
@@ -152,104 +161,80 @@ export default function PickerMobile() {
             <h1 style={{ color: '#f1f5f9', fontSize: '20px', fontWeight: 700, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
               Picker Login
             </h1>
-            <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Enter your 4-digit PIN</p>
-          </div>
-
-          {/* PIN dots */}
-          <div style={{
-            display: 'flex', justifyContent: 'center', gap: '18px', marginBottom: '28px',
-          }}>
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} style={{
-                width: '18px', height: '18px', borderRadius: '50%',
-                background: pin.length > i
-                  ? 'linear-gradient(135deg, #3b82f6, #6366f1)'
-                  : '#2d3f56',
-                boxShadow: pin.length > i ? '0 2px 8px rgba(59,130,246,0.5)' : 'none',
-                transition: 'background 0.15s, box-shadow 0.15s',
-              }} />
-            ))}
+            <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Sign in with your credentials</p>
           </div>
 
           {/* Error */}
-          {pinError && (
+          {loginError && (
             <div style={{
               color: '#fca5a5', fontSize: '13px', textAlign: 'center',
-              marginBottom: '20px', background: 'rgba(239,68,68,0.12)',
+              marginBottom: '16px', background: 'rgba(239,68,68,0.12)',
               border: '1px solid rgba(239,68,68,0.2)',
               padding: '10px 14px', borderRadius: '10px', fontWeight: 500,
             }}>
-              {pinError}
+              {loginError}
             </div>
           )}
 
-          {/* Numpad */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-            {['1','2','3','4','5','6','7','8','9'].map((d) => (
-              <button key={d} onClick={() => handleNumpad(d)}
-                disabled={pinMutation.isPending}
-                style={{
-                  background: '#263347', border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: '14px', color: '#e2e8f0', fontSize: '24px', fontWeight: 600,
-                  minHeight: '64px', cursor: 'pointer',
-                  transition: 'background 0.1s, transform 0.1s',
-                  opacity: pinMutation.isPending ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-                onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.background = '#334155' }}
-                onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.background = '#263347' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#263347' }}
-              >
-                {d}
-              </button>
-            ))}
-            {/* Empty cell */}
-            <div />
-            {/* 0 */}
-            <button onClick={() => handleNumpad('0')}
-              disabled={pinMutation.isPending}
+          {/* Form */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Username
+              </label>
+              <input
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                onKeyDown={handleLoginKeyDown}
+                disabled={loginMutation.isPending}
+                style={inputStyle}
+                placeholder="Enter username"
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', color: '#94a3b8', fontSize: '12px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={handleLoginKeyDown}
+                disabled={loginMutation.isPending}
+                style={inputStyle}
+                placeholder="Enter password"
+              />
+            </div>
+            <button
+              onClick={handleLogin}
+              disabled={loginMutation.isPending || !username.trim() || !password}
               style={{
-                background: '#263347', border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '14px', color: '#e2e8f0', fontSize: '24px', fontWeight: 600,
-                minHeight: '64px', cursor: 'pointer',
-                transition: 'background 0.1s',
-                opacity: pinMutation.isPending ? 0.5 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginTop: '4px', padding: '14px', fontSize: '15px', fontWeight: 700,
+                background: loginMutation.isPending || !username.trim() || !password
+                  ? '#334155'
+                  : 'linear-gradient(135deg, #2563eb, #4f46e5)',
+                color: loginMutation.isPending || !username.trim() || !password ? '#64748b' : '#fff',
+                border: 'none', borderRadius: '12px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                minHeight: '50px', transition: 'opacity 0.15s',
               }}
-              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.background = '#334155' }}
-              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.background = '#263347' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#263347' }}
             >
-              0
-            </button>
-            {/* Backspace */}
-            <button onClick={() => handleNumpad('back')}
-              disabled={pinMutation.isPending}
-              style={{
-                background: '#1e293b', border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '14px', color: '#64748b', fontSize: '20px', fontWeight: 600,
-                minHeight: '64px', cursor: 'pointer',
-                transition: 'background 0.1s, color 0.1s',
-                opacity: pinMutation.isPending ? 0.5 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.background = '#2d3f56' }}
-              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1e293b' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1e293b' }}
-            >
-              ⌫
+              {loginMutation.isPending ? (
+                <>
+                  <div style={{
+                    width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#fff', borderRadius: '50%',
+                    animation: 'spin 0.7s linear infinite',
+                  }} />
+                  Signing in...
+                </>
+              ) : 'Sign In'}
             </button>
           </div>
-
-          {pinMutation.isPending && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '20px' }}>
-              <div style={{
-                width: 16, height: 16, border: '2px solid #334155', borderTopColor: '#3b82f6',
-                borderRadius: '50%', animation: 'spin 0.7s linear infinite',
-              }} />
-              <span style={{ color: '#64748b', fontSize: '13px' }}>Verifying...</span>
-            </div>
-          )}
         </div>
       </div>
     )

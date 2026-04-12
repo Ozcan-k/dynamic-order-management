@@ -1,7 +1,8 @@
 # Handheld Device Requirements — Picker & Packer Applications
 
 > **Status:** Pending hardware evaluation  
-> **Date:** 2026-04-10
+> **Date:** 2026-04-12  
+> **Updated:** PIN auth replaced with username/password login (v2.0.0)
 
 ---
 
@@ -11,9 +12,9 @@
 |---|---|---|
 | OS | Android 8.0+ | Chrome browser compatibility |
 | RAM | 2 GB | Browser + app session |
-| WiFi | 802.11 b/g/n (2.4GHz) | Must connect to warehouse LAN |
+| Network | WiFi or Mobile Data (4G/5G) | Any network with internet access |
 | Barcode Scanner | 1D laser or 2D imager | Must read waybill barcodes |
-| Display | 4"+ touchscreen | PIN numpad + order list |
+| Display | 4"+ touchscreen | Login form + order list |
 | Battery | 3000mAh+ | Full shift usage |
 
 ---
@@ -23,10 +24,10 @@
 | Spec | Recommended | Notes |
 |---|---|---|
 | OS | Android 10+ | Better Chrome performance |
-| RAM | 3–4 GB | Smoother HMR + browser |
-| WiFi | 802.11 ac (5GHz) | Faster, less interference |
+| RAM | 3–4 GB | Smoother browser |
+| Network | WiFi 802.11 ac (5GHz) or 4G LTE | Faster, less interference |
 | Barcode Scanner | 2D imager (omnidirectional) | Reads damaged/angled barcodes better |
-| Display | 5"+ touchscreen | Easier PIN input |
+| Display | 5"+ touchscreen | Easier credential input |
 | Battery | 5000mAh+ | Full shift without charging |
 | Build | IP54+ rated | Warehouse drop/dust resistance |
 
@@ -35,7 +36,7 @@
 ## Software Requirements
 
 - **Browser:** Chrome 80+ (pre-installed on Android)
-- **Network:** Same LAN/WiFi as the application server
+- **Network:** Any network — WiFi, mobile data (4G/5G), or LAN
 - **No app installation required** — runs entirely in browser
 
 ---
@@ -44,34 +45,40 @@
 
 ### Prerequisites
 - Application server must be running (`docker compose up`)
-- Handheld device and server must be on the same WiFi/LAN network
-- A PIN must be assigned to the user from the relevant admin panel (Picker Admin for pickers, Packer Admin for packers)
+- Each picker/packer must have a user account created by the admin (username + password)
+- Server must be accessible via a known URL (local IP or public domain via Cloudflare Tunnel)
 
 ---
 
-### Step 1 — Find the Server IP Address
+### Step 1 — Find the Server URL
+
+**Option A — Same network (local IP):**
 
 On the server machine, open a terminal and run:
-
 ```
 ipconfig
 ```
-
 Look for the **IPv4 Address** under `Wireless LAN adapter Wi-Fi` or `Ethernet adapter`.
 
 Example: `192.168.1.119`
 
+**Option B — Any network (Cloudflare Tunnel):**
+
+Run on the server:
+```
+cloudflared tunnel --url http://localhost:3000
+```
+A public HTTPS URL will be generated (e.g. `https://abc.trycloudflare.com`).
+Update `CORS_ORIGIN` in `.env` to include this domain and restart containers.
+
 ---
 
-### Step 2 — Assign a PIN to the Picker (from Picker Admin Panel)
+### Step 2 — Create User Accounts for Pickers/Packers
 
-1. On the server machine, go to `http://localhost:5173/picker-admin`
-2. Find the picker's stat card
-3. Click the **"Set PIN"** button on the card
-4. Enter a 4-digit PIN (e.g. `1234`)
-5. Click **Save**
-
-> PINs are **globally unique** across all handheld devices. The same PIN cannot be assigned to two pickers, two packers, or one picker and one packer.
+1. Go to `http://localhost:5173/users` (admin panel)
+2. Create accounts with role **PICKER** or **PACKER**
+3. Set a username and password for each worker
+4. Share the credentials with the workers
 
 ---
 
@@ -83,18 +90,18 @@ Example: `192.168.1.119`
 ```
 http://192.168.1.119:5173/picker
 ```
+*(or the Cloudflare Tunnel URL)*
 
-*(Replace `192.168.1.119` with the IP address found in Step 1)*
-
-3. A dark PIN numpad screen should appear
+3. A dark login screen will appear with **Username** and **Password** fields
 
 ---
 
-### Step 4 — Log In with PIN
+### Step 4 — Log In
 
-1. Picker enters their 4-digit PIN on the numpad
-2. PIN is verified → picker's assigned order list opens
-3. Screen switches to the light order list view
+1. Worker enters their username and password
+2. Tap **Sign In**
+3. Credentials verified → assigned order list opens automatically
+4. If wrong role (e.g. packer logs into `/picker`), an error message appears
 
 ---
 
@@ -105,7 +112,7 @@ In Android Chrome:
 2. Select **"Add to Home Screen"**
 3. Name it (e.g. "Order Picker") → tap **Add**
 
-The picker can now tap this shortcut each morning to open the app directly.
+The worker can now tap this shortcut each morning to open the app directly.
 
 ---
 
@@ -116,7 +123,7 @@ Open device
     ↓
 Tap "Order Picker" shortcut on home screen
     ↓
-Enter 4-digit PIN        ← only on first launch or after logout
+Enter username + password   ← only on first launch or after logout
     ↓
 Order list appears
     ↓
@@ -127,7 +134,7 @@ Tap "Confirm Complete"
 Order removed from list ✓
 ```
 
-> **Note:** Session is valid for 8 hours. The PIN will not be asked again if the device is turned off and back on during a shift. The PIN screen only reappears if the **Logout** button is pressed.
+> **Note:** Session is valid for 8 hours. Workers do not need to log in again during a shift unless they press **Sign Out**.
 
 ---
 
@@ -138,10 +145,10 @@ The packer handheld uses the **same hardware and process** as the picker handhel
 | | Picker | Packer |
 |---|---|---|
 | URL | `http://<ip>:5173/picker` | `http://<ip>:5173/packer` |
-| PIN set by | Picker Admin panel | Packer Admin panel |
+| Account role | PICKER | PACKER |
 | Order list | Own assigned orders | All PICKER_COMPLETE orders (shared queue) |
 | Action | Complete own order | Scan waybill → complete from shared queue |
-| Theme | Blue gradient PIN screen | Green gradient PIN screen |
+| Theme | Blue gradient login screen | Green gradient login screen |
 | Shortcut name | "Order Picker" | "Order Packer" |
 
 ### Packer Daily Usage Flow
@@ -151,7 +158,7 @@ Open device
     ↓
 Tap "Order Packer" shortcut on home screen
     ↓
-Enter 4-digit PIN        ← only on first launch or after logout
+Enter username + password   ← only on first launch or after logout
     ↓
 Shared order list appears (all PICKER_COMPLETE orders)
     ↓
@@ -175,7 +182,7 @@ Order removed from all packers' lists ✓
 - **Status:** ⏳ Spec sheet not yet obtained — request PDF from supplier
 - **Check list:**
   - [ ] Android version ≥ 8.0
-  - [ ] WiFi supported
+  - [ ] WiFi or mobile data support
   - [ ] Barcode scanner type (1D/2D)
   - [ ] RAM ≥ 2GB
   - [ ] Display size ≥ 4"
@@ -187,6 +194,7 @@ Order removed from all packers' lists ✓
 ## Notes
 
 - No special app or APK installation needed — browser-based solution
-- If multiple pickers share shifts, each picker has their own 4-digit PIN
-- PINs are globally unique — no picker and no packer may share the same PIN
-- Session lasts 8 hours — no need to re-enter PIN during a shift
+- Each picker/packer has their own username and password
+- Devices are not assigned to specific workers — any worker can log in on any device
+- Session lasts 8 hours — no need to re-enter credentials during a shift
+- Admin can deactivate a user account to immediately revoke access
