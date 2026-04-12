@@ -28,7 +28,7 @@ interface OutboundStats {
   d4Count: number
 }
 
-// ─── Carrier display config ──────────────────────────────────────────────────
+// ─── Carrier display config — dynamic palette ────────────────────────────────
 
 interface CarrierStyle {
   headerBg: string
@@ -36,21 +36,30 @@ interface CarrierStyle {
   badgeBg: string
   badgeText: string
   border: string
-  countBg: string
 }
 
-const CARRIER_STYLES: Record<string, CarrierStyle> = {
-  SPX:       { headerBg: '#1d4ed8', headerText: '#fff', badgeBg: '#dbeafe', badgeText: '#1e40af', border: '#bfdbfe', countBg: '#2563eb' },
-  JT_EXPRESS:{ headerBg: '#dc2626', headerText: '#fff', badgeBg: '#fee2e2', badgeText: '#b91c1c', border: '#fecaca', countBg: '#ef4444' },
-  FLASH:     { headerBg: '#ea580c', headerText: '#fff', badgeBg: '#ffedd5', badgeText: '#c2410c', border: '#fed7aa', countBg: '#f97316' },
-  LEX:       { headerBg: '#7c3aed', headerText: '#fff', badgeBg: '#ede9fe', badgeText: '#6d28d9', border: '#ddd6fe', countBg: '#8b5cf6' },
-  LBC:       { headerBg: '#15803d', headerText: '#fff', badgeBg: '#dcfce7', badgeText: '#166534', border: '#bbf7d0', countBg: '#16a34a' },
-  NINJA_VAN: { headerBg: '#6d28d9', headerText: '#fff', badgeBg: '#f3e8ff', badgeText: '#7e22ce', border: '#e9d5ff', countBg: '#7c3aed' },
-  OTHER:     { headerBg: '#475569', headerText: '#fff', badgeBg: '#f1f5f9', badgeText: '#334155', border: '#e2e8f0', countBg: '#64748b' },
+// 10-color palette — new carriers auto-assigned by name hash
+const COLOR_PALETTE: CarrierStyle[] = [
+  { headerBg: '#1d4ed8', headerText: '#fff', badgeBg: '#dbeafe', badgeText: '#1e40af', border: '#bfdbfe' },
+  { headerBg: '#dc2626', headerText: '#fff', badgeBg: '#fee2e2', badgeText: '#b91c1c', border: '#fecaca' },
+  { headerBg: '#15803d', headerText: '#fff', badgeBg: '#dcfce7', badgeText: '#166534', border: '#bbf7d0' },
+  { headerBg: '#7c3aed', headerText: '#fff', badgeBg: '#ede9fe', badgeText: '#6d28d9', border: '#ddd6fe' },
+  { headerBg: '#ea580c', headerText: '#fff', badgeBg: '#ffedd5', badgeText: '#c2410c', border: '#fed7aa' },
+  { headerBg: '#0f766e', headerText: '#fff', badgeBg: '#ccfbf1', badgeText: '#115e59', border: '#99f6e4' },
+  { headerBg: '#be185d', headerText: '#fff', badgeBg: '#fce7f3', badgeText: '#9d174d', border: '#fbcfe8' },
+  { headerBg: '#4338ca', headerText: '#fff', badgeBg: '#e0e7ff', badgeText: '#3730a3', border: '#c7d2fe' },
+  { headerBg: '#b45309', headerText: '#fff', badgeBg: '#fef3c7', badgeText: '#92400e', border: '#fde68a' },
+  { headerBg: '#0e7490', headerText: '#fff', badgeBg: '#cffafe', badgeText: '#164e63', border: '#a5f3fc' },
+]
+
+function hashCarrier(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h % COLOR_PALETTE.length
 }
 
 function getCarrierStyle(carrierName: string): CarrierStyle {
-  return CARRIER_STYLES[carrierName] ?? CARRIER_STYLES.OTHER
+  return COLOR_PALETTE[hashCarrier(carrierName)]
 }
 
 function getCarrierLabel(carrierName: string): string {
