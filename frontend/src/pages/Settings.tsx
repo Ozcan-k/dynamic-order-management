@@ -17,6 +17,61 @@ interface AppUser {
   createdBy?: { id: string; username: string } | null
 }
 
+// ─── Role config ──────────────────────────────────────────────────────────────
+
+interface RoleConfig {
+  label: string
+  pluralLabel: string
+  color: string
+  badgeBg: string
+  badgeText: string
+}
+
+const ROLE_CONFIG: Record<string, RoleConfig> = {
+  [UserRole.ADMIN]: {
+    label: 'Admin',
+    pluralLabel: 'Admins',
+    color: '#1d4ed8',
+    badgeBg: '#dbeafe',
+    badgeText: '#1e40af',
+  },
+  [UserRole.INBOUND_ADMIN]: {
+    label: 'Inbound Admin',
+    pluralLabel: 'Inbound Admins',
+    color: '#b45309',
+    badgeBg: '#fef3c7',
+    badgeText: '#92400e',
+  },
+  [UserRole.PICKER_ADMIN]: {
+    label: 'Picker Admin',
+    pluralLabel: 'Picker Admins',
+    color: '#6d28d9',
+    badgeBg: '#ede9fe',
+    badgeText: '#5b21b6',
+  },
+  [UserRole.PACKER_ADMIN]: {
+    label: 'Packer Admin',
+    pluralLabel: 'Packer Admins',
+    color: '#0e7490',
+    badgeBg: '#cffafe',
+    badgeText: '#155e75',
+  },
+  [UserRole.PICKER]: {
+    label: 'Picker',
+    pluralLabel: 'Pickers',
+    color: '#7c3aed',
+    badgeBg: '#ede9fe',
+    badgeText: '#6d28d9',
+  },
+  [UserRole.PACKER]: {
+    label: 'Packer',
+    pluralLabel: 'Packers',
+    color: '#0f766e',
+    badgeBg: '#ccfbf1',
+    badgeText: '#115e59',
+  },
+}
+
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
 const SettingsIcon = (
@@ -54,7 +109,7 @@ function AddUserModal({
   onClose,
   onSuccess,
 }: {
-  role: UserRole.PICKER | UserRole.PACKER
+  role: UserRole
   onClose: () => void
   onSuccess: () => void
 }) {
@@ -63,8 +118,7 @@ function AddUserModal({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const roleLabel = role === UserRole.PICKER ? 'Picker' : 'Packer'
-  const roleColor = role === UserRole.PICKER ? '#7c3aed' : '#0f766e'
+  const cfg = ROLE_CONFIG[role]
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -99,12 +153,9 @@ function AddUserModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{
-          background: roleColor,
-          padding: '18px 24px',
-        }}>
+        <div style={{ background: cfg.color, padding: '18px 24px' }}>
           <div style={{ fontWeight: 700, fontSize: '15px', color: '#fff' }}>
-            Add New {roleLabel}
+            Add New {cfg.label}
           </div>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.75)', marginTop: '3px' }}>
             The user will be able to log in immediately after creation.
@@ -183,14 +234,14 @@ function AddUserModal({
               disabled={loading}
               style={{
                 flex: 2, padding: '10px', fontSize: '13px', fontWeight: 700,
-                background: loading ? '#c4b5fd' : roleColor,
+                background: loading ? '#94a3b8' : cfg.color,
                 color: '#fff', border: 'none', borderRadius: '8px',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
               {loading && <span className="spinner spinner-sm" style={{ borderTopColor: '#fff' }} />}
-              Add {roleLabel}
+              Add {cfg.label}
             </button>
           </div>
         </form>
@@ -267,7 +318,7 @@ function DeleteConfirmModal({
   )
 }
 
-// ─── User Card (one per role) ─────────────────────────────────────────────────
+// ─── User Role Card ───────────────────────────────────────────────────────────
 
 function UserRoleCard({
   role,
@@ -275,16 +326,12 @@ function UserRoleCard({
   onAdd,
   onDelete,
 }: {
-  role: UserRole.PICKER | UserRole.PACKER
+  role: UserRole
   users: AppUser[]
-  onAdd: (role: UserRole.PICKER | UserRole.PACKER) => void
+  onAdd: (role: UserRole) => void
   onDelete: (user: AppUser) => void
 }) {
-  const isPicker = role === UserRole.PICKER
-  const label = isPicker ? 'Pickers' : 'Packers'
-  const headerBg = isPicker ? '#7c3aed' : '#0f766e'
-  const badgeBg = isPicker ? '#ede9fe' : '#ccfbf1'
-  const badgeText = isPicker ? '#6d28d9' : '#115e59'
+  const cfg = ROLE_CONFIG[role]
 
   return (
     <div style={{
@@ -298,7 +345,7 @@ function UserRoleCard({
     }}>
       {/* Card header */}
       <div style={{
-        background: headerBg,
+        background: cfg.color,
         padding: '14px 18px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
@@ -312,7 +359,7 @@ function UserRoleCard({
           }}>
             <UserIcon />
           </div>
-          <span style={{ fontWeight: 700, fontSize: '14px', color: '#fff' }}>{label}</span>
+          <span style={{ fontWeight: 700, fontSize: '14px', color: '#fff' }}>{cfg.pluralLabel}</span>
           <span style={{
             background: 'rgba(255,255,255,0.22)',
             borderRadius: '20px', padding: '2px 10px',
@@ -343,7 +390,7 @@ function UserRoleCard({
             padding: '32px 18px', textAlign: 'center',
             color: colors.textMuted, fontSize: '13px',
           }}>
-            No {label.toLowerCase()} yet. Add one above.
+            No {cfg.pluralLabel.toLowerCase()} yet. Add one above.
           </div>
         ) : (
           users.map((u, i) => (
@@ -356,12 +403,11 @@ function UserRoleCard({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {/* Avatar */}
                 <div style={{
                   width: 30, height: 30, borderRadius: '50%',
-                  background: badgeBg,
+                  background: cfg.badgeBg,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '12px', fontWeight: 700, color: badgeText, flexShrink: 0,
+                  fontSize: '12px', fontWeight: 700, color: cfg.badgeText, flexShrink: 0,
                 }}>
                   {u.username.slice(0, 2).toUpperCase()}
                 </div>
@@ -382,7 +428,6 @@ function UserRoleCard({
                   width: 30, height: 30, borderRadius: '7px',
                   background: 'transparent', border: `1px solid ${colors.border}`,
                   color: '#94a3b8', cursor: 'pointer',
-                  transition: 'background 0.15s, color 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = '#fef2f2'
@@ -406,13 +451,26 @@ function UserRoleCard({
   )
 }
 
+// ─── Section Header ───────────────────────────────────────────────────────────
+
+function SectionHeader({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div style={{ marginBottom: '16px', marginTop: '8px' }}>
+      <h3 style={{ margin: '0 0 3px', fontSize: '14px', fontWeight: 700, color: colors.textPrimary }}>
+        {title}
+      </h3>
+      <p style={{ margin: 0, fontSize: '12px', color: colors.textSecondary }}>{desc}</p>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Settings() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
 
-  const [addRole, setAddRole] = useState<UserRole.PICKER | UserRole.PACKER | null>(null)
+  const [addRole, setAddRole] = useState<UserRole | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null)
 
   const { data: allUsers = [], isLoading } = useQuery({
@@ -433,8 +491,7 @@ export default function Settings() {
   })
 
   const activeUsers = allUsers.filter((u) => u.isActive)
-  const pickers = activeUsers.filter((u) => u.role === UserRole.PICKER)
-  const packers = activeUsers.filter((u) => u.role === UserRole.PACKER)
+  const byRole = (role: UserRole) => activeUsers.filter((u) => u.role === role)
 
   return (
     <PageShell
@@ -442,16 +499,6 @@ export default function Settings() {
       title="Settings"
       subtitle={`${user?.username} · Admin`}
     >
-      {/* Section title */}
-      <div style={{ marginBottom: '20px' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 700, color: colors.textPrimary }}>
-          User Management
-        </h3>
-        <p style={{ margin: 0, fontSize: '12px', color: colors.textSecondary }}>
-          Add or remove pickers and packers. Changes take effect immediately.
-        </p>
-      </div>
-
       {isLoading ? (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '10px',
@@ -461,24 +508,38 @@ export default function Settings() {
           Loading users...
         </div>
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: '16px',
-        }}>
-          <UserRoleCard
-            role={UserRole.PICKER}
-            users={pickers}
-            onAdd={setAddRole}
-            onDelete={setDeleteTarget}
+        <>
+          {/* Admin Roles */}
+          <SectionHeader
+            title="Admin Users"
+            desc="Admin users have access to the web dashboard. Changes take effect immediately."
           />
-          <UserRoleCard
-            role={UserRole.PACKER}
-            users={packers}
-            onAdd={setAddRole}
-            onDelete={setDeleteTarget}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '14px',
+            marginBottom: '32px',
+          }}>
+            <UserRoleCard role={UserRole.ADMIN} users={byRole(UserRole.ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+            <UserRoleCard role={UserRole.INBOUND_ADMIN} users={byRole(UserRole.INBOUND_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+            <UserRoleCard role={UserRole.PICKER_ADMIN} users={byRole(UserRole.PICKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+            <UserRoleCard role={UserRole.PACKER_ADMIN} users={byRole(UserRole.PACKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+          </div>
+
+          {/* Mobile Roles */}
+          <SectionHeader
+            title="Mobile Users"
+            desc="Pickers and packers use the mobile app on handheld devices."
           />
-        </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '14px',
+          }}>
+            <UserRoleCard role={UserRole.PICKER} users={byRole(UserRole.PICKER)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+            <UserRoleCard role={UserRole.PACKER} users={byRole(UserRole.PACKER)} onAdd={setAddRole} onDelete={setDeleteTarget} />
+          </div>
+        </>
       )}
 
       {/* Add User Modal */}
