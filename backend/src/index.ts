@@ -82,22 +82,22 @@ async function start() {
     },
   )
 
-  // Register nightly report as a repeatable BullMQ job (21:00 Manila = 13:00 UTC)
+  // Register nightly report as a repeatable BullMQ job (11:10 Manila = 03:10 UTC)
   await nightlyReportQueue.add(
     'send',
     {},
     {
-      repeat: { pattern: '0 13 * * *' },
+      repeat: { pattern: '10 3 * * *' },
       jobId: 'nightly-report-repeat',
     },
   )
 
-  // Register archive job as a repeatable BullMQ job (19:00 Manila = 11:00 UTC)
+  // Register archive job as a repeatable BullMQ job (11:00 Manila = 03:00 UTC)
   await archiveOutboundQueue.add(
     'archive',
     {},
     {
-      repeat: { pattern: '0 11 * * *' },
+      repeat: { pattern: '0 3 * * *' },
       jobId: 'archive-outbound-repeat',
     },
   )
