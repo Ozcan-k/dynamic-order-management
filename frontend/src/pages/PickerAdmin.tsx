@@ -40,6 +40,7 @@ interface PickerStat {
   }
   total: number
   completed: number
+  completedToday: number
   returned: number
 }
 
@@ -748,7 +749,7 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
             {stat.picker.username}
           </div>
           <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
-            {stat.total} active · {stat.completed} done
+            {stat.total} active · {stat.completedToday} done today
           </div>
         </div>
         {/* Total active badge */}
@@ -777,8 +778,8 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
           dot="#3b82f6"
         />
         <StatusChip
-          label="Done"
-          count={stat.completed}
+          label="Done Today"
+          count={stat.completedToday}
           bg="#d1fae5"
           color="#065f46"
           dot="#10b981"
@@ -806,9 +807,9 @@ function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => vo
                 transition: 'flex 0.4s ease',
               }} />
             )}
-            {stat.completed > 0 && (
+            {stat.completedToday > 0 && (
               <div style={{
-                flex: stat.completed,
+                flex: stat.completedToday,
                 background: '#10b981',
                 transition: 'flex 0.4s ease',
               }} />

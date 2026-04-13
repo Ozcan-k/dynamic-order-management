@@ -8,6 +8,7 @@ import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
 import { getSocket } from '../lib/socket'
 import { getManilaDateString } from '../lib/manila'
+import SlaSummaryCard from '../components/SlaSummaryCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,19 +19,18 @@ interface DashboardStats {
   carryoverCount: number
   pickerSummary: { inbound: number; assigned: number; inProgress: number; complete: number }
   packerSummary: { unassigned: number; assigned: number; inProgress: number; complete: number }
-  slaSummary: { d0: number; d1: number; d2: number; d3: number; d4: number }
+  slaSummary: { d0: number; d1: number; d2: number; d3: number; d4: number; escalatedToday: number }
 }
 
 interface OutboundStats {
-  waitingCount: number
   dispatchedToday: number
   outboundTotal: number
+  missingCount: number
   d4Count: number
   pipeline: {
     inboundQueue: number
     pickerActive: number
     pickerComplete: number
-    packerComplete: number
     dispatched: number
   }
 }
@@ -135,43 +135,18 @@ function PipelineStage({
   )
 }
 
-// ─── SLA config ───────────────────────────────────────────────────────────────
-
-const SLA_KEYS = ['d0', 'd1', 'd2', 'd3', 'd4'] as const
-type SlaKey = typeof SLA_KEYS[number]
-
-const SLA_COLOR: Record<SlaKey, string> = {
-  d0: '#10b981',
-  d1: '#f59e0b',
-  d2: '#f97316',
-  d3: '#ef4444',
-  d4: '#dc2626',
-}
-
-const SLA_LABEL: Record<SlaKey, string> = {
-  d0: 'On Time',
-  d1: '4 – 8 h',
-  d2: '8 – 12 h',
-  d3: '12 – 16 h',
-  d4: '16 h+',
-}
-
-const SLA_BADGE: Record<SlaKey, string> = {
-  d0: 'D0', d1: 'D1', d2: 'D2', d3: 'D3', d4: 'D4',
-}
-
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_STATS: DashboardStats = {
   inboundTotal: 0, outboundTotal: 0, remainingCount: 0, carryoverCount: 0,
   pickerSummary: { inbound: 0, assigned: 0, inProgress: 0, complete: 0 },
   packerSummary: { unassigned: 0, assigned: 0, inProgress: 0, complete: 0 },
-  slaSummary: { d0: 0, d1: 0, d2: 0, d3: 0, d4: 0 },
+  slaSummary: { d0: 0, d1: 0, d2: 0, d3: 0, d4: 0, escalatedToday: 0 },
 }
 
 const DEFAULT_OUTBOUND: OutboundStats = {
-  waitingCount: 0, dispatchedToday: 0, outboundTotal: 0, d4Count: 0,
-  pipeline: { inboundQueue: 0, pickerActive: 0, pickerComplete: 0, packerComplete: 0, dispatched: 0 },
+  dispatchedToday: 0, outboundTotal: 0, missingCount: 0, d4Count: 0,
+  pipeline: { inboundQueue: 0, pickerActive: 0, pickerComplete: 0, dispatched: 0 },
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -210,12 +185,15 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['outbound-stats-dashboard'] })
     }
     socket.on('sla:escalated', handler)
-    return () => { socket.off('sla:escalated', handler) }
+    socket.on('order:stats_changed', handler)
+    return () => {
+      socket.off('sla:escalated', handler)
+      socket.off('order:stats_changed', handler)
+    }
   }, [queryClient])
 
   const stats = data ?? DEFAULT_STATS
   const outbound = outboundData ?? DEFAULT_OUTBOUND
-  const slaTotal = SLA_KEYS.reduce((s, k) => s + stats.slaSummary[k], 0)
 
   const hh = now.toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Manila' }).slice(0, 2)
   const mm = now.toLocaleTimeString('en-GB', { minute: '2-digit', timeZone: 'Asia/Manila' }).slice(-2)
@@ -332,10 +310,6 @@ export default function Dashboard() {
             color="#06b6d4" sublabel="Awaiting packer"
           />
           <PipelineStage
-            label="Ready to Ship" count={outbound.pipeline.packerComplete}
-            color={colors.warning} sublabel="Packed"
-          />
-          <PipelineStage
             label="Dispatched" count={outbound.pipeline.dispatched}
             color={colors.success} sublabel="All time" isLast
           />
@@ -405,8 +379,8 @@ export default function Dashboard() {
             color={colors.success} subtitle="Since midnight"
           />
           <MetricCard
-            label="Waiting to Ship" value={dash(outboundLoading, outbound.waitingCount)}
-            color={colors.primary} subtitle="Packing complete"
+            label="In Pipeline" value={dash(outboundLoading, outbound.missingCount)}
+            color={colors.primary} subtitle="Not yet dispatched"
           />
           <MetricCard
             label="D4 — Not Shipped" value={dash(outboundLoading, outbound.d4Count)}
@@ -420,90 +394,7 @@ export default function Dashboard() {
       </Card>
 
       {/* ── SLA Breakdown ─────────────────────────────────────────── */}
-      <Card style={{ padding: '20px 24px' }}>
-        <SectionHeader title="SLA Breakdown" count={slaTotal} />
-
-        {/* Segmented bar */}
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{
-            display: 'flex', height: '18px',
-            borderRadius: radius.full, overflow: 'hidden',
-            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)',
-            background: colors.border,
-          }}>
-            {slaTotal > 0
-              ? SLA_KEYS.map((key) => {
-                  const pct = (stats.slaSummary[key] / slaTotal) * 100
-                  if (pct === 0) return null
-                  return (
-                    <div
-                      key={key}
-                      title={`${SLA_BADGE[key]} (${SLA_LABEL[key]}): ${stats.slaSummary[key]} orders — ${pct.toFixed(1)}%`}
-                      style={{
-                        width: `${pct}%`,
-                        background: SLA_COLOR[key],
-                        transition: 'width 0.4s ease',
-                        cursor: 'default',
-                      }}
-                    />
-                  )
-                })
-              : null
-            }
-          </div>
-        </div>
-
-        {/* SLA legend cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-          gap: '10px',
-        }}>
-          {SLA_KEYS.map((key) => {
-            const count = stats.slaSummary[key]
-            const pct = slaTotal > 0 ? ((count / slaTotal) * 100).toFixed(1) : '0.0'
-            const isD4 = key === 'd4'
-            return (
-              <div key={key} style={{
-                background: isD4 && count > 0 ? '#fff5f5' : colors.surfaceAlt,
-                border: `1px solid ${isD4 && count > 0 ? '#fecaca' : colors.border}`,
-                borderRadius: radius.md,
-                padding: '12px 14px',
-                borderLeft: `3px solid ${SLA_COLOR[key]}`,
-              }}>
-                <div style={{
-                  display: 'flex', justifyContent: 'space-between',
-                  alignItems: 'center', marginBottom: '6px',
-                }}>
-                  <span style={{
-                    fontSize: font.sizeSm, color: SLA_COLOR[key],
-                    fontWeight: 700, letterSpacing: '0.03em',
-                  }}>
-                    {SLA_BADGE[key]}
-                  </span>
-                  <span style={{
-                    fontSize: font.sizeXs, color: colors.textMuted,
-                    background: colors.border, borderRadius: radius.full,
-                    padding: '1px 7px', fontWeight: 600,
-                  }}>
-                    {pct}%
-                  </span>
-                </div>
-                <div style={{
-                  fontSize: '22px', fontWeight: 800,
-                  color: isD4 && count > 0 ? colors.danger : colors.textPrimary,
-                  fontVariantNumeric: 'tabular-nums',
-                }}>
-                  {count}
-                </div>
-                <div style={{ fontSize: font.sizeXs, color: colors.textSecondary, marginTop: '3px' }}>
-                  {SLA_LABEL[key]}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </Card>
+      <SlaSummaryCard slaSummary={stats.slaSummary} loading={isLoading} />
 
     </PageShell>
   )

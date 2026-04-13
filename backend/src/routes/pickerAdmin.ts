@@ -63,6 +63,7 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
 
     try {
       const order = await assignPicker(orderId, pickerId, userId, tenantId)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Assignment failed'
@@ -81,6 +82,7 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     const { orderIds, pickerId } = result.data
 
     const summary = await bulkAssignPicker(orderIds, pickerId, userId, tenantId)
+    try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
     return reply.send(summary)
   })
 
@@ -174,6 +176,7 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     const { orderIds, pickerId } = result.data
     const summary = await bulkCompleteOrders(orderIds, pickerId, tenantId)
+    try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
     return reply.send(summary)
   })
 
@@ -194,6 +197,7 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     try {
       const order = await completeOrder(orderId, pickerId, tenantId)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Complete failed'

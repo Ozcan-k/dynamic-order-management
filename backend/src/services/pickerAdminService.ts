@@ -1,5 +1,6 @@
 import { OrderStatus, UserRole } from '@dom/shared'
 import { prisma } from '../lib/prisma'
+import { getManilaStartOfToday } from '../lib/manila'
 
 export async function getInboundOrders(tenantId: string) {
   return prisma.order.findMany({
@@ -268,7 +269,8 @@ export async function getPickerStats(tenantId: string) {
   const [stats, returnedCount, totalCompleted] = await Promise.all([
     Promise.all(
       pickers.map(async (picker) => {
-        const [activeAssignments, completedCount, returned] = await Promise.all([
+        const today = getManilaStartOfToday()
+        const [activeAssignments, completedCount, completedToday, returned] = await Promise.all([
           prisma.pickerAssignment.findMany({
             where: {
               pickerId: picker.id,
@@ -279,6 +281,9 @@ export async function getPickerStats(tenantId: string) {
           }),
           prisma.pickerAssignment.count({
             where: { pickerId: picker.id, completedAt: { not: null } },
+          }),
+          prisma.pickerAssignment.count({
+            where: { pickerId: picker.id, completedAt: { gte: today } },
           }),
           prisma.pickerAssignment.count({
             where: {
@@ -317,6 +322,7 @@ export async function getPickerStats(tenantId: string) {
           statusCounts,
           total: activeAssignments.length,
           completed: completedCount,
+          completedToday,
           returned,
         }
       }),

@@ -32,6 +32,7 @@ interface Order {
 interface PackerStat {
   packer: { id: string; username: string }
   completed: number
+  completedToday: number
 }
 
 interface PackerOrderRow {
@@ -204,16 +205,16 @@ function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => vo
             {stat.packer.username}
           </div>
           <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
-            {stat.completed} packed
+            {stat.completedToday} packed today
           </div>
         </div>
-        {stat.completed > 0 && (
+        {stat.completedToday > 0 && (
           <span style={{
             background: '#d1fae5', color: '#065f46',
             borderRadius: '9999px', padding: '2px 8px',
             fontSize: '12px', fontWeight: 700, flexShrink: 0,
           }}>
-            {stat.completed}
+            {stat.completedToday}
           </span>
         )}
       </div>
@@ -225,14 +226,14 @@ function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => vo
           background: '#d1fae5', color: '#065f46',
           borderRadius: '6px', padding: '4px 8px',
           fontSize: '11px', fontWeight: 600,
-          opacity: stat.completed === 0 ? 0.45 : 1,
+          opacity: stat.completedToday === 0 ? 0.45 : 1,
         }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669', flexShrink: 0 }} />
-          Done: {stat.completed}
+          Done Today: {stat.completedToday}
         </div>
       </div>
 
-      {stat.completed === 0 && (
+      {stat.completedToday === 0 && (
         <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '8px', fontStyle: 'italic' }}>
           No orders packed yet
         </div>

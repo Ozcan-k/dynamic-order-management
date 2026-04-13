@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+import { getIO } from '../lib/socket'
 import { prisma } from '../lib/prisma'
 import {
   getPickerCompleteOrders,
@@ -50,6 +51,7 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await completeOrder(orderId, userId, tenantId)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Complete failed'
@@ -65,6 +67,7 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await removeOrder(orderId, userId, tenantId)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Remove failed'

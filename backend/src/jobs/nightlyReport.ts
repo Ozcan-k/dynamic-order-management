@@ -163,3 +163,10 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
 
   console.log(`[nightlyReport] Sent to ${admins.length} admin(s) for tenant ${tenantSlug}`)
 }
+
+export async function runNightlyReport() {
+  const tenants = await prisma.tenant.findMany({ where: { isActive: true }, select: { id: true, slug: true } })
+  for (const tenant of tenants) {
+    await sendNightlyReport(tenant.id, tenant.slug)
+  }
+}

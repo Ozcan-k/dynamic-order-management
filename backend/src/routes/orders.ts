@@ -48,6 +48,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       }
 
       try { getIO().to(`user:${userId}`).emit('order:scanned', { order }) } catch {}
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.code(201).send({ order })
     },
   )
@@ -121,6 +122,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       const { trackingNumbers, carrierName, shopName } = result.data
 
       const summary = await bulkScanOrders(trackingNumbers, userId, tenantId, carrierName, shopName)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.code(201).send(summary)
     },
   )

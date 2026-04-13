@@ -1,5 +1,6 @@
 import { OrderStatus, UserRole } from '@dom/shared'
 import { prisma } from '../lib/prisma'
+import { getManilaStartOfToday } from '../lib/manila'
 
 export async function getPickerCompleteOrders(tenantId: string) {
   return prisma.order.findMany({
@@ -153,10 +154,16 @@ export async function getPackerStats(tenantId: string) {
   const [stats, totalCompleted, returnedCount] = await Promise.all([
     Promise.all(
       packers.map(async (packer) => {
-        const completedCount = await prisma.packerAssignment.count({
-          where: { packerId: packer.id, completedAt: { not: null } },
-        })
-        return { packer, completed: completedCount }
+        const today = getManilaStartOfToday()
+        const [completedCount, completedToday] = await Promise.all([
+          prisma.packerAssignment.count({
+            where: { packerId: packer.id, completedAt: { not: null } },
+          }),
+          prisma.packerAssignment.count({
+            where: { packerId: packer.id, completedAt: { gte: today } },
+          }),
+        ])
+        return { packer, completed: completedCount, completedToday }
       }),
     ),
     // Count all packer assignments ever completed (including already dispatched orders)

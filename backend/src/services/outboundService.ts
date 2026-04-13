@@ -2,67 +2,10 @@ import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { getManilaStartOfToday } from '../lib/manila'
 
-export async function getReadyToDispatch(tenantId: string) {
-  return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null },
-    include: {
-      packerAssignments: {
-        where: { completedAt: { not: null } },
-        take: 1,
-        orderBy: { completedAt: 'desc' },
-        select: { completedAt: true, packer: { select: { username: true } } },
-      },
-    },
-    orderBy: [{ delayLevel: 'desc' }, { createdAt: 'asc' }],
-  })
-}
-
-export async function dispatchOrder(orderId: string, userId: string, tenantId: string) {
-  const order = await prisma.order.findUnique({ where: { id: orderId } })
-  if (!order || order.tenantId !== tenantId) throw new Error('Order not found')
-  if (order.status !== OrderStatus.PACKER_COMPLETE) throw new Error('Order is not ready for dispatch')
-
-  const now = new Date()
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.OUTBOUND, slaCompletedAt: now },
-    })
-    await tx.orderStatusHistory.create({
-      data: {
-        orderId,
-        fromStatus: OrderStatus.PACKER_COMPLETE,
-        toStatus: OrderStatus.OUTBOUND,
-        changedById: userId,
-      },
-    })
-    return updated
-  })
-}
-
-export async function bulkDispatch(
-  orderIds: string[],
-  userId: string,
-  tenantId: string,
-): Promise<{ dispatched: number; skipped: number }> {
-  let dispatched = 0
-  let skipped = 0
-  for (const orderId of orderIds) {
-    try {
-      await dispatchOrder(orderId, userId, tenantId)
-      dispatched++
-    } catch {
-      skipped++
-    }
-  }
-  return { dispatched, skipped }
-}
-
 export async function getOutboundStats(tenantId: string) {
   const today = getManilaStartOfToday()
 
   const [
-    waitingCount,
     dispatchedToday,
     inboundTotal,
     outboundTotal,
@@ -70,9 +13,7 @@ export async function getOutboundStats(tenantId: string) {
     inboundQueueCount,
     pickerActiveCount,
     pickerCompleteCount,
-    packerCompleteCount,
   ] = await Promise.all([
-    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null } }),
     // dispatchedToday includes archived — orders dispatched today must remain in count even after archiving
     prisma.order.count({
       where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: today } },
@@ -86,22 +27,19 @@ export async function getOutboundStats(tenantId: string) {
     prisma.order.count({ where: { tenantId, status: OrderStatus.INBOUND, archivedAt: null } }),
     prisma.order.count({ where: { tenantId, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] }, archivedAt: null } }),
     prisma.order.count({ where: { tenantId, status: OrderStatus.PICKER_COMPLETE, archivedAt: null } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.PACKER_COMPLETE, archivedAt: null } }),
   ])
 
   return {
-    waitingCount,
     dispatchedToday,
     inboundTotal,
     outboundTotal,
     missingCount: inboundTotal - outboundTotal,
     d4Count,
-    // Pipeline breakdown — these 5 values always sum to inboundTotal
+    // Pipeline breakdown
     pipeline: {
       inboundQueue: inboundQueueCount,
       pickerActive: pickerActiveCount,
       pickerComplete: pickerCompleteCount,
-      packerComplete: packerCompleteCount,
       dispatched: outboundTotal,
     },
   }
