@@ -1,6 +1,9 @@
 import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+
+const OrderIdBody = z.object({ orderId: z.string().min(1) })
 import { getIO } from '../lib/socket'
 import { prisma } from '../lib/prisma'
 import {
@@ -46,8 +49,9 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
 
   // POST /packer-admin/complete — admin manually completes an order
   fastify.post('/complete', { preHandler }, async (request, reply) => {
-    const { orderId } = request.body as { orderId?: string }
-    if (!orderId) return reply.code(400).send({ error: 'orderId is required' })
+    const parsed = OrderIdBody.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'orderId is required' })
+    const { orderId } = parsed.data
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await completeOrder(orderId, userId, tenantId)
@@ -62,8 +66,9 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
 
   // POST /packer-admin/remove — send order back to INBOUND
   fastify.post('/remove', { preHandler }, async (request, reply) => {
-    const { orderId } = request.body as { orderId?: string }
-    if (!orderId) return reply.code(400).send({ error: 'orderId is required' })
+    const parsed = OrderIdBody.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'orderId is required' })
+    const { orderId } = parsed.data
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await removeOrder(orderId, userId, tenantId)

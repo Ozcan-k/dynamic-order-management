@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
+import helmetPlugin from './plugins/helmet'
 import corsPlugin from './plugins/cors'
 import rateLimitPlugin from './plugins/rateLimit'
 import authPlugin from './plugins/auth'
@@ -34,6 +35,7 @@ const fastify = Fastify({
 })
 
 async function start() {
+  await fastify.register(helmetPlugin)
   await fastify.register(corsPlugin)
   await fastify.register(rateLimitPlugin)
   await fastify.register(authPlugin)
@@ -48,7 +50,9 @@ async function start() {
   await fastify.register(outboundRoutes, { prefix: '/outbound' })
   await fastify.register(reportsRoutes, { prefix: '/reports' })
   await fastify.register(archiveRoutes, { prefix: '/archive' })
-  await fastify.register(devTestRoutes)
+  if (process.env.NODE_ENV !== 'production') {
+    await fastify.register(devTestRoutes)
+  }
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 

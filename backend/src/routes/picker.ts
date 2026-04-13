@@ -1,7 +1,10 @@
 import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { getMyOrders, completeByTracking } from '../services/pickerService'
+
+const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
 
 export default async function pickerRoutes(fastify: FastifyInstance) {
   const authHandler = [fastify.authenticate, requireRole(UserRole.PICKER)]
@@ -15,13 +18,13 @@ export default async function pickerRoutes(fastify: FastifyInstance) {
 
   // POST /picker/complete — tracking number ile order tamamla
   fastify.post('/complete', { preHandler: authHandler }, async (request, reply) => {
-    const { trackingNumber } = request.body as { trackingNumber?: string }
-    if (!trackingNumber?.trim()) {
+    const parsed = CompleteBody.safeParse(request.body)
+    if (!parsed.success) {
       return reply.code(400).send({ error: 'trackingNumber is required' })
     }
     const { userId, tenantId } = request.user as JWTPayload
     try {
-      const order = await completeByTracking(trackingNumber.trim(), userId, tenantId)
+      const order = await completeByTracking(parsed.data.trackingNumber.trim(), userId, tenantId)
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Complete failed'
