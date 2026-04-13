@@ -300,6 +300,39 @@ function SectionCard({ title, children }: { title: string; children: React.React
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function ExportCsvButton({ type, days }: { type: 'picker' | 'packer'; days: number }) {
+  const baseUrl = import.meta.env.VITE_API_URL || ''
+  const href = `${baseUrl}/reports/performance/export?type=${type}&days=${days}`
+  return (
+    <a
+      href={href}
+      download
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '5px',
+        padding: '5px 12px',
+        fontSize: '12px',
+        fontWeight: 600,
+        borderRadius: radius.md,
+        border: `1.5px solid ${colors.border}`,
+        background: colors.surface,
+        color: colors.textSecondary,
+        cursor: 'pointer',
+        textDecoration: 'none',
+        transition: 'all 0.15s',
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Export CSV
+    </a>
+  )
+}
+
 export default function Reports() {
   const [days, setDays] = useState(30)
   const [pickerSort, setPickerSort] = useState<SortKey>('today')
@@ -359,7 +392,10 @@ export default function Reports() {
               <span style={{ fontSize: '12px', color: colors.textSecondary }}>
                 {data.pickers.length} picker{data.pickers.length !== 1 ? 's' : ''}
               </span>
-              <SortToggle value={pickerSort} onChange={setPickerSort} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ExportCsvButton type="picker" days={days} />
+                <SortToggle value={pickerSort} onChange={setPickerSort} />
+              </div>
             </div>
             <PerformanceTable people={data.pickers} days={days} sort={pickerSort} />
           </SectionCard>
@@ -374,7 +410,10 @@ export default function Reports() {
               <span style={{ fontSize: '12px', color: colors.textSecondary }}>
                 {data.packers.length} packer{data.packers.length !== 1 ? 's' : ''}
               </span>
-              <SortToggle value={packerSort} onChange={setPackerSort} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ExportCsvButton type="packer" days={days} />
+                <SortToggle value={packerSort} onChange={setPackerSort} />
+              </div>
             </div>
             <PerformanceTable people={data.packers} days={days} sort={packerSort} />
           </SectionCard>

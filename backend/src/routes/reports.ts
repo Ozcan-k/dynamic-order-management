@@ -179,6 +179,102 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
+  // GET /reports/performance/export — ADMIN, INBOUND_ADMIN — CSV download
+  fastify.get(
+    '/performance/export',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const query = request.query as { days?: string; type?: string }
+      const days = Math.min(Math.max(Number(query.days) || 30, 1), 90)
+      const type = query.type === 'packer' ? 'packer' : 'picker'
+
+      const from = new Date(getManilaStartOfToday())
+      from.setDate(from.getDate() - (days - 1))
+
+      function groupByDate(timestamps: (Date | null)[]): Record<string, number> {
+        const map: Record<string, number> = {}
+        for (const ts of timestamps) {
+          if (!ts) continue
+          const dateStr = ts.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+          map[dateStr] = (map[dateStr] ?? 0) + 1
+        }
+        return map
+      }
+
+      const dateList: string[] = []
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(getManilaStartOfToday())
+        d.setDate(d.getDate() - i)
+        dateList.push(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }))
+      }
+
+      let rows: { id: string; username: string; daily: { date: string; completed: number }[]; total: number }[]
+
+      if (type === 'picker') {
+        const users = await prisma.user.findMany({
+          where: { tenantId, role: UserRole.PICKER, isActive: true },
+          select: { id: true, username: true },
+          orderBy: { username: 'asc' },
+        })
+        const assignments = await prisma.pickerAssignment.findMany({
+          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          select: { pickerId: true, completedAt: true },
+        })
+        const byUser: Record<string, (Date | null)[]> = {}
+        for (const a of assignments) {
+          if (!byUser[a.pickerId]) byUser[a.pickerId] = []
+          byUser[a.pickerId].push(a.completedAt)
+        }
+        rows = users.map((u) => {
+          const byDate = groupByDate(byUser[u.id] ?? [])
+          const daily = dateList.map((date) => ({ date, completed: byDate[date] ?? 0 }))
+          return { id: u.id, username: u.username, daily, total: daily.reduce((s, d) => s + d.completed, 0) }
+        })
+      } else {
+        const users = await prisma.user.findMany({
+          where: { tenantId, role: UserRole.PACKER, isActive: true },
+          select: { id: true, username: true },
+          orderBy: { username: 'asc' },
+        })
+        const assignments = await prisma.packerAssignment.findMany({
+          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          select: { packerId: true, completedAt: true },
+        })
+        const byUser: Record<string, (Date | null)[]> = {}
+        for (const a of assignments) {
+          if (!byUser[a.packerId]) byUser[a.packerId] = []
+          byUser[a.packerId].push(a.completedAt)
+        }
+        rows = users.map((u) => {
+          const byDate = groupByDate(byUser[u.id] ?? [])
+          const daily = dateList.map((date) => ({ date, completed: byDate[date] ?? 0 }))
+          return { id: u.id, username: u.username, daily, total: daily.reduce((s, d) => s + d.completed, 0) }
+        })
+      }
+
+      // Build CSV
+      const header = ['Name', ...dateList, 'Total'].join(',')
+      const dataRows = rows.map((r) => {
+        const cols = [
+          `"${r.username.replace(/"/g, '""')}"`,
+          ...r.daily.map((d) => String(d.completed)),
+          String(r.total),
+        ]
+        return cols.join(',')
+      })
+      const csv = [header, ...dataRows].join('\r\n')
+
+      const todayStr = getManilaDateString(new Date())
+      const filename = `dom-${type}-report-${days}d-${todayStr}.csv`
+
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(csv)
+    },
+  )
+
   // POST /reports/trigger-nightly — ADMIN only, dev/test use
   fastify.post(
     '/trigger-nightly',
