@@ -10,6 +10,7 @@ import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
+import SlaHistoryModal from '../components/SlaHistoryModal'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,8 @@ function PackerOrdersModal({
   packer: { id: string; username: string }
   onClose: () => void
 }) {
+  const [slaOrderId, setSlaOrderId] = useState<{ id: string; tracking: string } | null>(null)
+
   const { data, isLoading } = useQuery({
     queryKey: ['packer-orders-modal', packer.id],
     queryFn: async () => {
@@ -131,7 +134,7 @@ function PackerOrdersModal({
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
-                  {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Delay', 'Completed At'].map(h => (
+                  {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Delay', 'Completed At', ''].map(h => (
                     <th key={h} style={{
                       padding: '10px 16px', textAlign: 'left', fontSize: '11px',
                       fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
@@ -176,6 +179,19 @@ function PackerOrdersModal({
                           })
                         : '—'}
                     </td>
+                    <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+                      <button
+                        onClick={() => setSlaOrderId({ id: order.id, tracking: order.trackingNumber })}
+                        style={{
+                          padding: '4px 10px', border: `1px solid ${colors.border}`,
+                          borderRadius: '6px', background: '#fff', color: colors.textSecondary,
+                          fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        }}
+                        title="View SLA escalation history"
+                      >
+                        SLA
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -183,6 +199,14 @@ function PackerOrdersModal({
           )}
         </div>
       </div>
+
+      {slaOrderId && (
+        <SlaHistoryModal
+          orderId={slaOrderId.id}
+          trackingNumber={slaOrderId.tracking}
+          onClose={() => setSlaOrderId(null)}
+        />
+      )}
     </div>
   )
 }

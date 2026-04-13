@@ -12,6 +12,7 @@ import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
+import SlaHistoryModal from '../components/SlaHistoryModal'
 
 interface Order {
   id: string
@@ -75,6 +76,7 @@ function PickerOrdersModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'remove' | 'complete' | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [slaOrderId, setSlaOrderId] = useState<{ id: string; tracking: string } | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['picker-orders', picker.id],
@@ -402,50 +404,72 @@ function PickerOrdersModal({
                         })}
                       </td>
                       <td style={{ padding: '11px 16px 11px 8px', textAlign: 'right' }}>
-                        {isSelectable && (
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => handleRemove(order.id, order.trackingNumber)}
-                              disabled={isBusy}
-                              style={{
-                                padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
-                                borderRadius: '6px', background: '#fff', color: colors.danger,
-                                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                                transition: 'all 0.15s',
-                              }}
-                              onMouseEnter={e => {
-                                (e.currentTarget as HTMLButtonElement).style.background = colors.danger
-                                ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
-                              }}
-                              onMouseLeave={e => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#fff'
-                                ;(e.currentTarget as HTMLButtonElement).style.color = colors.danger
-                              }}
-                            >
-                              Remove
-                            </button>
-                            <button
-                              onClick={() => handleComplete(order.id, order.trackingNumber)}
-                              disabled={isBusy}
-                              style={{
-                                padding: '4px 12px', border: `1px solid ${colors.success}`,
-                                borderRadius: '6px', background: '#fff', color: colors.success,
-                                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                                transition: 'all 0.15s',
-                              }}
-                              onMouseEnter={e => {
-                                (e.currentTarget as HTMLButtonElement).style.background = colors.success
-                                ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
-                              }}
-                              onMouseLeave={e => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#fff'
-                                ;(e.currentTarget as HTMLButtonElement).style.color = colors.success
-                              }}
-                            >
-                              Complete
-                            </button>
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => setSlaOrderId({ id: order.id, tracking: order.trackingNumber })}
+                            style={{
+                              padding: '4px 10px', border: `1px solid ${colors.border}`,
+                              borderRadius: '6px', background: '#fff', color: colors.textSecondary,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = colors.surfaceAlt
+                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.textPrimary
+                            }}
+                            onMouseLeave={e => {
+                              (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                              ;(e.currentTarget as HTMLButtonElement).style.color = colors.textSecondary
+                            }}
+                            title="View SLA escalation history"
+                          >
+                            SLA
+                          </button>
+                          {isSelectable && (
+                            <>
+                              <button
+                                onClick={() => handleRemove(order.id, order.trackingNumber)}
+                                disabled={isBusy}
+                                style={{
+                                  padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
+                                  borderRadius: '6px', background: '#fff', color: colors.danger,
+                                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = colors.danger
+                                  ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                                }}
+                                onMouseLeave={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                                  ;(e.currentTarget as HTMLButtonElement).style.color = colors.danger
+                                }}
+                              >
+                                Remove
+                              </button>
+                              <button
+                                onClick={() => handleComplete(order.id, order.trackingNumber)}
+                                disabled={isBusy}
+                                style={{
+                                  padding: '4px 12px', border: `1px solid ${colors.success}`,
+                                  borderRadius: '6px', background: '#fff', color: colors.success,
+                                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = colors.success
+                                  ;(e.currentTarget as HTMLButtonElement).style.color = '#fff'
+                                }}
+                                onMouseLeave={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = '#fff'
+                                  ;(e.currentTarget as HTMLButtonElement).style.color = colors.success
+                                }}
+                              >
+                                Complete
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -726,6 +750,14 @@ function PickerOrdersModal({
             </div>
           </div>
         </div>
+      )}
+
+      {slaOrderId && (
+        <SlaHistoryModal
+          orderId={slaOrderId.id}
+          trackingNumber={slaOrderId.tracking}
+          onClose={() => setSlaOrderId(null)}
+        />
       )}
     </div>
   )

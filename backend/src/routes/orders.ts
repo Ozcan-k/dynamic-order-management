@@ -201,4 +201,58 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       }
     },
   )
+
+  // GET /orders/:id/sla-escalations — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
+  fastify.get(
+    '/:id/sla-escalations',
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const { tenantId } = request.user as JWTPayload
+
+      const order = await prisma.order.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          tenantId: true,
+          trackingNumber: true,
+          status: true,
+          delayLevel: true,
+          slaStartedAt: true,
+          slaCompletedAt: true,
+          slaEscalations: {
+            orderBy: { triggeredAt: 'asc' },
+            select: {
+              id: true,
+              fromLevel: true,
+              toLevel: true,
+              triggeredAt: true,
+              triggerSource: true,
+            },
+          },
+        },
+      })
+
+      if (!order || order.tenantId !== tenantId) {
+        return reply.code(404).send({ error: 'Order not found' })
+      }
+
+      return reply.send({
+        order: {
+          id: order.id,
+          trackingNumber: order.trackingNumber,
+          status: order.status,
+          delayLevel: order.delayLevel,
+          slaStartedAt: order.slaStartedAt,
+          slaCompletedAt: order.slaCompletedAt,
+        },
+        escalations: order.slaEscalations,
+      })
+    },
+  )
 }
