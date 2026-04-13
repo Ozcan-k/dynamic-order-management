@@ -105,12 +105,20 @@ export async function lookupOrderByScan(trackingNumber: string, tenantId: string
       priority: true,
       createdAt: true,
       scannedBy: { select: { username: true } },
+      pickerAssignments: {
+        where: { completedAt: null },
+        take: 1,
+        orderBy: { assignedAt: 'desc' },
+        select: { picker: { select: { username: true } } },
+      },
     },
   })
 
   if (!order) throw new Error('Order not found')
   if (order.status !== OrderStatus.INBOUND) {
-    throw new Error(`Order is not available (status: ${order.status.replace(/_/g, ' ')})`)
+    const activeAssignment = order.pickerAssignments[0]
+    const pickerInfo = activeAssignment ? ` — assigned to picker: ${activeAssignment.picker.username}` : ''
+    throw new Error(`Order is not available (status: ${order.status.replace(/_/g, ' ')}${pickerInfo})`)
   }
 
   return order
