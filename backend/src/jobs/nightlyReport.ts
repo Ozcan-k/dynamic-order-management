@@ -59,7 +59,6 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
     outboundTotal,
     dispatchedToday,
     d0, d1, d2, d3, d4Active,
-    d4Orders,
   ] = await Promise.all([
     prisma.order.count({ where: { tenantId } }),
     prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND } }),
@@ -69,26 +68,11 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
     prisma.order.count({ where: { tenantId, delayLevel: 2, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 3, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 4, slaCompletedAt: null } }),
-    prisma.order.findMany({
-      where: { tenantId, delayLevel: 4, slaCompletedAt: null },
-      select: { trackingNumber: true, status: true, slaStartedAt: true },
-      orderBy: { slaStartedAt: 'asc' },
-      take: 20,
-    }),
   ])
 
   const remaining = inboundTotal - outboundTotal
   const dateStr = new Date(getManilaDateString()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })
   const from = process.env.SMTP_FROM || 'Order System <noreply@example.com>'
-
-  const d4Rows = d4Orders.map(o => {
-    const elapsedHours = Math.floor((Date.now() - o.slaStartedAt.getTime()) / 3_600_000)
-    return `<tr>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${o.trackingNumber}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${o.status.replace(/_/g, ' ')}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#dc2626;font-weight:600">${elapsedHours}h</td>
-    </tr>`
-  }).join('')
 
   const html = `
     <div style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">
@@ -127,18 +111,6 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
             <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${count}</td>
           </tr>`).join('')}
         </table>
-
-        ${d4Orders.length > 0 ? `
-        <h2 style="margin:0 0 12px;font-size:14px;font-weight:600;color:#dc2626;text-transform:uppercase;letter-spacing:.05em">D4 Orders Requiring Attention</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <tr style="background:#fef2f2">
-            <th style="padding:8px 12px;text-align:left;font-weight:600">Tracking #</th>
-            <th style="padding:8px 12px;text-align:left;font-weight:600">Status</th>
-            <th style="padding:8px 12px;text-align:left;font-weight:600">Elapsed</th>
-          </tr>
-          ${d4Rows}
-        </table>
-        ` : ''}
 
         <p style="margin:24px 0 0;font-size:12px;color:#94a3b8">
           This report was generated automatically at 9:00 PM by the Order Management System.
