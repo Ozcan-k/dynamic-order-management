@@ -11,6 +11,8 @@ DOM, bir deponun günlük sipariş akışını yönetir. Siparişler sabah barko
 ```
 07:00 PHT  Inbound Admin barkod okur → Siparişler sisteme girer (INBOUND)
            SLA 4 saatlik geri sayım başlar (D0)
+           [Direct Inbound] "Generate Direct Inbound" butonuyla DR+8 haneli
+           benzersiz takip numarası üretilir, Platform = DIRECT olarak eklenir
                │
                ▼
            Picker Admin siparişleri picker'lara atar (PICKER_ASSIGNED)
@@ -31,11 +33,11 @@ DOM, bir deponun günlük sipariş akışını yönetir. Siparişler sabah barko
            Outbound panelinden gönderilir (OUTBOUND)
            sla_completed_at set edilir — SLA tamamlandı
 
-19:00 PHT  Archive job çalışır:
+11:00 PHT  Archive job çalışır:
            Tüm OUTBOUND siparişlere archived_at = NOW() yazılır
            Aktif panellerden kaybolur, Archive sayfasına taşınır
 
-21:00 PHT  Nightly job çalışır:
+11:10 PHT  Nightly job çalışır:
            Nightly email raporu gönderilir
            180 günden eski archived siparişler kalıcı silinir
 ```
@@ -111,8 +113,10 @@ Outbound Paneli
     │  "Dispatch" tıklanır
     │  status → OUTBOUND
     │  sla_completed_at set edilir
+    │  [Geçmiş görünüm] Tarih navigator ile önceki günlerin
+    │  carrier/shop raporları görüntülenebilir (ok tuşları veya takvim)
     ▼
-Saat 19:00 — Archive Job (BullMQ, Asia/Manila timezone)
+Saat 11:00 — Archive Job (BullMQ, Asia/Manila timezone)
     │  SELECT * FROM orders WHERE status = 'OUTBOUND' AND archived_at IS NULL
     │  UPDATE orders SET archived_at = NOW()
     ▼
@@ -122,11 +126,11 @@ Aktif Paneller (Inbound / Picker / Packer / Outbound)
     ▼
 Archive Sayfası (/archive)
     │  WHERE archived_at IS NOT NULL
-    │  Filtreler: tarih, shop, carrier, delay level
+    │  Filtreler: tarih aralığı (preset: 7d/30d/90d), platform, carrier, expiry
     │  Expiry rozeti: archivedAt + 180 gün
     │  Bulk delete, manuel archive trigger
     ▼
-Saat 21:00 — Nightly Job
+Saat 11:10 — Nightly Job
     │  Nightly email raporu gönderilir
     │  DELETE FROM orders WHERE archived_at < NOW() - 180 days
 ```
@@ -135,10 +139,10 @@ Saat 21:00 — Nightly Job
 
 ## Carryover (CARRY) — Tamamlanmayan Siparişler
 
-Saat 19:00'da `OUTBOUND` olmayan siparişler **silinmez**, ertesi güne taşınır:
+Saat 11:00'da `OUTBOUND` olmayan siparişler **silinmez**, ertesi güne taşınır:
 
 ```
-[INBOUND / PICKING / PACKER_ASSIGNED / ...]  ← 19:00'da hâlâ aktif
+[INBOUND / PICKING / PACKER_ASSIGNED / ...]  ← 11:00'da hâlâ aktif
     │  archived_at set edilmez
     │  work_date = dünkü tarih
     ▼
@@ -171,6 +175,7 @@ Ertesi gün tüm panellerde görünür
 | Masaüstü Bulk Scan | BulkScanModal — birden fazla TN, carrier + shop zorunlu | ADMIN, INBOUND_ADMIN |
 | Handheld Single Scan | Telefon kamera → Socket.io → masaüstüne iletilir | ADMIN, INBOUND_ADMIN |
 | Handheld Bulk Scan | Telefon kamera + staging listesi → masaüstüne iletilir | ADMIN, INBOUND_ADMIN |
+| Direct Inbound | "Generate Direct Inbound" butonu → DR+8 rakam üretir, Platform=DIRECT | ADMIN, INBOUND_ADMIN |
 
 ---
 
@@ -179,5 +184,5 @@ Ertesi gün tüm panellerde görünür
 | Job | Zaman | Ne Yapar |
 |-----|-------|----------|
 | SLA Sweep | Her 15 dakika | D-level günceller, D4 alert gönderir |
-| Archive | 19:00 PHT (11:00 UTC) | OUTBOUND siparişlere archived_at yazar |
-| Nightly | 21:00 PHT (13:00 UTC) | Email raporu + 180 gün üzeri sil |
+| Archive | 11:00 PHT (03:00 UTC) | OUTBOUND siparişlere archived_at yazar |
+| Nightly | 11:10 PHT (03:10 UTC) | Email raporu + 180 gün üzeri sil |

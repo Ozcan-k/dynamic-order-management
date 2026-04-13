@@ -10,7 +10,7 @@
 
 **Dynamic Order Management (DOM)** is a warehouse order tracking system managing the full lifecycle of e-commerce orders from inbound scan through picking, packing, and final dispatch (outbound).
 
-- **Platforms:** Shopee, Lazada, TikTok Shop
+- **Platforms:** Shopee, Lazada, TikTok Shop, Direct (in-house DR tracking)
 - **Daily Volume:** ~10,000 orders
 - **Concurrent Users:** 50–100 staff
 - **Data Retention:** 6 months minimum
@@ -142,11 +142,12 @@ On push to `main`:
 
 ## Background Jobs (BullMQ)
 
-| Job | Schedule | Description |
+| Job | Schedule (Manila PHT) | Description |
 |---|---|---|
 | SLA Escalation Sweep | Every 15 minutes | Escalates D0→D1→D2→D3→D4 based on elapsed time since scan |
 | D4 Supervisor Alert | Triggered by sweep | Sends email alert when order reaches D4 |
-| Nightly Report | 9:00 PM daily | Sends summary email to all Admin users |
+| Archive Outbound | 11:00 AM daily (03:00 UTC) | Marks all OUTBOUND orders as archived — resets daily totals |
+| Nightly Report | 11:10 AM daily (03:10 UTC) | Sends summary email to all Admin users + hard-deletes orders > 180 days |
 
 ---
 

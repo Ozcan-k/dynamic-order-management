@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.4.0  
+> **Version:** 2.6.3  
 > **Date:** 2026-04-12  
-> **Status:** In development — Phase 10 complete + Daily Cycle + Archive + Timezone + Username/Password auth for all roles (v2.4.0)
+> **Status:** In development — Direct Inbound (DR tracking) + Outbound historical date view + Archive date presets + Schedule 11:00/11:10 PHT (v2.6.3)
 
 ---
 
@@ -12,7 +12,7 @@
 
 ### Business Context
 - A single warehouse company currently, with architecture ready to support multiple companies (multi-tenant)
-- Orders arrive daily from multiple e-commerce platforms: **Shopee**, **Lazada**, **TikTok Shop**
+- Orders arrive daily from multiple e-commerce platforms: **Shopee**, **Lazada**, **TikTok Shop**, **Direct** (in-house waybills with DR prefix)
 - **Timezone:** All timestamps, schedules, and "start of day" calculations are anchored to **Asia/Manila (UTC+8, PHT — no DST)**. The cron jobs use UTC values that map to Manila local time. The frontend displays all dates and times in Manila time regardless of the user's browser timezone.
 - Physical waybills are scanned using barcode scanners to enter orders into the system
 - 50–100 staff members use the system simultaneously
@@ -23,6 +23,7 @@
 ```
 07:00  Inbound Admin scans ~1500 waybills (work_date set to today)
         │  SLA 4-hour countdown starts (D0)
+        │  [Direct] DR+8-digit tracking generated via "Generate Direct Inbound"
         ▼
   Picker Admin assigns → Picker prepares on handheld
         │
@@ -31,17 +32,18 @@
         │   ↑ Remove → auto-reassigns back to original picker
         ▼
      Outbound ← SLA countdown ends
+        │  [Historical view] Date navigator shows past days' carrier/shop reports
         │
-19:00  Archive job runs: all OUTBOUND orders → archived_at set
+11:00  Archive job runs: all OUTBOUND orders → archived_at set
         │  Active panels show 0 OUTBOUND rows
         │  Incomplete orders carry over to next day (CARRY badge)
         ▼
-21:00  Nightly report email + hard-delete of orders > 180 days archived
+11:10  Nightly report email + hard-delete of orders > 180 days archived
 ```
 
 **Carryover:** Orders not completed by end of shift remain active the next day. They are shown with an amber **CARRY** badge in all admin panels so supervisors can prioritize them.
 
-**Daily cycle repeats** — new waybills each morning, incomplete orders carry forward, completed orders archived at 19:00.
+**Daily cycle repeats** — new waybills each morning, incomplete orders carry forward, completed orders archived at 11:00.
 
 ### SLA Policy (D0–D4)
 Every order must be completed (reach **OUTBOUND**) within **4 hours** of scanning. If it is not, it escalates through delay levels automatically:
@@ -93,8 +95,8 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
 │  │  BullMQ Job Queue                                                    │ │
-│  │  → Archive job 7:00 PM PHT (11:00 UTC): OUTBOUND orders archived     │ │
-│  │  → Nightly 9:00 PM PHT (13:00 UTC): email + hard-delete expired     │ │
+│  │  → Archive job 11:00 AM PHT (03:00 UTC): OUTBOUND orders archived    │ │
+│  │  → Nightly 11:10 AM PHT (03:10 UTC): email + hard-delete expired    │ │
 │  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
 │  │  → D4 supervisor alert email (triggered by sweep)                    │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
@@ -308,7 +310,7 @@ orders ──< packer_assignments >── users (packers)
 | id | UUID PK | |
 | tenant_id | UUID FK | → tenants |
 | tracking_number | VARCHAR | Unique per tenant |
-| platform | ENUM | `SHOPEE`, `LAZADA`, `TIKTOK`, `OTHER` — auto-detected from tracking number prefix |
+| platform | ENUM | `SHOPEE`, `LAZADA`, `TIKTOK`, `DIRECT`, `OTHER` — auto-detected from tracking number prefix (DR→DIRECT) |
 | carrier_name | VARCHAR | Logistics carrier (e.g. `SPX`, `JT_EXPRESS`, `FLASH`, `LEX`, `LBC`, `NINJA_VAN`, `OTHER`). **Required** at Bulk Scan time. |
 | shop_name | VARCHAR | Seller shop name (e.g. "Picky_Farm"). **Required** at Bulk Scan time. Chosen from 18 preset shop names or typed manually. |
 | status | ENUM | See status flow |
@@ -318,7 +320,7 @@ orders ──< packer_assignments >── users (packers)
 | sla_completed_at | TIMESTAMPTZ NULLABLE | Set when status → OUTBOUND; null = SLA still active |
 | d4_notified_at | TIMESTAMPTZ NULLABLE | Set when D4 supervisor alert is sent; prevents duplicate alerts |
 | work_date | TIMESTAMPTZ | Start of the day the order was scanned (set explicitly at scan time, not derived from created_at) |
-| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 19:00 daily. |
+| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 11:00 AM PHT daily. |
 | scanned_by | UUID FK | → users (inbound admin) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -445,7 +447,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 - **Picker Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **Packer Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **SLA Summary Card:** Live D-level breakdown bar (D0 / D1 / D2 / D3 / D4 counts); D4 count highlighted in red; updates via Socket.io `sla:escalated` event
-- **Nightly Report:** Automated email sent at **9:00 PM PHT** (13:00 UTC) daily to all Admin users
+- **Nightly Report:** Automated email sent at **11:10 AM PHT** (03:10 UTC) daily to all Admin users
 
 ---
 
@@ -835,7 +837,7 @@ The Archive Panel gives admins full visibility into soft-archived orders and con
 | Filter | Type | Behavior |
 |---|---|---|
 | Tracking number search | Text input | Partial match on `tracking_number` |
-| Platform | Dropdown | SHOPEE / LAZADA / TIKTOK / OTHER |
+| Platform | Dropdown | SHOPEE / LAZADA / TIKTOK / DIRECT / OTHER |
 | Archived date range | Two date pickers (From / To) | Filters `archived_at` |
 | Expiring within | Dropdown (7d / 14d / 30d / 60d) | Shows orders expiring in ≤ N days |
 
@@ -867,12 +869,12 @@ A **"Clear filters"** button appears when any filter is active.
 
 #### Archive Job
 - **Queue:** `archiveOutbound` (BullMQ)
-- **Schedule:** `0 11 * * *` (UTC) — every day at **19:00 PHT** (Asia/Manila)
+- **Schedule:** `0 3 * * *` (UTC) — every day at **11:00 AM PHT** (Asia/Manila)
 - **Action:** Sets `archived_at = NOW()` on all `status=OUTBOUND, archived_at IS NULL` orders (all tenants)
 - **Manual trigger:** `POST /archive/trigger` → calls archive synchronously for the requester's tenant, then enqueues for background processing
 
 #### Retention (6-Month Policy)
-- **Hard-delete job** piggybacks on `nightlyReport` at **21:00 PHT (13:00 UTC)**
+- **Hard-delete job** piggybacks on `nightlyReport` at **11:10 PHT (03:10 UTC)**
 - Deletes orders where `archived_at <= NOW() - 180 days`
 - Cascade-deletes all child records (`picker_assignments`, `packer_assignments`, `order_status_history`, `sla_escalations`)
 - Per-tenant, per-order error catch — one failure does not abort the sweep
@@ -967,8 +969,8 @@ backend/
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
-│   │   ├── nightlyReport.ts       ← BullMQ job: 9pm email + hardDeleteExpiredOrders() call
-│   │   ├── archiveOutbound.ts     ← BullMQ job: 7pm daily, sets archived_at on OUTBOUND orders
+│   │   ├── nightlyReport.ts       ← BullMQ job: 11:10 AM email + hardDeleteExpiredOrders() call
+│   │   ├── archiveOutbound.ts     ← BullMQ job: 11:00 AM daily, sets archived_at on OUTBOUND orders
 │   │   ├── slaEscalation.ts       ← BullMQ job: every 15min sweep, D0→D4 escalation + priority boost
 │   │   └── slaD4Email.ts          ← BullMQ job: supervisor alert email when order hits D4
 │   ├── services/
