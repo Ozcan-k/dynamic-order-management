@@ -7,6 +7,7 @@ export const CreateUserSchema = z.object({
   username: z.string().min(3).max(50),
   password: z.string().min(6).max(100),
   role: z.nativeEnum(UserRole),
+  email: z.string().email().optional().nullable(),
 })
 
 export const UpdateUserSchema = z.object({
@@ -14,6 +15,7 @@ export const UpdateUserSchema = z.object({
   password: z.string().min(6).max(100).optional(),
   role: z.nativeEnum(UserRole).optional(),
   isActive: z.boolean().optional(),
+  email: z.string().email().optional().nullable(),
 })
 
 export type CreateUserInput = z.infer<typeof CreateUserSchema>
@@ -27,6 +29,7 @@ export async function listUsers(tenantId: string) {
       username: true,
       role: true,
       isActive: true,
+      email: true,
       createdAt: true,
       createdBy: { select: { id: true, username: true } },
     },
@@ -54,6 +57,7 @@ export async function createUser(
       passwordHash,
       role: input.role,
       createdById,
+      email: input.email ?? null,
     },
     select: {
       id: true,
@@ -144,6 +148,7 @@ export async function updateUser(
   if (input.password) {
     data.passwordHash = await bcrypt.hash(input.password, 12)
   }
+  if ('email' in input) data.email = input.email ?? null
 
   return prisma.user.update({
     where: { id: userId },
