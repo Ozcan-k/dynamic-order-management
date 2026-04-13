@@ -10,16 +10,20 @@ import {
 export default async function outboundRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)]
 
-  // GET /outbound/grouped — today's OUTBOUND orders grouped by carrier → shop
+  // GET /outbound/grouped?date=YYYY-MM-DD — OUTBOUND orders grouped by carrier → shop
   fastify.get('/grouped', { preHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
-    return reply.send(await getGroupedByCarrier(tenantId))
+    const { date } = request.query as { date?: string }
+    const validDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined
+    return reply.send(await getGroupedByCarrier(tenantId, validDate))
   })
 
-  // GET /outbound/stats — header stats + pipeline breakdown
+  // GET /outbound/stats?date=YYYY-MM-DD — header stats (historical mode returns only dispatched count)
   fastify.get('/stats', { preHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
-    return reply.send(await getOutboundStats(tenantId))
+    const { date } = request.query as { date?: string }
+    const validDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined
+    return reply.send(await getOutboundStats(tenantId, validDate))
   })
 
   // GET /outbound/stuck — all non-OUTBOUND orders sorted by urgency

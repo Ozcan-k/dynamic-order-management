@@ -22,3 +22,11 @@ export function getManilaDateString(date?: Date): string {
   const ms = (date ? date.getTime() : Date.now()) + MANILA_OFFSET_MS
   return new Date(ms).toISOString().slice(0, 10)
 }
+
+/**
+ * Returns the start of a given date string (YYYY-MM-DD) in Manila local time,
+ * expressed as a UTC Date. E.g. '2026-03-28' → 2026-03-27T16:00:00.000Z
+ */
+export function getManilaStartOf(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00+08:00`)
+}

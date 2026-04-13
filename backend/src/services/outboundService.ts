@@ -1,8 +1,22 @@
 import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
-import { getManilaStartOfToday } from '../lib/manila'
+import { getManilaStartOfToday, getManilaStartOf } from '../lib/manila'
 
-export async function getOutboundStats(tenantId: string) {
+export async function getOutboundStats(tenantId: string, date?: string) {
+  if (date) {
+    // Historical mode: only dispatched count for that specific date
+    const startOfDay = getManilaStartOf(date)
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000)
+    const dispatched = await prisma.order.count({
+      where: {
+        tenantId,
+        status: OrderStatus.OUTBOUND,
+        slaCompletedAt: { gte: startOfDay, lt: endOfDay },
+      },
+    })
+    return { dispatchedToday: dispatched, historical: true }
+  }
+
   const today = getManilaStartOfToday()
 
   const [
@@ -35,6 +49,7 @@ export async function getOutboundStats(tenantId: string) {
     outboundTotal,
     missingCount: inboundTotal - outboundTotal,
     d4Count,
+    historical: false,
     // Pipeline breakdown
     pipeline: {
       inboundQueue: inboundQueueCount,
@@ -45,14 +60,15 @@ export async function getOutboundStats(tenantId: string) {
   }
 }
 
-export async function getGroupedByCarrier(tenantId: string) {
-  const startOfDay = getManilaStartOfToday()
+export async function getGroupedByCarrier(tenantId: string, date?: string) {
+  const startOfDay = date ? getManilaStartOf(date) : getManilaStartOfToday()
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000)
 
   const orders = await prisma.order.findMany({
     where: {
       tenantId,
       status: OrderStatus.OUTBOUND,
-      slaCompletedAt: { gte: startOfDay },
+      slaCompletedAt: { gte: startOfDay, lt: endOfDay },
     },
     select: { carrierName: true, shopName: true },
   })

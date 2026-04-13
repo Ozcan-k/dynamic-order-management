@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors } from '../theme'
 import { Carrier, CARRIER_LABELS } from '@dom/shared'
+import { getManilaDateString } from '../lib/manila'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 
@@ -26,6 +28,7 @@ interface OutboundStats {
   outboundTotal: number
   missingCount: number
   d4Count: number
+  historical?: boolean
 }
 
 // ─── Carrier display config — dynamic palette ────────────────────────────────
@@ -193,30 +196,43 @@ function CarrierCard({ group }: { group: CarrierGroup }) {
 
 export default function Outbound() {
   const user = useAuthStore((s) => s.user)
+  const todayStr = getManilaDateString()
+  const [selectedDate, setSelectedDate] = useState<string>('')  // '' = today
+  const isHistorical = selectedDate !== ''
+  const dateParam = isHistorical ? `?date=${selectedDate}` : ''
 
   const { data: groups, isLoading: groupsLoading } = useQuery({
-    queryKey: ['outbound-grouped'],
+    queryKey: ['outbound-grouped', selectedDate],
     queryFn: async () => {
-      const res = await api.get<CarrierGroup[]>('/outbound/grouped')
+      const res = await api.get<CarrierGroup[]>(`/outbound/grouped${dateParam}`)
       return res.data
     },
-    refetchInterval: 10_000,
+    refetchInterval: isHistorical ? false : 10_000,
   })
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['outbound-stats'],
+    queryKey: ['outbound-stats', selectedDate],
     queryFn: async () => {
-      const res = await api.get<OutboundStats>('/outbound/stats')
+      const res = await api.get<OutboundStats>(`/outbound/stats${dateParam}`)
       return res.data
     },
-    refetchInterval: 10_000,
+    refetchInterval: isHistorical ? false : 10_000,
   })
 
   const isLoading = groupsLoading || statsLoading
   const carrierGroups = groups ?? []
-  const totalToday = statsData?.dispatchedToday ?? 0
+  const dispatchedCount = statsData?.dispatchedToday ?? 0
 
-  const headerStats = (
+  // Format selected date for display: '2026-03-28' → '28 Mar 2026'
+  const formattedDate = isHistorical
+    ? new Date(`${selectedDate}T12:00:00+08:00`).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila',
+      })
+    : null
+
+  const headerStats = isHistorical ? (
+    <StatCard label={`Dispatched on ${formattedDate}`} value={dispatchedCount} color={colors.success} />
+  ) : (
     <>
       <StatCard label="Total Inbound" value={statsData?.inboundTotal ?? 0} color={colors.primary} />
       <StatCard label="Dispatched Today" value={statsData?.dispatchedToday ?? 0} color={colors.success} />
@@ -234,28 +250,63 @@ export default function Outbound() {
       {/* Section header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: '20px',
+        marginBottom: '20px', gap: 12, flexWrap: 'wrap',
       }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.textPrimary }}>
-            Today's Shipments
+            {isHistorical ? `Shipments — ${formattedDate}` : "Today's Shipments"}
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textSecondary }}>
-            Orders dispatched today · grouped by carrier
+            {isHistorical
+              ? `${dispatchedCount} order${dispatchedCount !== 1 ? 's' : ''} dispatched · grouped by carrier`
+              : 'Orders dispatched today · grouped by carrier'}
           </p>
         </div>
-        {totalToday > 0 && (
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: '20px', padding: '5px 14px',
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }} />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#15803d' }}>
-              {totalToday} dispatched
-            </span>
-          </div>
-        )}
+
+        {/* Date controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="date"
+            value={selectedDate}
+            max={todayStr}
+            onChange={e => setSelectedDate(e.target.value)}
+            style={{
+              padding: '6px 10px', fontSize: 13, borderRadius: 8,
+              border: `1px solid ${isHistorical ? '#93c5fd' : colors.border}`,
+              background: isHistorical ? '#eff6ff' : '#fff',
+              color: isHistorical ? '#1d4ed8' : colors.textPrimary,
+              cursor: 'pointer', outline: 'none', fontWeight: isHistorical ? 600 : 400,
+            }}
+          />
+          {isHistorical && (
+            <button
+              onClick={() => setSelectedDate('')}
+              style={{
+                padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                background: '#fff', border: `1px solid ${colors.border}`,
+                borderRadius: 8, cursor: 'pointer', color: colors.textSecondary,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Today
+            </button>
+          )}
+          {!isHistorical && dispatchedCount > 0 && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              background: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: '20px', padding: '5px 14px',
+            }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }} />
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#15803d' }}>
+                {dispatchedCount} dispatched
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -288,10 +339,12 @@ export default function Outbound() {
             </svg>
           </div>
           <div style={{ fontWeight: 700, fontSize: '15px', color: colors.textPrimary, marginBottom: '6px' }}>
-            No orders dispatched today
+            {isHistorical ? `No orders dispatched on ${formattedDate}` : 'No orders dispatched today'}
           </div>
           <div style={{ fontSize: '13px', color: colors.textSecondary }}>
-            Orders will appear here automatically when packers complete them.
+            {isHistorical
+              ? 'Try selecting a different date.'
+              : 'Orders will appear here automatically when packers complete them.'}
           </div>
         </div>
       ) : (
