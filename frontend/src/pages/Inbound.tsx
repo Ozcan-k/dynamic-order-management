@@ -200,27 +200,42 @@ export default function Inbound() {
         disabled={scanMutation.isPending}
       />
 
-      <div style={{ marginTop: 8, marginBottom: 4 }}>
+      <div style={{ marginTop: 10, marginBottom: 6 }}>
         <button
           onClick={() => { setScanFeedback(null); generateMutation.mutate() }}
           disabled={generateMutation.isPending || scanMutation.isPending}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', fontSize: 13, fontWeight: 600,
-            background: '#f0fdf4', color: '#15803d',
-            border: '1px solid #bbf7d0', borderRadius: 8,
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '9px 18px', fontSize: 13, fontWeight: 700,
+            background: generateMutation.isPending ? '#dcfce7' : 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+            color: generateMutation.isPending ? '#15803d' : '#fff',
+            border: 'none', borderRadius: 9,
+            boxShadow: generateMutation.isPending ? 'none' : '0 2px 8px rgba(21,128,61,0.30)',
             cursor: (generateMutation.isPending || scanMutation.isPending) ? 'not-allowed' : 'pointer',
-            opacity: (generateMutation.isPending || scanMutation.isPending) ? 0.7 : 1,
+            opacity: scanMutation.isPending ? 0.6 : 1,
+            transition: 'opacity 0.15s, box-shadow 0.15s',
+            letterSpacing: '0.01em',
           }}
         >
           {generateMutation.isPending ? (
-            <><span className="spinner spinner-sm" style={{ borderTopColor: '#15803d' }} /> Generating...</>
+            <>
+              <span className="spinner spinner-sm" style={{ borderTopColor: '#15803d' }} />
+              <span>Generating...</span>
+            </>
           ) : (
             <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
               </svg>
-              Generate Direct Inbound
+              <span>Generate Direct Inbound</span>
+              <span style={{
+                background: 'rgba(255,255,255,0.2)', borderRadius: 5,
+                padding: '1px 7px', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em',
+              }}>
+                DR
+              </span>
             </>
           )}
         </button>
