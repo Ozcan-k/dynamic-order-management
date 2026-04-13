@@ -196,49 +196,163 @@ export default function Archive() {
       )}
 
       {/* Filters */}
-      <div className="toolbar-card" style={{ flexWrap: 'wrap', gap: '10px' }}>
-        <input
-          type="text"
-          className="scan-input"
-          placeholder="Search tracking number..."
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1) }}
-          style={{ maxWidth: '220px' }}
-        />
-        <select
-          className="scan-input"
-          value={platform}
-          onChange={e => { setPlatform(e.target.value); setPage(1) }}
-          style={{ maxWidth: '140px' }}
-        >
-          <option value="">All Platforms</option>
-          <option value="SHOPEE">Shopee</option>
-          <option value="LAZADA">Lazada</option>
-          <option value="TIKTOK">TikTok</option>
-          <option value="OTHER">Other</option>
-        </select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '12px', color: colors.textMuted, whiteSpace: 'nowrap' }}>Archived</span>
-          <input type="date" className="scan-input" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} style={{ maxWidth: '145px' }} />
-          <span style={{ fontSize: '12px', color: colors.textMuted }}>–</span>
-          <input type="date" className="scan-input" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }} style={{ maxWidth: '145px' }} />
+      <div style={{
+        background: '#fff', border: `1px solid ${colors.border}`,
+        borderRadius: 12, padding: '14px 16px',
+        display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end',
+        marginBottom: 16,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      }}>
+        {/* Search */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Tracking No
+          </label>
+          <div style={{ position: 'relative' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="text"
+              className="scan-input"
+              placeholder="Search..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              style={{ paddingLeft: 28, minWidth: 160 }}
+            />
+          </div>
         </div>
-        <select
-          className="scan-input"
-          value={expiresWithin}
-          onChange={e => { setExpiresWithin(e.target.value); setPage(1) }}
-          style={{ maxWidth: '160px' }}
-        >
-          <option value="">All Retention</option>
-          <option value="7">Expiring in 7d</option>
-          <option value="14">Expiring in 14d</option>
-          <option value="30">Expiring in 30d</option>
-          <option value="60">Expiring in 60d</option>
-        </select>
+
+        {/* Platform */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Platform
+          </label>
+          <select
+            className="scan-input"
+            value={platform}
+            onChange={e => { setPlatform(e.target.value); setPage(1) }}
+            style={{ minWidth: 130 }}
+          >
+            <option value="">All Platforms</option>
+            <option value="SHOPEE">Shopee</option>
+            <option value="LAZADA">Lazada</option>
+            <option value="TIKTOK">TikTok</option>
+            <option value="DIRECT">Direct</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+
+        {/* Date range */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: 10, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              Archive Date Range
+            </label>
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}
+                style={{ background: 'none', border: 'none', fontSize: 10, fontWeight: 700, color: colors.danger, cursor: 'pointer', padding: '0 0 0 8px' }}
+              >
+                Clear ×
+              </button>
+            )}
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            background: '#f8fafc', border: `1px solid ${(dateFrom || dateTo) ? '#93c5fd' : colors.border}`,
+            borderRadius: 8, overflow: 'hidden',
+            transition: 'border-color 0.15s',
+          }}>
+            {/* Calendar icon */}
+            <span style={{ padding: '0 8px 0 10px', color: (dateFrom || dateTo) ? '#3b82f6' : colors.textMuted, display: 'flex', alignItems: 'center' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => { setDateFrom(e.target.value); setPage(1) }}
+              style={{
+                border: 'none', background: 'transparent', padding: '7px 4px',
+                fontSize: 13, color: dateFrom ? colors.textPrimary : colors.textMuted,
+                outline: 'none', cursor: 'pointer', width: 130,
+              }}
+            />
+            <span style={{ padding: '0 6px', color: colors.textMuted, fontSize: 12, fontWeight: 600 }}>→</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={e => { setDateTo(e.target.value); setPage(1) }}
+              style={{
+                border: 'none', background: 'transparent', padding: '7px 4px',
+                fontSize: 13, color: dateTo ? colors.textPrimary : colors.textMuted,
+                outline: 'none', cursor: 'pointer', width: 130,
+              }}
+            />
+          </div>
+          {/* Quick presets */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[
+              { label: '7d', days: 7 },
+              { label: '30d', days: 30 },
+              { label: '90d', days: 90 },
+            ].map(({ label, days }) => {
+              const from = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10)
+              const to = new Date().toISOString().slice(0, 10)
+              const active = dateFrom === from && dateTo === to
+              return (
+                <button
+                  key={label}
+                  onClick={() => { setDateFrom(from); setDateTo(to); setPage(1) }}
+                  style={{
+                    padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: 'pointer',
+                    border: `1px solid ${active ? '#3b82f6' : colors.border}`,
+                    background: active ? '#eff6ff' : '#fff',
+                    color: active ? '#1d4ed8' : colors.textSecondary,
+                  }}
+                >
+                  Last {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Expiry */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Retention
+          </label>
+          <select
+            className="scan-input"
+            value={expiresWithin}
+            onChange={e => { setExpiresWithin(e.target.value); setPage(1) }}
+            style={{ minWidth: 150 }}
+          >
+            <option value="">All</option>
+            <option value="7">Expiring in 7d</option>
+            <option value="14">Expiring in 14d</option>
+            <option value="30">Expiring in 30d</option>
+            <option value="60">Expiring in 60d</option>
+          </select>
+        </div>
+
+        {/* Clear all */}
         {(search || platform || dateFrom || dateTo || expiresWithin) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setPlatform(''); setDateFrom(''); setDateTo(''); setExpiresWithin(''); setPage(1) }}>
-            Clear filters
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 4 }}>
+            <div style={{ height: 14 }} />
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setSearch(''); setPlatform(''); setDateFrom(''); setDateTo(''); setExpiresWithin(''); setPage(1) }}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              Clear all filters
+            </button>
+          </div>
         )}
       </div>
 

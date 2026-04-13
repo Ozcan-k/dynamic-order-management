@@ -194,11 +194,124 @@ function CarrierCard({ group }: { group: CarrierGroup }) {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
+// ─── Date Navigator ───────────────────────────────────────────────────────────
+
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T12:00:00+08:00`)
+  d.setDate(d.getDate() + n)
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) // YYYY-MM-DD
+}
+
+function formatDisplayDate(dateStr: string): { day: string; month: string; year: string; weekday: string } {
+  const d = new Date(`${dateStr}T12:00:00+08:00`)
+  return {
+    weekday: d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Asia/Manila' }),
+    day:     d.toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'Asia/Manila' }),
+    month:   d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'Asia/Manila' }),
+    year:    d.toLocaleDateString('en-GB', { year: 'numeric', timeZone: 'Asia/Manila' }),
+  }
+}
+
+interface DateNavigatorProps {
+  value: string        // YYYY-MM-DD or '' (today)
+  todayStr: string
+  onChange: (v: string) => void
+}
+
+function DateNavigator({ value, todayStr, onChange }: DateNavigatorProps) {
+  const activeDate = value || todayStr
+  const isToday = activeDate === todayStr
+  const { weekday, day, month, year } = formatDisplayDate(activeDate)
+
+  const navBtn: React.CSSProperties = {
+    width: 32, height: 32, borderRadius: 8,
+    border: `1px solid ${colors.border}`,
+    background: '#fff', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: colors.textSecondary, flexShrink: 0,
+    transition: 'background 0.12s, border-color 0.12s',
+  }
+
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 0,
+      background: '#fff', border: `1px solid ${colors.border}`,
+      borderRadius: 10, overflow: 'hidden',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    }}>
+      {/* Prev day */}
+      <button
+        onClick={() => onChange(addDays(activeDate, -1))}
+        style={{ ...navBtn, borderRadius: 0, border: 'none', borderRight: `1px solid ${colors.border}` }}
+        title="Previous day"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+
+      {/* Date display — clicking opens native date input */}
+      <label style={{ position: 'relative', cursor: 'pointer' }}>
+        <div style={{
+          padding: '6px 16px', minWidth: 148, textAlign: 'center',
+          background: isToday ? '#f0fdf4' : '#fafafa',
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+            color: isToday ? '#15803d' : colors.textMuted, marginBottom: 1 }}>
+            {isToday ? '● Today' : weekday}
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: isToday ? '#15803d' : colors.textPrimary, letterSpacing: '-0.3px' }}>
+            {day} {month} <span style={{ fontWeight: 500, color: colors.textSecondary, fontSize: 13 }}>{year}</span>
+          </div>
+        </div>
+        <input
+          type="date"
+          value={activeDate}
+          max={todayStr}
+          onChange={e => {
+            if (!e.target.value) return
+            onChange(e.target.value === todayStr ? '' : e.target.value)
+          }}
+          style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}
+        />
+      </label>
+
+      {/* Next day — disabled when today */}
+      <button
+        onClick={() => { if (!isToday) onChange(activeDate === addDays(todayStr, -1) ? '' : addDays(activeDate, 1)) }}
+        disabled={isToday}
+        style={{ ...navBtn, borderRadius: 0, border: 'none', borderLeft: `1px solid ${colors.border}`,
+          opacity: isToday ? 0.3 : 1, cursor: isToday ? 'not-allowed' : 'pointer' }}
+        title="Next day"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+
+      {/* Today shortcut — only when not today */}
+      {!isToday && (
+        <button
+          onClick={() => onChange('')}
+          style={{ ...navBtn, borderRadius: 0, border: 'none', borderLeft: `1px solid ${colors.border}`,
+            padding: '0 12px', width: 'auto', fontSize: 11, fontWeight: 700, color: colors.primary,
+            background: '#eff6ff', gap: 4 }}
+        >
+          Today
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── Main page ───────────────────────────────────────────────────────────────
+
 export default function Outbound() {
   const user = useAuthStore((s) => s.user)
   const todayStr = getManilaDateString()
   const [selectedDate, setSelectedDate] = useState<string>('')  // '' = today
   const isHistorical = selectedDate !== ''
+  const activeDate = selectedDate || todayStr
   const dateParam = isHistorical ? `?date=${selectedDate}` : ''
 
   const { data: groups, isLoading: groupsLoading } = useQuery({
@@ -222,16 +335,11 @@ export default function Outbound() {
   const isLoading = groupsLoading || statsLoading
   const carrierGroups = groups ?? []
   const dispatchedCount = statsData?.dispatchedToday ?? 0
-
-  // Format selected date for display: '2026-03-28' → '28 Mar 2026'
-  const formattedDate = isHistorical
-    ? new Date(`${selectedDate}T12:00:00+08:00`).toLocaleDateString('en-GB', {
-        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila',
-      })
-    : null
+  const { day, month, year } = formatDisplayDate(activeDate)
+  const displayLabel = isHistorical ? `${day} ${month} ${year}` : 'Today'
 
   const headerStats = isHistorical ? (
-    <StatCard label={`Dispatched on ${formattedDate}`} value={dispatchedCount} color={colors.success} />
+    <StatCard label={`Dispatched — ${displayLabel}`} value={dispatchedCount} color={colors.success} />
   ) : (
     <>
       <StatCard label="Total Inbound" value={statsData?.inboundTotal ?? 0} color={colors.primary} />
@@ -254,7 +362,7 @@ export default function Outbound() {
       }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.textPrimary }}>
-            {isHistorical ? `Shipments — ${formattedDate}` : "Today's Shipments"}
+            {isHistorical ? `Shipments — ${displayLabel}` : "Today's Shipments"}
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textSecondary }}>
             {isHistorical
@@ -263,50 +371,7 @@ export default function Outbound() {
           </p>
         </div>
 
-        {/* Date controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="date"
-            value={selectedDate}
-            max={todayStr}
-            onChange={e => setSelectedDate(e.target.value)}
-            style={{
-              padding: '6px 10px', fontSize: 13, borderRadius: 8,
-              border: `1px solid ${isHistorical ? '#93c5fd' : colors.border}`,
-              background: isHistorical ? '#eff6ff' : '#fff',
-              color: isHistorical ? '#1d4ed8' : colors.textPrimary,
-              cursor: 'pointer', outline: 'none', fontWeight: isHistorical ? 600 : 400,
-            }}
-          />
-          {isHistorical && (
-            <button
-              onClick={() => setSelectedDate('')}
-              style={{
-                padding: '6px 12px', fontSize: 12, fontWeight: 700,
-                background: '#fff', border: `1px solid ${colors.border}`,
-                borderRadius: 8, cursor: 'pointer', color: colors.textSecondary,
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              Today
-            </button>
-          )}
-          {!isHistorical && dispatchedCount > 0 && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              background: '#f0fdf4', border: '1px solid #bbf7d0',
-              borderRadius: '20px', padding: '5px 14px',
-            }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#15803d' }}>
-                {dispatchedCount} dispatched
-              </span>
-            </div>
-          )}
-        </div>
+        <DateNavigator value={selectedDate} todayStr={todayStr} onChange={setSelectedDate} />
       </div>
 
       {/* Content */}
@@ -328,8 +393,7 @@ export default function Outbound() {
             background: 'linear-gradient(135deg, #f1f5f9, #e2e8f0)',
             borderRadius: '14px',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: '16px',
-            color: '#94a3b8',
+            marginBottom: '16px', color: '#94a3b8',
           }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="1" y="3" width="15" height="13" rx="2" />
@@ -339,11 +403,11 @@ export default function Outbound() {
             </svg>
           </div>
           <div style={{ fontWeight: 700, fontSize: '15px', color: colors.textPrimary, marginBottom: '6px' }}>
-            {isHistorical ? `No orders dispatched on ${formattedDate}` : 'No orders dispatched today'}
+            {isHistorical ? `No orders dispatched on ${displayLabel}` : 'No orders dispatched today'}
           </div>
           <div style={{ fontSize: '13px', color: colors.textSecondary }}>
             {isHistorical
-              ? 'Try selecting a different date.'
+              ? 'Use the navigator above to try a different date.'
               : 'Orders will appear here automatically when packers complete them.'}
           </div>
         </div>
