@@ -22,6 +22,7 @@ export enum Platform {
   SHOPEE = 'SHOPEE',
   LAZADA = 'LAZADA',
   TIKTOK = 'TIKTOK',
+  DIRECT = 'DIRECT',
   OTHER = 'OTHER',
 }
 
@@ -76,5 +77,6 @@ export function detectPlatform(trackingNumber: string): Platform {
   if (tn.startsWith('PH')) return Platform.SHOPEE
   if (tn.startsWith('JT')) return Platform.TIKTOK
   if (tn.startsWith('MP') || tn.startsWith('P')) return Platform.LAZADA
+  if (tn.startsWith('DR')) return Platform.DIRECT
   return Platform.OTHER
 }

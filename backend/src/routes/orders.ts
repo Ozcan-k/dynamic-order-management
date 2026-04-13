@@ -12,6 +12,7 @@ import {
   listOrders,
   deleteOrder,
   getOrderStats,
+  generateDirectTrackingNumber,
 } from '../services/orderService'
 
 const PENDING_TTL = 300 // 5 minutes
@@ -166,6 +167,21 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       return reply.send(await getOrderStats(tenantId))
+    },
+  )
+
+  // POST /orders/generate-direct — generate a unique DR tracking number (no DB write)
+  fastify.post(
+    '/generate-direct',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      try {
+        const trackingNumber = await generateDirectTrackingNumber(tenantId)
+        return reply.code(200).send({ trackingNumber })
+      } catch (err: any) {
+        return reply.code(500).send({ error: err.message ?? 'Failed to generate tracking number' })
+      }
     },
   )
 

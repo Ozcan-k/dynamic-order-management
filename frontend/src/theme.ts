@@ -49,6 +49,7 @@ export const colors = {
     SHOPEE: { bg: '#fff4ed', text: '#c2410c', dot: '#f97316' },
     LAZADA: { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' },
     TIKTOK: { bg: '#fdf4ff', text: '#7e22ce', dot: '#a855f7' },
+    DIRECT: { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
     OTHER:  { bg: '#f9fafb', text: '#374151', dot: '#9ca3af' },
   } as Record<string, { bg: string; text: string; dot: string }>,
 

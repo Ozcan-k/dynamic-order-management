@@ -9,6 +9,7 @@ import { getManilaDateString } from '../lib/manila'
 import ScanInput from '../components/ScanInput'
 import BulkScanModal from '../components/BulkScanModal'
 import QuickScanModal from '../components/QuickScanModal'
+import GenerateDirectModal from '../components/GenerateDirectModal'
 import OrderTable from '../components/OrderTable'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
@@ -39,6 +40,8 @@ export default function Inbound() {
   const [pendingScan, setPendingScan] = useState<string | null>(null)
   const [lastCarrier, setLastCarrier] = useState(() => localStorage.getItem('quickScan_carrier') ?? '')
   const [lastShop, setLastShop] = useState(() => localStorage.getItem('quickScan_shop') ?? '')
+  const [showGenerateModal, setShowGenerateModal] = useState(false)
+  const [generatedTN, setGeneratedTN] = useState<string | null>(null)
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -106,6 +109,19 @@ export default function Inbound() {
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Scan error'
+      setScanFeedback({ type: 'error', message: msg })
+    },
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ trackingNumber: string }>('/orders/generate-direct').then(r => r.data.trackingNumber),
+    onSuccess: (tn) => {
+      setGeneratedTN(tn)
+      setShowGenerateModal(true)
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error ?? 'Failed to generate tracking number'
       setScanFeedback({ type: 'error', message: msg })
     },
   })
@@ -183,6 +199,49 @@ export default function Inbound() {
         }}
         disabled={scanMutation.isPending}
       />
+
+      <div style={{ marginTop: 8, marginBottom: 4 }}>
+        <button
+          onClick={() => { setScanFeedback(null); generateMutation.mutate() }}
+          disabled={generateMutation.isPending || scanMutation.isPending}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', fontSize: 13, fontWeight: 600,
+            background: '#f0fdf4', color: '#15803d',
+            border: '1px solid #bbf7d0', borderRadius: 8,
+            cursor: (generateMutation.isPending || scanMutation.isPending) ? 'not-allowed' : 'pointer',
+            opacity: (generateMutation.isPending || scanMutation.isPending) ? 0.7 : 1,
+          }}
+        >
+          {generateMutation.isPending ? (
+            <><span className="spinner spinner-sm" style={{ borderTopColor: '#15803d' }} /> Generating...</>
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />
+              </svg>
+              Generate Direct Inbound
+            </>
+          )}
+        </button>
+      </div>
+
+      {showGenerateModal && generatedTN && (
+        <GenerateDirectModal
+          trackingNumber={generatedTN}
+          isSubmitting={scanMutation.isPending}
+          onConfirm={(carrier, shop) => {
+            const tn = generatedTN
+            setShowGenerateModal(false)
+            setGeneratedTN(null)
+            scanMutation.mutate({ trackingNumber: tn, carrierName: carrier, shopName: shop })
+          }}
+          onCancel={() => {
+            setShowGenerateModal(false)
+            setGeneratedTN(null)
+          }}
+        />
+      )}
 
       {pendingScan && (
         <QuickScanModal

@@ -109,6 +109,20 @@ export async function getOrderStats(tenantId: string) {
   return { totalScanned, pendingInbound, inProgressCount, pickerDoneCount, delayBreakdown: [d0, d1, d2, d3, d4] }
 }
 
+export async function generateDirectTrackingNumber(tenantId: string): Promise<string> {
+  const MAX_ATTEMPTS = 10
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const digits = String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0')
+    const candidate = `DR${digits}`
+    const existing = await prisma.order.findFirst({
+      where: { tenantId, trackingNumber: candidate, archivedAt: null },
+      select: { id: true },
+    })
+    if (!existing) return candidate
+  }
+  throw new Error('Could not generate a unique Direct tracking number. Please try again.')
+}
+
 export async function deleteOrder(orderId: string, tenantId: string) {
   const order = await prisma.order.findUnique({ where: { id: orderId } })
   if (!order || order.tenantId !== tenantId) throw new Error('Order not found')
