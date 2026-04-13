@@ -282,9 +282,9 @@ function AddUserModal({
   )
 }
 
-// ─── Edit Email Modal ─────────────────────────────────────────────────────────
+// ─── Edit User Modal ──────────────────────────────────────────────────────────
 
-function EditEmailModal({
+function EditUserModal({
   user,
   onClose,
   onSuccess,
@@ -293,6 +293,8 @@ function EditEmailModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const cfg = ROLE_CONFIG[user.role]
+  const [username, setUsername] = useState(user.username)
   const [email, setEmail] = useState(user.email ?? '')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -302,11 +304,15 @@ function EditEmailModal({
     setError(null)
     setLoading(true)
     try {
-      await api.patch(`/users/${user.id}`, { email: email.trim() || null })
+      const body: Record<string, unknown> = {}
+      if (username.trim() !== user.username) body.username = username.trim()
+      if (cfg.hasEmail) body.email = email.trim() || null
+      if (Object.keys(body).length === 0) { onClose(); return }
+      await api.patch(`/users/${user.id}`, body)
       onSuccess()
       onClose()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to update email'
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to update user'
       setError(msg)
     } finally {
       setLoading(false)
@@ -324,33 +330,48 @@ function EditEmailModal({
     >
       <div
         style={{
-          background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '380px',
+          background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '400px',
           boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ background: '#1d4ed8', padding: '18px 24px' }}>
-          <div style={{ fontWeight: 700, fontSize: '15px', color: '#fff' }}>Edit Email</div>
+        <div style={{ background: cfg.color, padding: '18px 24px' }}>
+          <div style={{ fontWeight: 700, fontSize: '15px', color: '#fff' }}>Edit {cfg.label}</div>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.75)', marginTop: '3px' }}>
-            {user.username} — nightly reports will be sent here
+            Current username: {user.username}
           </div>
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={labelStyle}>Email address</label>
+            <label style={labelStyle}>Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoFocus maxLength={200}
-              placeholder="e.g. admin@company.com"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required autoFocus minLength={3} maxLength={50}
               style={inputStyle}
             />
-            <div style={{ fontSize: '11px', color: colors.textSecondary }}>
-              Leave blank to stop receiving nightly reports.
-            </div>
           </div>
+
+          {cfg.hasEmail && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={labelStyle}>
+                Email <span style={{ fontWeight: 400, color: colors.textSecondary, textTransform: 'none', letterSpacing: 0 }}>(for nightly reports)</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. admin@company.com"
+                style={inputStyle}
+              />
+              <div style={{ fontSize: '11px', color: colors.textSecondary }}>
+                Leave blank to stop receiving nightly reports.
+              </div>
+            </div>
+          )}
 
           {error && (
             <div style={{
@@ -377,14 +398,14 @@ function EditEmailModal({
               type="submit" disabled={loading}
               style={{
                 flex: 2, padding: '10px', fontSize: '13px', fontWeight: 700,
-                background: loading ? '#94a3b8' : '#1d4ed8',
+                background: loading ? '#94a3b8' : cfg.color,
                 color: '#fff', border: 'none', borderRadius: '8px',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}
             >
               {loading && <span className="spinner spinner-sm" style={{ borderTopColor: '#fff' }} />}
-              Save
+              Save Changes
             </button>
           </div>
         </form>
@@ -457,13 +478,13 @@ function DeleteConfirmModal({
 // ─── User Role Card ───────────────────────────────────────────────────────────
 
 function UserRoleCard({
-  role, users, onAdd, onDelete, onEditEmail,
+  role, users, onAdd, onDelete, onEdit,
 }: {
   role: UserRole
   users: AppUser[]
   onAdd: (role: UserRole) => void
   onDelete: (user: AppUser) => void
-  onEditEmail: (user: AppUser) => void
+  onEdit: (user: AppUser) => void
 }) {
   const cfg = ROLE_CONFIG[role]
 
@@ -559,30 +580,28 @@ function UserRoleCard({
               </div>
 
               <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                {cfg.hasEmail && (
-                  <button
-                    onClick={() => onEditEmail(u)}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      width: 30, height: 30, borderRadius: '7px',
-                      background: 'transparent', border: `1px solid ${colors.border}`,
-                      color: '#94a3b8', cursor: 'pointer',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#eff6ff'
-                      e.currentTarget.style.color = '#1d4ed8'
-                      e.currentTarget.style.borderColor = '#bfdbfe'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent'
-                      e.currentTarget.style.color = '#94a3b8'
-                      e.currentTarget.style.borderColor = colors.border
-                    }}
-                    title={`Edit email for ${u.username}`}
-                  >
-                    <PencilIcon />
-                  </button>
-                )}
+                <button
+                  onClick={() => onEdit(u)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 30, height: 30, borderRadius: '7px',
+                    background: 'transparent', border: `1px solid ${colors.border}`,
+                    color: '#94a3b8', cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#eff6ff'
+                    e.currentTarget.style.color = '#1d4ed8'
+                    e.currentTarget.style.borderColor = '#bfdbfe'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.color = '#94a3b8'
+                    e.currentTarget.style.borderColor = colors.border
+                  }}
+                  title={`Edit ${u.username}`}
+                >
+                  <PencilIcon />
+                </button>
                 <button
                   onClick={() => onDelete(u)}
                   style={{
@@ -635,7 +654,7 @@ export default function Settings() {
 
   const [addRole, setAddRole] = useState<UserRole | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null)
-  const [emailTarget, setEmailTarget] = useState<AppUser | null>(null)
+  const [editTarget, setEditTarget] = useState<AppUser | null>(null)
 
   const { data: allUsers = [], isLoading } = useQuery({
     queryKey: ['users'],
@@ -683,10 +702,10 @@ export default function Settings() {
             gap: '14px',
             marginBottom: '32px',
           }}>
-            <UserRoleCard role={UserRole.ADMIN} users={byRole(UserRole.ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
-            <UserRoleCard role={UserRole.INBOUND_ADMIN} users={byRole(UserRole.INBOUND_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
-            <UserRoleCard role={UserRole.PICKER_ADMIN} users={byRole(UserRole.PICKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
-            <UserRoleCard role={UserRole.PACKER_ADMIN} users={byRole(UserRole.PACKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
+            <UserRoleCard role={UserRole.ADMIN} users={byRole(UserRole.ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+            <UserRoleCard role={UserRole.INBOUND_ADMIN} users={byRole(UserRole.INBOUND_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+            <UserRoleCard role={UserRole.PICKER_ADMIN} users={byRole(UserRole.PICKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+            <UserRoleCard role={UserRole.PACKER_ADMIN} users={byRole(UserRole.PACKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
 
           <SectionHeader
@@ -698,8 +717,8 @@ export default function Settings() {
             gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
             gap: '14px',
           }}>
-            <UserRoleCard role={UserRole.PICKER} users={byRole(UserRole.PICKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
-            <UserRoleCard role={UserRole.PACKER} users={byRole(UserRole.PACKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEditEmail={setEmailTarget} />
+            <UserRoleCard role={UserRole.PICKER} users={byRole(UserRole.PICKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+            <UserRoleCard role={UserRole.PACKER} users={byRole(UserRole.PACKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
         </>
       )}
@@ -712,10 +731,10 @@ export default function Settings() {
         />
       )}
 
-      {emailTarget && (
-        <EditEmailModal
-          user={emailTarget}
-          onClose={() => setEmailTarget(null)}
+      {editTarget && (
+        <EditUserModal
+          user={editTarget}
+          onClose={() => setEditTarget(null)}
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users'] })}
         />
       )}
