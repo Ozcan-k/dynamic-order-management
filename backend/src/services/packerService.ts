@@ -2,19 +2,14 @@ import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { completeOrder } from './packerAdminService'
 
-export async function getAllPickerCompleteOrders(tenantId: string) {
-  return prisma.order.findMany({
-    where: { tenantId, status: OrderStatus.PICKER_COMPLETE },
-    select: {
-      id: true,
-      trackingNumber: true,
-      platform: true,
-      status: true,
-      delayLevel: true,
-      priority: true,
-      createdAt: true,
+export async function findOrderForPacking(trackingNumber: string, tenantId: string) {
+  return prisma.order.findFirst({
+    where: {
+      trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
+      tenantId,
+      status: OrderStatus.PICKER_COMPLETE,
     },
-    orderBy: [{ priority: 'desc' }, { delayLevel: 'desc' }, { createdAt: 'asc' }],
+    select: { id: true, trackingNumber: true, platform: true, delayLevel: true, status: true },
   })
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import ScanInput from '../components/ScanInput'
@@ -12,18 +12,16 @@ interface PackerOrder {
   platform: string
   status: string
   delayLevel: number
-  priority: number
-  createdAt: string
 }
 
 export default function PackerMobile() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
-  const queryClient = useQueryClient()
 
   const [pendingOrder, setPendingOrder] = useState<PackerOrder | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [lookingUp, setLookingUp] = useState(false)
 
   useEffect(() => {
     if (!errorMsg) return
@@ -37,23 +35,11 @@ export default function PackerMobile() {
     return () => clearTimeout(t)
   }, [successMsg])
 
-  // ── Orders ──────────────────────────────────────────────────────────────────
-  const { data: orders = [], isLoading } = useQuery({
-    queryKey: ['packer-orders'],
-    queryFn: async () => {
-      const res = await api.get<{ orders: PackerOrder[] }>('/packer/orders')
-      return res.data.orders
-    },
-    enabled: true,
-    refetchInterval: 15_000,
-  })
-
   // ── Complete mutation ────────────────────────────────────────────────────────
   const completeMutation = useMutation({
     mutationFn: (trackingNumber: string) =>
       api.post('/packer/complete', { trackingNumber }),
     onSuccess: (_, trackingNumber) => {
-      queryClient.invalidateQueries({ queryKey: ['packer-orders'] })
       setPendingOrder(null)
       setSuccessMsg(`Completed: ${trackingNumber}`)
     },
@@ -63,15 +49,19 @@ export default function PackerMobile() {
     },
   })
 
-  function handleScan(raw: string) {
+  async function handleScan(raw: string) {
     setErrorMsg(null)
-    const normalized = raw.trim().toUpperCase()
-    const match = orders.find((o) => o.trackingNumber.toUpperCase() === normalized)
-    if (!match) {
-      setErrorMsg(`"${raw}" not found in packing queue`)
-      return
+    const tn = raw.trim().toUpperCase()
+    setLookingUp(true)
+    try {
+      const res = await api.get<{ order: PackerOrder }>(`/packer/find?tn=${encodeURIComponent(tn)}`)
+      setPendingOrder(res.data.order)
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? `"${raw}" not found or not ready for packing`
+      setErrorMsg(msg)
+    } finally {
+      setLookingUp(false)
     }
-    setPendingOrder(match)
   }
 
   async function handleLogout() {
@@ -79,9 +69,7 @@ export default function PackerMobile() {
     setUser(null)
   }
 
-  function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
-  }
+  const isPending = completeMutation.isPending || lookingUp
 
   // ── Order List Screen ────────────────────────────────────────────────────────
   return (
@@ -110,7 +98,7 @@ export default function PackerMobile() {
               {user.username}
             </div>
             <div style={{ color: '#64748b', fontSize: '12px', marginTop: '1px' }}>
-              {isLoading ? 'Loading...' : `${orders.length} order${orders.length !== 1 ? 's' : ''} to pack`}
+              Packer
             </div>
           </div>
         </div>
@@ -162,13 +150,13 @@ export default function PackerMobile() {
         {/* Scan input */}
         <ScanInput
           onScan={handleScan}
-          disabled={completeMutation.isPending}
+          disabled={isPending}
           buttonLabel="Scan Order"
           enableCamera
         />
 
-        {/* Order list */}
-        {isLoading ? (
+        {/* Empty state */}
+        {lookingUp ? (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
             padding: '48px 20px', background: '#fff', borderRadius: '14px',
@@ -178,9 +166,9 @@ export default function PackerMobile() {
               width: 28, height: 28, border: '3px solid #e2e8f0', borderTopColor: '#059669',
               borderRadius: '50%', animation: 'spin 0.7s linear infinite',
             }} />
-            <span style={{ color: '#64748b', fontSize: '14px' }}>Loading orders...</span>
+            <span style={{ color: '#64748b', fontSize: '14px' }}>Looking up order...</span>
           </div>
-        ) : orders.length === 0 ? (
+        ) : (
           <div style={{
             textAlign: 'center', padding: '48px 24px',
             background: '#fff', borderRadius: '14px',
@@ -192,41 +180,18 @@ export default function PackerMobile() {
               margin: '0 auto 14px',
             }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
+                <path d="M3 9V5a2 2 0 0 1 2-2h4" />
+                <path d="M3 15v4a2 2 0 0 0 2 2h4" />
+                <path d="M21 9V5a2 2 0 0 0-2-2h-4" />
+                <path d="M21 15v4a2 2 0 0 1-2 2h-4" />
+                <line x1="7" y1="12" x2="7" y2="12" strokeWidth="3" />
+                <line x1="10" y1="9" x2="10" y2="15" strokeWidth="1.5" />
+                <line x1="13" y1="9" x2="13" y2="15" strokeWidth="3" />
+                <line x1="16" y1="9" x2="16" y2="15" strokeWidth="1.5" />
               </svg>
             </div>
-            <div style={{ fontWeight: 600, color: '#374151', fontSize: '15px', marginBottom: '4px' }}>All packed!</div>
-            <div style={{ fontSize: '13px', color: '#9ca3af' }}>No orders waiting to be packed</div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {orders.map((order) => {
-              const borderColor =
-                order.delayLevel >= 3 ? '#ef4444' :
-                order.delayLevel >= 1 ? '#f59e0b' : '#059669'
-              return (
-                <div key={order.id} style={{
-                  background: '#fff', borderRadius: '14px', padding: '16px 18px',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-                  borderLeft: `4px solid ${borderColor}`,
-                }}>
-                  <div style={{
-                    fontFamily: 'monospace', fontWeight: 700, fontSize: '15px',
-                    color: '#0f172a', marginBottom: '10px', wordBreak: 'break-all',
-                    letterSpacing: '0.02em',
-                  }}>
-                    {order.trackingNumber}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <PlatformBadge platform={order.platform} />
-                    <DelayBadge level={order.delayLevel} />
-                    <span style={{ fontSize: '12px', color: '#64748b', marginLeft: 'auto' }}>
-                      {formatTime(order.createdAt)}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
+            <div style={{ fontWeight: 600, color: '#374151', fontSize: '15px', marginBottom: '4px' }}>Ready to pack</div>
+            <div style={{ fontSize: '13px', color: '#9ca3af' }}>Scan a barcode to complete an order</div>
           </div>
         )}
       </div>

@@ -2,18 +2,30 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
-import { getAllPickerCompleteOrders, completeByTracking } from '../services/packerService'
+import { findOrderForPacking, completeByTracking } from '../services/packerService'
 
 const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
 
 export default async function packerRoutes(fastify: FastifyInstance) {
   const authHandler = [fastify.authenticate, requireRole(UserRole.PACKER)]
 
-  // GET /packer/orders — all PICKER_COMPLETE orders (shared queue)
-  fastify.get('/orders', { preHandler: authHandler }, async (request, reply) => {
+  // GET /packer/orders — always empty; packers self-assign by scanning
+  fastify.get('/orders', { preHandler: authHandler }, async (_request, reply) => {
+    return reply.send({ orders: [] })
+  })
+
+  // GET /packer/find?tn=TRACKING_NUMBER — look up a PICKER_COMPLETE order before confirming
+  fastify.get('/find', { preHandler: authHandler }, async (request, reply) => {
+    const { tn } = request.query as { tn?: string }
+    if (!tn || tn.trim().length === 0) {
+      return reply.code(400).send({ error: 'tn query param is required' })
+    }
     const { tenantId } = request.user as JWTPayload
-    const orders = await getAllPickerCompleteOrders(tenantId)
-    return reply.send({ orders })
+    const order = await findOrderForPacking(tn.trim(), tenantId)
+    if (!order) {
+      return reply.code(404).send({ error: 'Order not found or not ready for packing' })
+    }
+    return reply.send({ order })
   })
 
   // POST /packer/complete — scan tracking number → PACKER_COMPLETE
