@@ -44,6 +44,12 @@ function vibrate(pattern: number | number[]) {
 
 export default function InboundScan() {
   const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+
+  async function handleLogout() {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    setUser(null)
+  }
   const [mode, setMode] = useState<ScanMode>('single')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'duplicate'; message: string } | null>(null)
   const [bulkItems, setBulkItems] = useState<BulkEntry[]>([])
@@ -184,8 +190,17 @@ export default function InboundScan() {
             <div style={{ color: '#64748b', fontSize: '13px', marginTop: '1px' }}>{user?.username}</div>
           </div>
         </div>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: '#60a5fa', background: 'rgba(37,99,235,0.2)', padding: '6px 14px', borderRadius: '9999px', border: '1px solid rgba(37,99,235,0.35)', letterSpacing: '0.06em' }}>
-          HANDHELD
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#60a5fa', background: 'rgba(37,99,235,0.2)', padding: '6px 14px', borderRadius: '9999px', border: '1px solid rgba(37,99,235,0.35)', letterSpacing: '0.06em' }}>
+            HANDHELD
+          </div>
+          <button onClick={handleLogout} style={{
+            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '8px', color: '#94a3b8', fontSize: '13px', fontWeight: 600,
+            padding: '8px 14px', cursor: 'pointer', minHeight: '44px',
+          }}>
+            Sign Out
+          </button>
         </div>
       </div>
 
