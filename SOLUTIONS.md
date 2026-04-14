@@ -5,6 +5,79 @@ Bir sorunla tekrar karşılaşıldığında buradan hızlıca çözüm bulunabil
 
 ---
 
+## [2026-04-13] Philippines Inbound Panel — Scan Pop-up Çıkmıyor (WebSocket Nginx Fix)
+
+### Sorun
+Filipinler ofisinde INBOUND_ADMIN telefondan waybill scan yapıyor ancak masaüstü Inbound panel'de pop-up çıkmıyor. Kanada'da aynı işlem yapılınca pop-up çıkıyor. Her iki cihaz da aynı WiFi ağına bağlı.
+
+### Kök Neden
+**Nginx'te `/socket.io/` için location block eksik.**
+
+Pop-up akışı:
+1. Telefon → `POST /api/orders/handheld-scan` → Backend
+2. Backend → `io.to('user:X').emit('order:handheld-scan', ...)` → Socket
+3. Masaüstü → `wss://domwarehouse.com/socket.io` → WebSocket bağlantısı → Pop-up
+
+Masaüstü `https://domwarehouse.com` üzerinden Nginx'e bağlanır. Nginx sadece `/api/` trafiğini backend'e yönlendiriyordu. `/socket.io/` için location block olmadığından WebSocket bağlantısı hiç kurulmuyordu → masaüstü `user:X` room'una katılamıyordu → pop-up gelmiyordu.
+
+Kanada'da HTTP IP (`http://45.32.107.63:5173`) ile bağlanılıyordu. Bu durumda Nginx bypass edilip Vite dev server proxy'si devreye giriyor (`ws: true` ile), WebSocket sorunsuz çalışıyor.
+
+### Çözüm
+
+**1. Nginx config'e `/socket.io/` location block ekle:**
+
+```bash
+sudo nano /etc/nginx/sites-available/dom
+```
+
+HTTPS server bloğuna ekle:
+
+```nginx
+location /socket.io/ {
+    proxy_pass http://localhost:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
+}
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**2. `CORS_ORIGIN` env var'ını kontrol et:**
+
+```bash
+docker exec dom_backend printenv CORS_ORIGIN
+```
+
+`https://domwarehouse.com` yoksa `/opt/dom/.env`'e ekle:
+
+```
+CORS_ORIGIN=https://domwarehouse.com,https://www.domwarehouse.com
+```
+
+```bash
+docker compose -f /opt/dom/docker-compose.yml restart backend
+```
+
+**3. `vite.config.ts` — `allowedHosts` kalıcı fix (kod repo'sunda):**
+
+```typescript
+server: {
+  allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
+  ...
+}
+```
+
+---
+
 ## [2026-04-11] Modal / Fixed Overlay Açılmıyor
 
 ### Sorun
@@ -421,6 +494,133 @@ docker compose up -d backend
 ```
 `docker compose restart` mevcut container'ı yeniden başlatır (cp değişiklikleri korunur).
 `docker compose up` yeni container açar (cp değişiklikleri kaybolur) — dikkat.
+
+---
+
+---
+
+## [2026-04-13] Vultr Sunucusuna Domain + HTTPS + iPhone Kamera Kurulumu
+
+### Sorun
+- iPhone Safari `http://` üzerinde kamera iznine izin vermiyor
+- Uygulama `http://45.32.107.63:5173` adresinde çalışıyordu, iPhone'da kamera açılmıyordu
+
+### Çözüm
+
+#### 1. Domain Al (Namecheap)
+- `namecheap.com`'dan domain satın al (örn. `domwarehouse.com`)
+- **Advanced DNS** → **Host Records** bölümüne iki A Record ekle:
+  - `@` → `45.32.107.63`
+  - `www` → `45.32.107.63`
+- DNS yayılması 10–30 dakika sürer, `nslookup domwarehouse.com 8.8.8.8` ile kontrol et
+
+#### 2. Sunucuya Nginx + Certbot Kur
+```bash
+sudo apt update && sudo apt install nginx -y
+sudo apt install certbot python3-certbot-nginx -y
+```
+
+#### 3. Nginx Config Yaz
+```bash
+sudo tee /etc/nginx/sites-available/dom << 'EOF'
+server {
+    listen 80;
+    server_name domwarehouse.com www.domwarehouse.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name domwarehouse.com www.domwarehouse.com;
+
+    ssl_certificate /etc/letsencrypt/live/domwarehouse.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/domwarehouse.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+    }
+
+    location /api/ {
+        proxy_pass http://localhost:3000/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://localhost:3000/socket.io/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+    }
+}
+EOF
+
+sudo ln -s /etc/nginx/sites-available/dom /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+#### 4. Firewall Portlarını Aç (ÖNEMLİ)
+UFW aktifse 80 ve 443 açık olmalı, yoksa certbot "connection refused" hatası verir:
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp
+sudo ufw reload
+```
+
+#### 5. SSL Sertifikası Al
+```bash
+sudo certbot --nginx -d domwarehouse.com -d www.domwarehouse.com
+```
+- Email gir, şartları kabul et (Y)
+- Certbot 90 günde bir otomatik yeniler
+
+#### 6. Vite `allowedHosts` Ayarı (ÖNEMLİ)
+Vite varsayılan olarak dış domain'lerden gelen istekleri bloke eder.
+`vite.config.ts` → `server:` bloğuna ekle:
+```ts
+server: {
+  allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
+  // ...diğer ayarlar
+}
+```
+
+Docker kullanılıyorsa container içindeki dosyayı da güncelle:
+```bash
+# Container içindeki config'e ekle
+sudo docker exec -it dom_frontend sh -c "sed -i 's/server: {/server: {\n    allowedHosts: [\"domwarehouse.com\", \"www.domwarehouse.com\"],/' /app/frontend/vite.config.ts"
+
+# Frontend'i yeniden başlat
+cd /opt/dom && sudo docker compose restart frontend
+```
+
+### Karşılaşılan Hatalar ve Çözümleri
+
+| Hata | Neden | Çözüm |
+|---|---|---|
+| `certbot: connection refused` | UFW port 80 kapalı | `sudo ufw allow 80/tcp && sudo ufw reload` |
+| `certbot: NXDOMAIN` | DNS henüz yayılmamış | 10-30 dk bekle, `nslookup` ile kontrol et |
+| `Blocked request. This host not allowed` | Vite allowedHosts eksik | vite.config.ts'e domain ekle, container restart |
+| `403 Forbidden` | Nginx default config çakışıyor | `sudo rm /etc/nginx/sites-enabled/default` |
+| `This site can't be reached` | UFW port 443 kapalı | `sudo ufw allow 443/tcp && sudo ufw reload` |
+
+### Telefon URL'leri (HTTPS sonrası)
+| Rol | URL |
+|---|---|
+| INBOUND_ADMIN | `https://domwarehouse.com/inbound-scan` |
+| PICKER_ADMIN | `https://domwarehouse.com/picker-admin-scan` |
+| PICKER | `https://domwarehouse.com/picker` |
+| PACKER | `https://domwarehouse.com/packer` |
+
+**Not:** Kullanıcılar `/login` değil direkt scan URL'ine gitmelidir. Giriş yapılmamışsa otomatik login'e yönlendirir, giriş sonrası scan sayfasına döner.
 
 ---
 

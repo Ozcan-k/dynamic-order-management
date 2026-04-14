@@ -36,6 +36,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
+    allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
     https: hasCerts ? { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) } : undefined,
     proxy: proxyConfig,
     watch: {
