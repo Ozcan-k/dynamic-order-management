@@ -5,6 +5,49 @@ Bir sorunla tekrar karşılaşıldığında buradan hızlıca çözüm bulunabil
 
 ---
 
+## [2026-04-14] Packer Mobile — Liste Doluydu, Boş Olmalıydı
+
+### Sorun
+`PACKER` rolüyle giriş yapıldığında packer mobile sayfasında tenant'ın tüm `PICKER_COMPLETE` siparişleri listeleniyordu. Beklenen davranış: liste boş olmalı, packer barkod scan yaparak sipariş tamamlamalı.
+
+### Kök Neden
+`GET /packer/orders` endpoint'i `getAllPickerCompleteOrders(tenantId)` ile tenant'taki tüm `PICKER_COMPLETE` siparişleri döndürüyordu. Kullanıcıya göre filtreleme yoktu.
+
+### Çözüm
+1. `GET /packer/orders` → her zaman `{ orders: [] }` döndürür
+2. Yeni endpoint: `GET /packer/find?tn=TRACKING_NUMBER` → tracking number ile PICKER_COMPLETE sipariş arar, detaylarını döner
+3. `PackerMobile.tsx` güncellendi: liste query kaldırıldı, scan yapınca `/packer/find` çağrılır, sipariş detayları confirm dialog'a gösterilir, confirm → `/packer/complete`
+
+**Etkilenen dosyalar:**
+- `backend/src/services/packerService.ts` — `findOrderForPacking()` eklendi
+- `backend/src/routes/packer.ts` — `/find` endpoint eklendi, `/orders` boş döner
+- `frontend/src/pages/PackerMobile.tsx` — liste query kaldırıldı, handleScan API lookup yapıyor
+
+---
+
+## [2026-04-14] Picker/Packer Mobile — Kamera Scan Özelliği Eklendi
+
+### Değişiklik
+`ScanInput` bileşenine `enableCamera` prop'u eklendi. Aktif edilince kamera butonu çıkar, `@zxing/browser` ile barkod okur.
+
+### Etkilenen dosyalar
+- `frontend/src/components/ScanInput.tsx` — kamera buton + overlay + BrowserMultiFormatReader
+- `frontend/src/pages/PickerMobile.tsx` — `enableCamera` prop aktif
+- `frontend/src/pages/PackerMobile.tsx` — `enableCamera` prop aktif
+
+---
+
+## [2026-04-14] InboundScan + PickerAdminScan — Sign Out Butonu Eklendi
+
+### Değişiklik
+Her iki scan sayfasına sağ üst köşeye Sign Out butonu eklendi.
+
+**Etkilenen dosyalar:**
+- `frontend/src/pages/InboundScan.tsx`
+- `frontend/src/pages/PickerAdminScan.tsx`
+
+---
+
 ## [2026-04-13] Philippines Inbound Panel — Scan Pop-up Çıkmıyor (WebSocket Nginx Fix)
 
 ### Sorun
