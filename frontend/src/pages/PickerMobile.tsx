@@ -169,6 +169,7 @@ export default function PickerMobile() {
           onScan={handleScan}
           disabled={completeMutation.isPending}
           buttonLabel="Scan Order"
+          enableCamera
         />
 
         {/* Order list */}

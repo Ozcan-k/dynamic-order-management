@@ -164,6 +164,7 @@ export default function PackerMobile() {
           onScan={handleScan}
           disabled={completeMutation.isPending}
           buttonLabel="Scan Order"
+          enableCamera
         />
 
         {/* Order list */}
