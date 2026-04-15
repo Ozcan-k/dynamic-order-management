@@ -296,6 +296,7 @@ function EditUserModal({
   const cfg = ROLE_CONFIG[user.role]
   const [username, setUsername] = useState(user.username)
   const [email, setEmail] = useState(user.email ?? '')
+  const [newPassword, setNewPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -307,6 +308,7 @@ function EditUserModal({
       const body: Record<string, unknown> = {}
       if (username.trim() !== user.username) body.username = username.trim()
       if (cfg.hasEmail) body.email = email.trim() || null
+      if (newPassword.trim().length >= 6) body.password = newPassword.trim()
       if (Object.keys(body).length === 0) { onClose(); return }
       await api.patch(`/users/${user.id}`, body)
       onSuccess()
@@ -350,6 +352,21 @@ function EditUserModal({
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required autoFocus minLength={3} maxLength={50}
+              style={inputStyle}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={labelStyle}>
+              New Password <span style={{ fontWeight: 400, color: colors.textSecondary, textTransform: 'none', letterSpacing: 0 }}>(leave blank to keep current)</span>
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              minLength={6}
+              maxLength={100}
+              placeholder="Enter new password"
               style={inputStyle}
             />
           </div>
