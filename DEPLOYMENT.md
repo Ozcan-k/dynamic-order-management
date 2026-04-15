@@ -51,6 +51,21 @@
 
 ---
 
+## Production URLs
+
+| | URL |
+|---|---|
+| **App** | `https://domwarehouse.com` |
+| **Server IP** | `45.32.107.63` |
+| **SSH** | `ssh root@45.32.107.63` |
+| **Project path** | `/opt/dom/` |
+| **Inbound scan** | `https://domwarehouse.com/inbound-scan` |
+| **Picker Admin scan** | `https://domwarehouse.com/picker-admin-scan` |
+| **Picker** | `https://domwarehouse.com/picker` |
+| **Packer** | `https://domwarehouse.com/packer` |
+
+---
+
 ## Production Server Specification
 
 **Vultr Cloud Compute — Regular Performance (Manila, PH)**
@@ -103,12 +118,26 @@ feature/xxx  →  main branch
 
 ## CI/CD Pipeline (GitHub Actions)
 
+**Workflow files:** `.github/workflows/ci.yml` (build/type-check) + `.github/workflows/cd.yml` (deploy)
+
 On push to `main`:
-1. `npm run lint`
-2. `npm run test`
-3. `docker build` (tag with git tag)
-4. `docker push` → registry
-5. SSH to Vultr → `docker compose pull && docker compose up -d`
+1. TypeScript check — `tsc --noEmit` (backend + frontend)
+2. Docker build & push → `ghcr.io/ozcan-k/dom-backend:latest` + `ghcr.io/ozcan-k/dom-frontend:latest`
+3. SSH to Vultr → `git pull origin main` → `docker compose pull && docker compose up -d --remove-orphans`
+4. Run migrations → `docker exec dom_backend npx prisma migrate deploy`
+5. Cleanup → `docker image prune -f`
+
+### Required GitHub Secrets
+
+| Secret | Value |
+|---|---|
+| `VULTR_HOST` | `45.32.107.63` |
+| `VULTR_PASSWORD` | Vultr root password (from my.vultr.com) |
+
+Add at: `https://github.com/Ozcan-k/dynamic-order-management/settings/secrets/actions`
+
+### Authentication Note
+SSH uses **password authentication** (not key-based). No SSH key is required on the server.
 
 ---
 
