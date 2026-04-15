@@ -91,6 +91,9 @@ export default function Login() {
   const nextRoute = searchParams.get('next') ?? null
   const isHandheld = nextRoute !== null && HANDHELD_ROUTES.includes(nextRoute)
   const setUser = useAuthStore((s) => s.setUser)
+  const existingUser = useAuthStore((s) => s.user)
+  // True when redirected here due to role mismatch on a scan route
+  const showSwitchBanner = !!existingUser && !!nextRoute
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -176,6 +179,23 @@ export default function Login() {
               Sign in to access your workspace
             </p>
           </div>
+
+          {showSwitchBanner && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '10px',
+              background: '#fffbeb', border: '1px solid #fcd34d',
+              borderRadius: '10px', padding: '12px 14px',
+              marginBottom: '4px',
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}>
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span style={{ fontSize: '13px', color: '#92400e', fontWeight: 500, lineHeight: 1.4 }}>
+                This area requires a different account. Please sign in to continue.
+              </span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Username */}

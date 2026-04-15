@@ -7,6 +7,10 @@ interface Props {
   allowedRoles?: UserRole[]
 }
 
+// Handheld/scan routes — workers access these via QR codes on mobile devices.
+// On role mismatch, redirect to login (with ?next=) so they can switch accounts seamlessly.
+const SCAN_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
+
 export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const user = useAuthStore((s) => s.user)
   const location = useLocation()
@@ -17,6 +21,9 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (SCAN_ROUTES.includes(location.pathname)) {
+      return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
+    }
     return <Navigate to="/unauthorized" replace />
   }
 
