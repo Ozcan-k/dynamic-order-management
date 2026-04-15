@@ -59,9 +59,9 @@ export default function PageShell({ icon, title, subtitle, stats, children }: Pa
             </div>
           </div>
 
-          {/* Right: stats slot */}
+          {/* Right: stats slot — scrollable on mobile via .panel-header-stats */}
           {stats && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+            <div className="panel-header-stats">
               {stats}
             </div>
           )}

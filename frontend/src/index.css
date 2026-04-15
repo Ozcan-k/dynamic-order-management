@@ -14,6 +14,7 @@ html, body, #root {
   padding: 0;
   height: 100%;
   width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -248,6 +249,14 @@ button {
   padding: 0 32px;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.panel-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .panel-body {
@@ -890,7 +899,23 @@ button {
 
   .panel-header-inner {
     padding: 10px 14px;
-    min-height: 56px;
+    min-height: auto;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .panel-header-stats {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .panel-header-stats::-webkit-scrollbar {
+    display: none;
   }
 
   .panel-body {
