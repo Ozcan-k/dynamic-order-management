@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq'
 import { prisma } from '../lib/prisma'
 import { getIO } from '../lib/socket'
-import { slaD4EmailQueue, redisConnection } from '../lib/queues'
+import { redisConnection } from '../lib/queues'
 import { SLA_HOURS_PER_LEVEL, SLA_MAX_LEVEL, SLA_PRIORITY_BOOSTS } from '@dom/shared'
 
 export function startSlaEscalationWorker() {
@@ -105,11 +105,6 @@ async function escalateOrder(
         assignedPacker: order.assigned_packer,
       })
 
-      await slaD4EmailQueue.add('sendD4Email', {
-        orderId: order.id,
-        trackingNumber: order.tracking_number,
-        tenantId,
-      })
     }
   } catch {
     // Socket not initialized (e.g. during tests) — not fatal

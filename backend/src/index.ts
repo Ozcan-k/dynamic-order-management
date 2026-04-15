@@ -9,7 +9,6 @@ import { prisma } from './lib/prisma'
 import { initSocket } from './lib/socket'
 import { slaEscalationQueue, nightlyReportQueue, archiveOutboundQueue } from './lib/queues'
 import { startSlaEscalationWorker } from './jobs/slaEscalation'
-import { startSlaD4EmailWorker } from './jobs/slaD4Email'
 import { startNightlyReportWorker } from './jobs/nightlyReport'
 import { startArchiveOutboundWorker } from './jobs/archiveOutbound'
 import authRoutes from './routes/auth'
@@ -58,14 +57,12 @@ async function start() {
 
   // BullMQ workers — declared here so onClose hook can reference them
   let escalationWorker: ReturnType<typeof startSlaEscalationWorker> | null = null
-  let d4EmailWorker: ReturnType<typeof startSlaD4EmailWorker> | null = null
   let nightlyReportWorker: ReturnType<typeof startNightlyReportWorker> | null = null
   let archiveOutboundWorker: ReturnType<typeof startArchiveOutboundWorker> | null = null
 
   // Register onClose BEFORE fastify.ready() — Fastify rejects hooks after ready
   fastify.addHook('onClose', async () => {
     if (escalationWorker) await escalationWorker.close()
-    if (d4EmailWorker) await d4EmailWorker.close()
     if (nightlyReportWorker) await nightlyReportWorker.close()
     if (archiveOutboundWorker) await archiveOutboundWorker.close()
     await prisma.$disconnect()
@@ -108,7 +105,6 @@ async function start() {
 
   // Start BullMQ workers
   escalationWorker = startSlaEscalationWorker()
-  d4EmailWorker = startSlaD4EmailWorker()
   nightlyReportWorker = startNightlyReportWorker()
   archiveOutboundWorker = startArchiveOutboundWorker()
 
