@@ -72,15 +72,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Deploy to Vultr (uncomment when server is ready) ──────────────────
-      # - name: Deploy to Vultr
-      #   uses: appleboy/ssh-action@v1
-      #   with:
-      #     host: ${{ secrets.VULTR_HOST }}
-      #     username: root
-      #     key: ${{ secrets.VULTR_SSH_KEY }}
-      #     script: |
-      #       cd /opt/dom
-      #       docker compose pull
-      #       docker compose up -d
-      #       docker image prune -f
+      # ── Deploy to Vultr ───────────────────────────────────────────────────
+      - name: Deploy to Vultr
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VULTR_HOST }}
+          username: root
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script: |
+            cd /opt/dom
+            git pull origin main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker exec dom_backend npx prisma migrate deploy || true
+            docker image prune -f
