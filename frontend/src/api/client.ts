@@ -8,7 +8,7 @@ export const api = axios.create({
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !err.config?.url?.includes('/auth/login')) {
       // Clear local state and redirect to login
       window.location.href = '/login'
     }
