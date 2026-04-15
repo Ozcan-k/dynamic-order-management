@@ -803,6 +803,26 @@ button {
   color: #0f172a;
 }
 
+.header-signout-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.header-signout-btn:hover {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
 .sidebar-close-btn {
   display: none;
   align-items: center;
@@ -879,8 +899,9 @@ button {
     pointer-events: auto;
   }
 
-  /* Show hamburger and close buttons */
-  .sidebar-hamburger {
+  /* Show hamburger, close, and header sign-out buttons */
+  .sidebar-hamburger,
+  .header-signout-btn {
     display: flex;
   }
 
