@@ -118,7 +118,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/dashboard',
     label: 'Inbound',
     icon: <InboundIcon />,
-    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
   },
   {
     path: '/picker-admin',
@@ -136,13 +136,13 @@ const NAV_ITEMS: NavItem[] = [
     path: '/outbound',
     label: 'Outbound',
     icon: <OutboundIcon />,
-    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
   },
   {
     path: '/reports',
     label: 'Reports',
     icon: <ReportsIcon />,
-    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
   },
   {
     path: '/archive',

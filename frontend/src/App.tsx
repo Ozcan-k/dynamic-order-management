@@ -93,7 +93,7 @@ export default function App() {
           <Route
             path="/outbound"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN]}>
                 <AppLayout><Outbound /></AppLayout>
               </ProtectedRoute>
             }
@@ -109,7 +109,7 @@ export default function App() {
           <Route
             path="/reports"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN]}>
                 <AppLayout><Reports /></AppLayout>
               </ProtectedRoute>
             }
