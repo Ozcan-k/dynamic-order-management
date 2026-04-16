@@ -73,6 +73,17 @@ async function start() {
   await fastify.ready()
   initSocket(fastify.server)
 
+  // Clear existing repeatable jobs before re-registering to prevent duplication on restart
+  for (const job of await slaEscalationQueue.getRepeatableJobs()) {
+    await slaEscalationQueue.removeRepeatableByKey(job.key)
+  }
+  for (const job of await nightlyReportQueue.getRepeatableJobs()) {
+    await nightlyReportQueue.removeRepeatableByKey(job.key)
+  }
+  for (const job of await archiveOutboundQueue.getRepeatableJobs()) {
+    await archiveOutboundQueue.removeRepeatableByKey(job.key)
+  }
+
   // Register SLA escalation as a repeatable BullMQ job (every 15 min)
   await slaEscalationQueue.add(
     'sweep',
@@ -83,23 +94,24 @@ async function start() {
     },
   )
 
-  // Register nightly report as a repeatable BullMQ job (11:10 Manila = 03:10 UTC)
-  await nightlyReportQueue.add(
-    'send',
-    {},
-    {
-      repeat: { pattern: '10 3 * * *' },
-      jobId: 'nightly-report-repeat',
-    },
-  )
-
-  // Register archive job as a repeatable BullMQ job (11:00 Manila = 03:00 UTC)
+  // Register archive job as a repeatable BullMQ job (23:30 Manila = 15:30 UTC)
   await archiveOutboundQueue.add(
     'archive',
     {},
     {
-      repeat: { pattern: '0 3 * * *' },
+      repeat: { pattern: '30 15 * * *' },
       jobId: 'archive-outbound-repeat',
+    },
+  )
+
+  // Register nightly report as a repeatable BullMQ job (23:40 Manila = 15:40 UTC)
+  // Archive runs first (23:30) to close the day, then report counts final numbers
+  await nightlyReportQueue.add(
+    'send',
+    {},
+    {
+      repeat: { pattern: '40 15 * * *' },
+      jobId: 'nightly-report-repeat',
     },
   )
 
