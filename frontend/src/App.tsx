@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { UserRole } from '@dom/shared'
 import Login from './pages/Login'
+import ScanLogin from './pages/ScanLogin'
 import Inbound from './pages/Inbound'
 import InboundScan from './pages/InboundScan'
 import PickerAdmin from './pages/PickerAdmin'
@@ -64,6 +65,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/scan" element={<ScanLogin />} />
           <Route
             path="/dashboard"
             element={
