@@ -59,10 +59,7 @@
 | **Server IP** | `45.32.107.63` |
 | **SSH** | `ssh root@45.32.107.63` |
 | **Project path** | `/opt/dom/` |
-| **Inbound scan** | `https://domwarehouse.com/inbound-scan` |
-| **Picker Admin scan** | `https://domwarehouse.com/picker-admin-scan` |
-| **Picker** | `https://domwarehouse.com/picker` |
-| **Packer** | `https://domwarehouse.com/packer` |
+| **Handheld scan (tüm roller)** | `https://domwarehouse.com/scan` |
 
 ---
 
@@ -192,22 +189,18 @@ SSH uses **password authentication** (not key-based). No SSH key is required on 
 
 ---
 
-## Handheld Device Setup (Picker)
+## Handheld Device Setup
 
-Each picker device (Android/iOS handheld with barcode scanner) connects to the system over WiFi.
+All handheld roles (PICKER, PACKER, INBOUND_ADMIN, PICKER_ADMIN) use the same URL.
 
 **One-time setup per device:**
-1. Ensure device is on the same LAN as the server
-2. Picker Admin sets a 4-digit PIN for the picker: `Picker Admin Panel → picker card → Set PIN`
-3. Open Chrome on the device → navigate to `http://<server-ip>:5173/picker`
-4. Bookmark / Add to Home Screen for quick access
+1. Open Chrome on the device → navigate to `https://domwarehouse.com/scan`
+2. Add to Home Screen for quick access (Chrome ⋮ menu → "Add to Home Screen")
 
 **Daily use:**
-- Picker opens the bookmark → PIN screen → enter 4-digit PIN → order list appears
-- Scan physical waybill barcode → match found → Confirm → order marked complete
-- Session persists (8 hours); no re-login needed unless Logout is pressed
-
-**Server IP:** run `ipconfig` on the host machine → `IPv4 Address` under the active network adapter
+- Worker opens the bookmark → enters username + password → taps Sign In
+- System detects role and redirects automatically to the correct scan page
+- Session persists 8 hours; no re-login needed during shift unless Logout is pressed
 
 ---
 

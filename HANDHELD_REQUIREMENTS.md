@@ -88,11 +88,10 @@ Update `CORS_ORIGIN` in `.env` to include this domain and restart containers.
 2. Type the following in the address bar:
 
 ```
-http://192.168.1.119:5173/picker
+https://domwarehouse.com/scan
 ```
-*(or the Cloudflare Tunnel URL)*
 
-3. A dark login screen will appear with **Username** and **Password** fields
+3. A login screen will appear with **Username** and **Password** fields
 
 ---
 
@@ -100,8 +99,11 @@ http://192.168.1.119:5173/picker
 
 1. Worker enters their username and password
 2. Tap **Sign In**
-3. Credentials verified → assigned order list opens automatically
-4. If wrong role (e.g. packer logs into `/picker`), an error message appears
+3. Credentials verified → system detects the worker's role and redirects automatically to the correct scan page
+   - PICKER → `/picker`
+   - PACKER → `/packer`
+   - INBOUND_ADMIN → `/inbound-scan`
+   - PICKER_ADMIN → `/picker-admin-scan`
 
 ---
 
@@ -110,9 +112,10 @@ http://192.168.1.119:5173/picker
 In Android Chrome:
 1. Tap the **⋮ (3-dot menu)** in the top right corner
 2. Select **"Add to Home Screen"**
-3. Name it (e.g. "Order Picker") → tap **Add**
+3. Name it (e.g. "DOM Scan") → tap **Add**
 
 The worker can now tap this shortcut each morning to open the app directly.
+All roles use the same shortcut URL: `https://domwarehouse.com/scan`
 
 ---
 
@@ -148,8 +151,8 @@ INBOUND_ADMIN and PICKER_ADMIN users work primarily on their desktop computers. 
 
 | Role | Handheld URL | Desktop Effect |
 |---|---|---|
-| INBOUND_ADMIN | `https://<ip>:5173/inbound-scan` | QuickScanModal (Single) or BulkScanModal (Bulk) opens on desktop — admin fills Carrier + Shop then saves |
-| PICKER_ADMIN | `https://<ip>:5173/picker-admin-scan` | Scanned order auto-appears in Staging area — admin selects Picker and assigns |
+| INBOUND_ADMIN | `https://domwarehouse.com/scan` → `/inbound-scan` | QuickScanModal (Single) or BulkScanModal (Bulk) opens on desktop — admin fills Carrier + Shop then saves |
+| PICKER_ADMIN | `https://domwarehouse.com/scan` → `/picker-admin-scan` | Scanned order auto-appears in Staging area — admin selects Picker and assigns |
 
 ### Scan Modes
 
@@ -179,9 +182,9 @@ This means **the desktop page does not need to be open at the exact moment of sc
 
 ### Login Flow
 
-1. Open `https://192.168.1.119:5173/inbound-scan` (or `/picker-admin-scan`) on the phone
-2. Browser redirects to login page with `?next=` param
-3. Log in with admin credentials → automatically redirected to scan page
+1. Open `https://domwarehouse.com/scan` on the phone
+2. Enter admin credentials (INBOUND_ADMIN or PICKER_ADMIN) → tap Sign In
+3. System detects role → automatically redirected to `/inbound-scan` or `/picker-admin-scan`
 4. A **separate session** is created for the handheld (`deviceType: handheld`) so the desktop session remains active simultaneously
 
 ### HTTPS Requirement
@@ -205,7 +208,8 @@ The packer handheld uses the **same hardware and process** as the picker handhel
 
 | | Picker | Packer |
 |---|---|---|
-| URL | `http://<ip>:5173/picker` | `http://<ip>:5173/packer` |
+| Login URL | `https://domwarehouse.com/scan` | `https://domwarehouse.com/scan` |
+| Redirected to | `/picker` | `/packer` |
 | Account role | PICKER | PACKER |
 | Order list | Own assigned orders | All PICKER_COMPLETE orders (shared queue) |
 | Action | Complete own order | Scan waybill → complete from shared queue |

@@ -655,15 +655,24 @@ cd /opt/dom && sudo docker compose restart frontend
 | `403 Forbidden` | Nginx default config çakışıyor | `sudo rm /etc/nginx/sites-enabled/default` |
 | `This site can't be reached` | UFW port 443 kapalı | `sudo ufw allow 443/tcp && sudo ufw reload` |
 
-### Telefon URL'leri (HTTPS sonrası)
-| Rol | URL |
-|---|---|
-| INBOUND_ADMIN | `https://domwarehouse.com/inbound-scan` |
-| PICKER_ADMIN | `https://domwarehouse.com/picker-admin-scan` |
-| PICKER | `https://domwarehouse.com/picker` |
-| PACKER | `https://domwarehouse.com/packer` |
+### Telefon URL'i
 
-**Not:** Kullanıcılar `/login` değil direkt scan URL'ine gitmelidir. Giriş yapılmamışsa otomatik login'e yönlendirir, giriş sonrası scan sayfasına döner.
+Tüm roller için **tek URL**:
+
+```
+https://domwarehouse.com/scan
+```
+
+Kullanıcı username + password giriyor, sistem role'ü tanıyıp doğru scan sayfasına yönlendiriyor:
+
+| Rol | Yönlendirilen Sayfa |
+|---|---|
+| ADMIN / INBOUND_ADMIN | `/inbound-scan` |
+| PICKER_ADMIN | `/picker-admin-scan` |
+| PICKER | `/picker` |
+| PACKER | `/packer` |
+
+**Not:** Zaten giriş yapılmış kullanıcı `/scan`'e gelirse formu görmez, direkt kendi sayfasına yönlendirilir.
 
 ---
 
