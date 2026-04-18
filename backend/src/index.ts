@@ -77,16 +77,28 @@ async function start() {
   await fastify.ready()
   initSocket(fastify.server)
 
-  // Clear existing repeatable jobs before re-registering to prevent duplication on restart
-  for (const job of await slaEscalationQueue.getRepeatableJobs()) {
-    await slaEscalationQueue.removeRepeatableByKey(job.key)
+  // Clear ALL existing repeatable jobs before re-registering to prevent duplication.
+  // Uses direct Redis SCAN+DEL as a safety net for stale keys that BullMQ's
+  // getRepeatableJobs() may not list (e.g. jobs registered by older BullMQ versions).
+  const clearQueue = async (queueName: string) => {
+    // Standard BullMQ API
+    const queue = { slaEscalation: slaEscalationQueue, nightlyReport: nightlyReportQueue, archiveOutbound: archiveOutboundQueue }[queueName]!
+    for (const job of await queue.getRepeatableJobs()) {
+      await queue.removeRepeatableByKey(job.key)
+    }
+    // Redis-level sweep for any leftover keys matching this queue's repeat pattern
+    const pattern = `bull:${queueName}:repeat:*`
+    let cursor = '0'
+    do {
+      const [next, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '100')
+      cursor = next
+      if (keys.length > 0) await redis.del(...keys)
+    } while (cursor !== '0')
   }
-  for (const job of await nightlyReportQueue.getRepeatableJobs()) {
-    await nightlyReportQueue.removeRepeatableByKey(job.key)
-  }
-  for (const job of await archiveOutboundQueue.getRepeatableJobs()) {
-    await archiveOutboundQueue.removeRepeatableByKey(job.key)
-  }
+
+  await clearQueue('slaEscalation')
+  await clearQueue('nightlyReport')
+  await clearQueue('archiveOutbound')
 
   // Register SLA escalation as a repeatable BullMQ job (every 15 min)
   await slaEscalationQueue.add(
@@ -98,23 +110,22 @@ async function start() {
     },
   )
 
-  // Register archive job as a repeatable BullMQ job (23:30 Manila = 15:30 UTC)
+  // Register archive job: 23:30 Manila time (explicit tz — no UTC conversion needed)
   await archiveOutboundQueue.add(
     'archive',
     {},
     {
-      repeat: { pattern: '30 15 * * *' },
+      repeat: { pattern: '30 23 * * *', tz: 'Asia/Manila' },
       jobId: 'archive-outbound-repeat',
     },
   )
 
-  // Register nightly report as a repeatable BullMQ job (23:40 Manila = 15:40 UTC)
-  // Archive runs first (23:30) to close the day, then report counts final numbers
+  // Register nightly report: 23:40 Manila time — archive runs first to close the day
   await nightlyReportQueue.add(
     'send',
     {},
     {
-      repeat: { pattern: '40 15 * * *' },
+      repeat: { pattern: '40 23 * * *', tz: 'Asia/Manila' },
       jobId: 'nightly-report-repeat',
     },
   )
