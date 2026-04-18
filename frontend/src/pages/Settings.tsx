@@ -686,6 +686,8 @@ export default function Settings() {
     mutationFn: (userId: string) => api.delete(`/users/${userId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
+      queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['packer-admin-stats'] })
       setDeleteTarget(null)
     },
   })
