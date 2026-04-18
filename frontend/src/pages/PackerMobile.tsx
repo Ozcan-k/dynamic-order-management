@@ -132,9 +132,21 @@ export default function PackerMobile() {
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
+  function extractTrackingNumber(raw: string): string {
+    const s = raw.trim()
+    try {
+      const url = new URL(s)
+      const tn = url.searchParams.get('tn') || url.searchParams.get('tracking')
+      if (tn) return tn.trim().toUpperCase()
+      const parts = url.pathname.split('/').filter(Boolean)
+      if (parts.length > 0) return parts[parts.length - 1].toUpperCase()
+    } catch {}
+    return s.toUpperCase()
+  }
+
   async function handleScan(raw: string) {
     setErrorMsg(null)
-    const tn = raw.trim().toUpperCase()
+    const tn = extractTrackingNumber(raw)
     setLookingUp(true)
     try {
       const res = await api.get<{ order: PackerOrder }>(`/packer/find?tn=${encodeURIComponent(tn)}`)
@@ -142,7 +154,10 @@ export default function PackerMobile() {
       playBeep(true)
       try { navigator.vibrate?.(80) } catch {}
     } catch (err: any) {
-      const msg = err?.response?.data?.error ?? `"${raw.trim()}" not found or not ready for packing`
+      const apiError = err?.response?.data?.error
+      const msg = apiError
+        ? `${apiError} — scanned: "${tn}"`
+        : `"${tn}" not found or not ready for packing`
       setErrorMsg(msg)
       playBeep(false)
       try { navigator.vibrate?.([80, 60, 80]) } catch {}

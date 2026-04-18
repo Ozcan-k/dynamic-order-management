@@ -20,7 +20,8 @@ export default async function packerRoutes(fastify: FastifyInstance) {
     if (!tn || tn.trim().length === 0) {
       return reply.code(400).send({ error: 'tn query param is required' })
     }
-    const { tenantId } = request.user as JWTPayload
+    const { tenantId, userId } = request.user as JWTPayload
+    request.log.info({ tn: tn.trim(), tenantId, userId }, 'packer find attempt')
     const order = await findOrderForPacking(tn.trim(), tenantId)
     if (!order) {
       return reply.code(404).send({ error: 'Order not found or not ready for packing' })
