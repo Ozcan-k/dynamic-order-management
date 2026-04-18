@@ -5,6 +5,52 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] "Deleted" Users Still Visible — They Were Never Actually Deleted (True Root Cause)
+
+### Problem
+Across 6 fix rounds (v2.5.4 → v2.12.4) focused on cache invalidation, backend `isActive` filters, `staleTime`, orphaned assignments, and `invalidateQueries` vs `removeQueries` — test pickers (`picker1_test`, `picker2_test`, `picker3_test`, `picker11`) kept appearing in PickerAdmin workload.
+
+### True Root Cause
+**Those users had `isActive = true` in the database the whole time** — they were never successfully deleted. Direct inspection of the live `/picker-admin/stats` response proved the backend was correctly returning active-only users; they just happened to still be active.
+
+The underlying bug: `deleteMutation` in `Settings.tsx` had **no `onError` handler**. Any failure (transaction rollback, permission error, network hiccup) was silently swallowed — the modal stayed open on failure but closed on success, making the two indistinguishable to the user. The user thought they clicked delete; the API call actually never succeeded, or was never made for those specific users.
+
+All 6 prior cache-invalidation fixes were addressing a **symptom that wasn't the actual bug** — the data was never stale; it was always correct-per-DB. The DB was the wrong state.
+
+### Fix
+1. **Add `onError` to `deleteMutation` in `Settings.tsx`** — surface backend error messages via alert() so silent failures can never happen again:
+   ```ts
+   onError: (err: unknown) => {
+     const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+       ?? (err instanceof Error ? err.message : 'Failed to delete user')
+     alert(`Delete failed: ${msg}`)
+   }
+   ```
+
+2. **Manual cleanup of the orphan test users on live DB** (one-time):
+   ```bash
+   docker exec dom_backend node -e "
+   const { PrismaClient } = require('@prisma/client');
+   const p = new PrismaClient();
+   p.user.updateMany({
+     where: { username: { in: ['picker1_test','picker2_test','picker3_test','picker11','packer1_test','packer2_test','packer3_test'] } },
+     data: { isActive: false }
+   }).then(r => { console.log('Deactivated:', r.count); return p.\$disconnect(); }).catch(e => { console.error(e); process.exit(1); });
+   "
+   ```
+
+### Rule — DEBUGGING LESSON
+**Verify the DB state before blaming cache.** Before attempting any cache-invalidation fix for a "stale data" bug, check what the API is actually returning. If the API returns the "wrong" data, the bug is in the backend filter or the DB state — NOT in frontend cache.
+
+In this case, a 30-second `curl` to `/picker-admin/stats` on day one would have proved the users were still active in the DB, saving 5 rounds of misdirected fixes.
+
+**Always add `onError` handlers to destructive mutations.** A silent failure is strictly worse than a loud one.
+
+### Files Affected
+- `frontend/src/pages/Settings.tsx` — `deleteMutation` now has `onError`
+
+---
+
 ## [2026-04-18] Deleted Users Still Appear in Workload — `removeQueries` vs `invalidateQueries` (Final Fix)
 
 ### Problem
