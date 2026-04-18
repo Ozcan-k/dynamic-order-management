@@ -46,7 +46,6 @@ export default function PackerMobile() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
   const [manualInput, setManualInput] = useState('')
-  const [queueOpen, setQueueOpen] = useState(false)
   const [debugInfo, setDebugInfo] = useState<{ extracted: string; raw: string; queue: string[] } | null>(null)
 
   const { data: queueData, refetch: refetchQueue } = useQuery({
@@ -420,83 +419,15 @@ export default function PackerMobile() {
           </button>
         </div>
 
-        {/* ── Queue panel ── */}
-        {(() => {
-          const queue = queueData?.orders ?? []
-          return (
-            <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-              <button
-                onClick={() => setQueueOpen(o => !o)}
-                style={{
-                  width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: '8px',
-                    background: queue.length > 0 ? '#f0fdf4' : '#f8fafc',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={queue.length > 0 ? '#059669' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                    </svg>
-                  </div>
-                  <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>
-                    Waiting to Pack
-                  </span>
-                  <span style={{
-                    background: queue.length > 0 ? '#059669' : '#e2e8f0',
-                    color: queue.length > 0 ? '#fff' : '#94a3b8',
-                    borderRadius: '99px', fontSize: '12px', fontWeight: 700,
-                    padding: '2px 8px',
-                  }}>{queue.length}</span>
-                </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  style={{ transform: queueOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              {queueOpen && (
-                <div style={{ borderTop: '1px solid #f1f5f9' }}>
-                  {queue.length === 0 ? (
-                    <div style={{ padding: '20px 16px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-                      No orders waiting to pack
-                    </div>
-                  ) : (
-                    queue.map(order => (
-                      <button
-                        key={order.id}
-                        onClick={() => { setPendingOrder(order); setQueueOpen(false) }}
-                        disabled={isPending}
-                        style={{
-                          width: '100%', background: 'none', border: 'none', borderTop: '1px solid #f1f5f9',
-                          cursor: isPending ? 'not-allowed' : 'pointer', padding: '12px 16px',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          textAlign: 'left',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
-                            {order.trackingNumber}
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                            <PlatformBadge platform={order.platform} />
-                            <DelayBadge level={order.delayLevel} />
-                          </div>
-                        </div>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })()}
+        {/* Ready state placeholder */}
+        <div style={{
+          textAlign: 'center', padding: '32px 20px',
+          background: '#fff', borderRadius: '16px',
+          border: '2px dashed #d1fae5',
+        }}>
+          <div style={{ fontWeight: 700, color: '#374151', fontSize: '15px', marginBottom: '4px' }}>Ready to pack</div>
+          <div style={{ fontSize: '13px', color: '#9ca3af' }}>Scan a barcode to look up an order</div>
+        </div>
       </div>
 
       {/* ── Camera overlay ── */}
