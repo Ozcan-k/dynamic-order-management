@@ -5,6 +5,57 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] Backend Container Never Rebuilt on CD — All Backend Fixes Silently No-Op'd
+
+### Problem
+After 6+ rounds of backend fixes (v2.5.4 → v2.12.5) addressing the "deleted users still visible" bug, none of them actually took effect on production. The backend container on Vultr was running the ORIGINAL image built weeks ago — every backend change pushed since then was silently ignored.
+
+### Root Cause
+Three-way config mismatch between Dockerfile, docker-compose.yml, and the CD script:
+
+1. **`backend/Dockerfile`** — runtime command: `CMD ["node", "backend/dist/index.js"]`. Runs compiled JS from `/app/backend/dist/` which is baked into the image at build time.
+
+2. **`docker-compose.yml`** — volume mount: `./backend/src:/app/backend/src`. Mounted the source directory, but the runtime never reads from there (it reads `dist/`, which was NOT mounted). So source updates on the host were invisible to the running process.
+
+3. **`.github/workflows/cd.yml`** — deploy script:
+   ```bash
+   git pull origin main      # updates /opt/dom/backend/src (irrelevant — not used at runtime)
+   docker compose pull       # no-op: services declared `build:` not `image:`
+   docker compose up -d      # no config change → no container restart
+   ```
+
+Combined effect: `git pull` updated files the container didn't read, `pull` had no images to fetch (no `image:` field), and `up -d` saw no config diff so it left the container running. The old compiled `dist/index.js` kept running forever.
+
+### How the Bug Looked
+- Frontend fixes appeared to work (frontend runs `npx vite --host` in dev mode, reads source directly from volume — git pull propagates immediately).
+- Backend fixes appeared to have no effect even after waiting, refreshing, clearing cache.
+- Live `/packer-admin/stats` and `/picker-admin/stats` returned inactive users regardless of DB state, because the old baked-in code had no `isActive: true` filter.
+- UI "Delete user" succeeded (backend DELETE /users/:id worked because that CRUD route was written long enough ago to be in the baked image), but the stats endpoint read the DB without filtering, so "deleted" users kept showing up.
+
+### Fix
+Two changes:
+1. **`.github/workflows/cd.yml`** — force rebuild on every deploy:
+   ```yaml
+   docker compose up -d --build --remove-orphans
+   ```
+2. **`docker-compose.yml`** — tag the backend image (`ghcr.io/ozcan-k/dom-backend:latest`) and remove the useless `./backend/src` volume mount that misled every future reader into thinking the backend was in dev mode.
+
+After the next CD run, the Vultr server will actually `docker build` fresh backend and frontend images from the pulled source, then recreate the containers — so all subsequent code changes will actually reach production.
+
+### Rule — INFRASTRUCTURE DEBUGGING
+If a "fixed" backend bug persists across multiple deploy cycles, **stop fixing the code** and verify the running container is executing the code you think it is. Ways to verify:
+- `docker exec dom_backend cat /app/backend/dist/<file>.js | grep <expected-string>` — does the compiled code contain the new filter?
+- `docker inspect dom_backend --format='{{.Created}}'` — when was this container created? If weeks ago, it's not running current code.
+- `docker images ghcr.io/ozcan-k/dom-backend --format "{{.CreatedAt}}"` — when was the image built locally on the server?
+
+A deploy pipeline that pushes images to a registry but doesn't actually consume them on the deploy target is a silent time bomb. Always trace the full path: source → build → image → container → process.
+
+### Files Affected
+- `.github/workflows/cd.yml` — `--build` flag on `docker compose up`
+- `docker-compose.yml` — `image:` tag added; dead `backend.volumes` entry removed
+
+---
+
 ## [2026-04-18] "Deleted" Users Still Visible — They Were Never Actually Deleted (True Root Cause)
 
 ### Problem
