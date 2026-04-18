@@ -1159,7 +1159,7 @@ On push to main branch:
   2. npm run test
   3. docker build (tag with git tag)
   4. docker push → registry
-  5. SSH to Vultr → docker compose pull + up
+  5. SSH to Vultr → git pull + `docker compose up -d --build --remove-orphans` (rebuilds images from source)
 ```
 
 ### Scaling Roadmap

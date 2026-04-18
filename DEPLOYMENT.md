@@ -120,7 +120,7 @@ feature/xxx  →  main branch
 On push to `main`:
 1. TypeScript check — `tsc --noEmit` (backend + frontend)
 2. Docker build & push → `ghcr.io/ozcan-k/dom-backend:latest` + `ghcr.io/ozcan-k/dom-frontend:latest`
-3. SSH to Vultr → `git pull origin main` → `docker compose pull && docker compose up -d --remove-orphans`
+3. SSH to Vultr → `git pull origin main` → `docker compose up -d --build --remove-orphans` (rebuilds images from pulled source — earlier `pull && up -d` approach was a silent no-op since services use `build:` not `image:`)
 4. Run migrations → `docker exec dom_backend npx prisma migrate deploy`
 5. Cleanup → `docker image prune -f`
 
