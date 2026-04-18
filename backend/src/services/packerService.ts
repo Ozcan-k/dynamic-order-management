@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { completeOrder } from './packerAdminService'
 
 export async function findOrderForPacking(trackingNumber: string, tenantId: string) {
-  const order = await prisma.order.findFirst({
+  return prisma.order.findFirst({
     where: {
       trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
       tenantId,
@@ -11,20 +11,13 @@ export async function findOrderForPacking(trackingNumber: string, tenantId: stri
     },
     select: { id: true, trackingNumber: true, platform: true, delayLevel: true, status: true },
   })
+}
 
-  if (!order) {
-    const anyStatus = await prisma.order.findFirst({
-      where: { trackingNumber: { equals: trackingNumber, mode: 'insensitive' }, tenantId },
-      select: { status: true, archivedAt: true },
-    })
-    if (anyStatus) {
-      const suffix = anyStatus.archivedAt ? ' (archived)' : ''
-      throw new Error(`Order status is ${anyStatus.status}${suffix}, not PICKER_COMPLETE`)
-    }
-    throw new Error('Order not found in this warehouse')
-  }
-
-  return order
+export async function diagnoseTracking(trackingNumber: string, tenantId: string) {
+  return prisma.order.findFirst({
+    where: { trackingNumber: { equals: trackingNumber, mode: 'insensitive' }, tenantId },
+    select: { status: true, archivedAt: true },
+  })
 }
 
 export async function completeByTracking(

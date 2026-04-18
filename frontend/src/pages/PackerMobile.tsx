@@ -154,10 +154,11 @@ export default function PackerMobile() {
       playBeep(true)
       try { navigator.vibrate?.(80) } catch {}
     } catch (err: any) {
-      const apiError = err?.response?.data?.error
+      const apiError = err?.response?.data?.error || err?.response?.data?.message || null
+      const status = err?.response?.status ?? 0
       const msg = apiError
         ? `${apiError} — scanned: "${tn}"`
-        : `"${tn}" not found or not ready for packing`
+        : `[${status}] "${tn}" not found or not ready for packing`
       setErrorMsg(msg)
       playBeep(false)
       try { navigator.vibrate?.([80, 60, 80]) } catch {}

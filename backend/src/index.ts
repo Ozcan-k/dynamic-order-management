@@ -55,6 +55,10 @@ async function start() {
 
   fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
+  fastify.setNotFoundHandler((request, reply) => {
+    return reply.code(404).send({ error: `Route not found: ${request.method} ${request.url}` })
+  })
+
   // BullMQ workers — declared here so onClose hook can reference them
   let escalationWorker: ReturnType<typeof startSlaEscalationWorker> | null = null
   let nightlyReportWorker: ReturnType<typeof startNightlyReportWorker> | null = null

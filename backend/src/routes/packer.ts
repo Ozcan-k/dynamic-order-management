@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
-import { findOrderForPacking, completeByTracking } from '../services/packerService'
+import { findOrderForPacking, diagnoseTracking, completeByTracking } from '../services/packerService'
 
 const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
 
@@ -21,14 +21,16 @@ export default async function packerRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'tn query param is required' })
     }
     const { tenantId, userId } = request.user as JWTPayload
-    request.log.info({ tn: tn.trim(), tenantId, userId }, 'packer find attempt')
-    try {
-      const order = await findOrderForPacking(tn.trim(), tenantId)
-      return reply.send({ order })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Order not found or not ready for packing'
-      return reply.code(404).send({ error: message })
+    request.log.warn({ tn: tn.trim(), tenantId, userId }, 'packer find attempt')
+    const order = await findOrderForPacking(tn.trim(), tenantId)
+    if (!order) {
+      const any = await diagnoseTracking(tn.trim(), tenantId)
+      const msg = any
+        ? `Order status is ${any.status}${any.archivedAt ? ' (archived)' : ''}, not PICKER_COMPLETE`
+        : 'Order not found in this tenant'
+      return reply.code(404).send({ error: msg })
     }
+    return reply.send({ order })
   })
 
   // POST /packer/complete — scan tracking number → PACKER_COMPLETE
