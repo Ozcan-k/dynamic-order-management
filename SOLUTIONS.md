@@ -95,6 +95,60 @@ Use `removeQueries` (not `invalidateQueries`) for cross-page caches: removes dat
 
 ---
 
+## [2026-04-18] Global staleTime:30s Preventing Immediate Refetch on Page Navigation
+
+### Problem
+After deleting a picker/packer from Settings, the workload section and picker assignment dropdown in PickerAdmin/PackerAdmin still showed the deleted user when navigating back to those pages — even though `removeQueries` was being called.
+
+### Root Cause
+`App.tsx` sets a global `staleTime: 30_000` for all queries. This means React Query considers fetched data "fresh" for 30 seconds. When PickerAdmin mounts after a deletion:
+- If cache still exists and was fetched < 30s ago → `refetchOnMount: true` does NOT refetch (data is "fresh")
+- The deleted user remains visible until the staleTime expires or `refetchInterval` fires
+
+The `['picker-admin-pickers']` query had no `refetchInterval`, so it could show stale data for the full 30 seconds.
+
+### Fix
+Override the global staleTime at the query level for all picker/packer admin queries:
+
+```ts
+// PickerAdmin.tsx — pickers dropdown
+const { data: pickers } = useQuery({
+  queryKey: ['picker-admin-pickers'],
+  staleTime: 0,
+  refetchOnMount: 'always',   // bypasses staleTime entirely on mount
+  ...
+})
+
+// PickerAdmin.tsx — stats workload
+const { data: statsData } = useQuery({
+  queryKey: ['picker-admin-stats'],
+  staleTime: 0,              // always stale → always refetches on mount
+  refetchInterval: 10_000,
+  ...
+})
+
+// PackerAdmin.tsx — stats workload
+const { data: statsData } = useQuery({
+  queryKey: ['packer-admin-stats'],
+  staleTime: 0,
+  refetchInterval: 10_000,
+  ...
+})
+```
+
+Combined with `removeQueries` in `Settings.tsx deleteMutation.onSuccess`, this ensures deleted users never appear regardless of timing or navigation pattern.
+
+### Rule
+When a query displays data that can be changed by a mutation on ANOTHER page, always set `staleTime: 0` (and `refetchOnMount: 'always'` if no `refetchInterval`) on that query. Never rely solely on the global staleTime for cross-page consistency.
+
+Do NOT set a high global `staleTime` for queries that must reflect deletions/deactivations across pages.
+
+### Files Affected
+- `frontend/src/pages/PickerAdmin.tsx` — `['picker-admin-pickers']` and `['picker-admin-stats']` queries
+- `frontend/src/pages/PackerAdmin.tsx` — `['packer-admin-stats']` query
+
+---
+
 ## [2026-04-17] Packer Scan — Final Fix Summary
 
 The "not found" scan issue was resolved across multiple steps. All steps work together:
