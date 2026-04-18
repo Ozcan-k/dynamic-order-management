@@ -22,11 +22,13 @@ export default async function packerRoutes(fastify: FastifyInstance) {
     }
     const { tenantId, userId } = request.user as JWTPayload
     request.log.info({ tn: tn.trim(), tenantId, userId }, 'packer find attempt')
-    const order = await findOrderForPacking(tn.trim(), tenantId)
-    if (!order) {
-      return reply.code(404).send({ error: 'Order not found or not ready for packing' })
+    try {
+      const order = await findOrderForPacking(tn.trim(), tenantId)
+      return reply.send({ order })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Order not found or not ready for packing'
+      return reply.code(404).send({ error: message })
     }
-    return reply.send({ order })
   })
 
   // POST /packer/complete — scan tracking number → PACKER_COMPLETE
