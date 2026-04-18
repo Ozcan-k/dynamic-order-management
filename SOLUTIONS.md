@@ -5,6 +5,41 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] Deleted Users Still Appear in Workload — `removeQueries` vs `invalidateQueries` (Final Fix)
+
+### Problem
+After multiple fix rounds (v2.5.4 → v2.5.9), deleted users still appeared in the PickerAdmin / PackerAdmin workload sections. Switching from `invalidateQueries` to `removeQueries` in `Settings.tsx` did NOT solve it — earlier SOLUTIONS.md entry [2026-04-17 "Cache Not Cleared"] had this guidance backwards.
+
+### Root Cause
+`removeQueries` wipes the cache entry. But if PickerAdmin / PackerAdmin is **currently mounted** (common: admin deletes a user in Settings while another tab or the page above still holds the component), `removeQueries` does NOT force the mounted component's active `useQuery` observer to refetch. The observer keeps its last-rendered React state until:
+- the next `refetchInterval` tick (up to 10s later), or
+- the component unmounts and remounts.
+
+`invalidateQueries`, in contrast, marks the query stale AND immediately triggers a refetch on every active observer — exactly what we need for cross-page deletions.
+
+### Fix
+`Settings.tsx` `deleteMutation.onSuccess` uses `invalidateQueries` for all cross-page keys:
+```ts
+queryClient.invalidateQueries({ queryKey: ['users'] })
+queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
+queryClient.invalidateQueries({ queryKey: ['picker-admin-pickers'] })
+queryClient.invalidateQueries({ queryKey: ['packer-admin-stats'] })
+```
+
+Combined with the prior `staleTime: 0` + `refetchOnMount: 'always'` overrides on those queries (from entry [2026-04-18 "Global staleTime:30s"]), this covers both code paths:
+- Mounted component → `invalidateQueries` forces an immediate refetch.
+- Unmounted component → next mount refetches because `staleTime: 0` + `refetchOnMount: 'always'`.
+
+### Rule
+For cross-page cache updates triggered by a mutation, use `invalidateQueries` (NOT `removeQueries`). The only time to prefer `removeQueries` is when you want to free memory for a query no component will ever observe again.
+
+Earlier guidance in this file recommending `removeQueries` for "cross-page caches" is **incorrect** — this entry supersedes it.
+
+### Files Affected
+- `frontend/src/pages/Settings.tsx` — `deleteMutation.onSuccess`
+
+---
+
 ## [2026-04-17] Nightly Report — Sent at 11:30 AM Instead of 11:30 PM (Manila)
 
 ### Problem
@@ -88,7 +123,7 @@ queryClient.removeQueries({ queryKey: ['packer-admin-stats'] })    // packer wor
 ### Rule
 When deleting a user, trace ALL query keys that display that user — not just the obvious ones. A user can appear in: (a) their own list, (b) stats cards, AND (c) assignment dropdowns. Each is a separate query key that must be cleared.
 
-Use `removeQueries` (not `invalidateQueries`) for cross-page caches: removes data entirely so no stale flash occurs on next mount.
+~~Use `removeQueries` (not `invalidateQueries`) for cross-page caches: removes data entirely so no stale flash occurs on next mount.~~ **SUPERSEDED** — see [2026-04-18 "Final Fix"] entry at top of file. `removeQueries` does not refetch on mounted components; use `invalidateQueries` for cross-page cache updates.
 
 ### Files Affected
 - `frontend/src/pages/Settings.tsx` — `deleteMutation.onSuccess`
