@@ -146,7 +146,7 @@ export async function removeOrder(
 
 export async function getPackerStats(tenantId: string) {
   const packers = await prisma.user.findMany({
-    where: { tenantId, role: UserRole.PACKER },
+    where: { tenantId, role: UserRole.PACKER, isActive: true },
     select: { id: true, username: true },
     orderBy: { username: 'asc' },
   })

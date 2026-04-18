@@ -269,7 +269,7 @@ export async function bulkUnassignOrders(
 
 export async function getPickerStats(tenantId: string) {
   const pickers = await prisma.user.findMany({
-    where: { tenantId, role: UserRole.PICKER },
+    where: { tenantId, role: UserRole.PICKER, isActive: true },
     select: { id: true, username: true },
     orderBy: { username: 'asc' },
   })
