@@ -303,6 +303,7 @@ export default function PackerAdmin() {
       const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number }>('/packer-admin/stats')
       return res.data
     },
+    staleTime: 0,
     refetchInterval: 10_000,
   })
 

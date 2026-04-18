@@ -1084,13 +1084,15 @@ export default function PickerAdmin() {
     refetchInterval: 10_000,
   })
 
-  // Pickers query
+  // Pickers query — refetchOnMount: 'always' bypasses global staleTime:30s
   const { data: pickers } = useQuery({
     queryKey: ['picker-admin-pickers'],
     queryFn: async () => {
       const res = await api.get<{ pickers: Picker[] }>('/picker-admin/pickers')
       return res.data.pickers
     },
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
 
   // Stats query
@@ -1100,6 +1102,7 @@ export default function PickerAdmin() {
       const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number }>('/picker-admin/stats')
       return res.data
     },
+    staleTime: 0,
     refetchInterval: 10_000,
   })
 
