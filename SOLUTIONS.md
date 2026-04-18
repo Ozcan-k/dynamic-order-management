@@ -1,79 +1,284 @@
 # Debugging & Solutions Log
 
-Bu dosya, projede karşılaşılan sorunları ve çözümlerini kayıt altına alır.
-Bir sorunla tekrar karşılaşıldığında buradan hızlıca çözüm bulunabilir.
+This file records bugs encountered in the project and how they were resolved.
+When the same issue appears again, check here first.
 
 ---
 
-## [2026-04-14] Packer Mobile — Liste Doluydu, Boş Olmalıydı
+## [2026-04-17] Nightly Report — Sent at 11:30 AM Instead of 11:30 PM (Manila)
 
-### Sorun
-`PACKER` rolüyle giriş yapıldığında packer mobile sayfasında tenant'ın tüm `PICKER_COMPLETE` siparişleri listeleniyordu. Beklenen davranış: liste boş olmalı, packer barkod scan yaparak sipariş tamamlamalı.
+### Problem
+The nightly report email was arriving around 11:30 AM Philippines time (PHT) instead of the expected 11:30–11:40 PM.
 
-### Kök Neden
-`GET /packer/orders` endpoint'i `getAllPickerCompleteOrders(tenantId)` ile tenant'taki tüm `PICKER_COMPLETE` siparişleri döndürüyordu. Kullanıcıya göre filtreleme yoktu.
+### Root Cause
+Two compounding issues:
+1. **Stale BullMQ repeatable job in Redis** — an old cron job registered by a previous deployment (e.g. `'30 3 * * *'` UTC = 11:30 AM Manila) was never fully cleared. BullMQ's `getRepeatableJobs()` can miss keys registered by older BullMQ versions or with a different key format, so the ghost job kept firing.
+2. **UTC-converted cron patterns** — using UTC-equivalent times (`'30 15 * * *'`) is error-prone and breaks if the server timezone changes.
 
-### Çözüm
-1. `GET /packer/orders` → her zaman `{ orders: [] }` döndürür
-2. Yeni endpoint: `GET /packer/find?tn=TRACKING_NUMBER` → tracking number ile PICKER_COMPLETE sipariş arar, detaylarını döner
-3. `PackerMobile.tsx` güncellendi: liste query kaldırıldı, scan yapınca `/packer/find` çağrılır, sipariş detayları confirm dialog'a gösterilir, confirm → `/packer/complete`
+### Fix
+1. **Explicit Manila timezone** — cron patterns now use `tz: 'Asia/Manila'` with local Manila times directly. No UTC math required, timezone-proof:
+   ```ts
+   repeat: { pattern: '30 23 * * *', tz: 'Asia/Manila' }  // archive 23:30 PHT
+   repeat: { pattern: '40 23 * * *', tz: 'Asia/Manila' }  // report  23:40 PHT
+   ```
+2. **Redis SCAN+DEL sweep** — alongside `getRepeatableJobs()`, a direct Redis scan clears any leftover `bull:{queue}:repeat:*` keys that the BullMQ API may not list:
+   ```ts
+   const [next, keys] = await redis.scan(cursor, 'MATCH', `bull:${queueName}:repeat:*`, 'COUNT', '100')
+   if (keys.length > 0) await redis.del(...keys)
+   ```
 
-**Etkilenen dosyalar:**
-- `backend/src/services/packerService.ts` — `findOrderForPacking()` eklendi
-- `backend/src/routes/packer.ts` — `/find` endpoint eklendi, `/orders` boş döner
-- `frontend/src/pages/PackerMobile.tsx` — liste query kaldırıldı, handleScan API lookup yapıyor
+### Rule
+- **Always use `tz: 'Asia/Manila'`** when defining cron schedules — never convert to UTC manually.
+- When changing a cron schedule, the Redis sweep ensures no ghost jobs survive across deployments.
+
+### Files Affected
+- `backend/src/index.ts` — `clearQueue()` helper + `tz: 'Asia/Manila'` on both cron registrations
 
 ---
 
-## [2026-04-14] Picker/Packer Mobile — Kamera Scan Özelliği Eklendi
+## [2026-04-17] Deleted Users Still Appear on Picker/Packer Admin Pages
 
-### Değişiklik
-`ScanInput` bileşenine `enableCamera` prop'u eklendi. Aktif edilince kamera butonu çıkar, `@zxing/browser` ile barkod okur.
+### Problem
+Users deleted from Settings remained visible in the PickerAdmin and PackerAdmin pages.
 
-### Etkilenen dosyalar
-- `frontend/src/components/ScanInput.tsx` — kamera buton + overlay + BrowserMultiFormatReader
-- `frontend/src/pages/PickerMobile.tsx` — `enableCamera` prop aktif
-- `frontend/src/pages/PackerMobile.tsx` — `enableCamera` prop aktif
+### Root Cause
+`DELETE /users/:id` is a **soft delete** — it sets `isActive = false`, it does not remove the record. `getPickerStats()` and `getPackerStats()` queried users without an `isActive` filter, so inactive users were included.
+
+`getPickers()` and `getPackers()` already had `isActive: true` — only the stats functions were missing it.
+
+### Fix
+Added `isActive: true` to both stats queries:
+```ts
+// pickerAdminService.ts — getPickerStats()
+where: { tenantId, role: UserRole.PICKER, isActive: true }
+
+// packerAdminService.ts — getPackerStats()
+where: { tenantId, role: UserRole.PACKER, isActive: true }
+```
+
+### Rule
+User deletion in this project is **soft delete** (`isActive = false`). Every Prisma query that returns a user list **must** include `isActive: true`. Never omit this filter when writing new user-list queries.
+
+### Files Affected
+- `backend/src/services/pickerAdminService.ts` — `getPickerStats()`
+- `backend/src/services/packerAdminService.ts` — `getPackerStats()`
 
 ---
 
-## [2026-04-14] InboundScan + PickerAdminScan — Sign Out Butonu Eklendi
+## [2026-04-17] Deleted Users Still Visible in Workload Section After Deletion (Cache Not Invalidated)
 
-### Değişiklik
-Her iki scan sayfasına sağ üst köşeye Sign Out butonu eklendi.
+### Problem
+After deleting a picker or packer from Settings, the user continued to appear in the "Picker Workload" / "Packer Workload" sections on the PickerAdmin and PackerAdmin pages — even though the backend filter was correct.
 
-**Etkilenen dosyalar:**
+### Root Cause
+The `deleteMutation.onSuccess` in `Settings.tsx` only invalidated the `['users']` React Query cache. It did **not** invalidate `['picker-admin-stats']` or `['packer-admin-stats']`, which have a 10-second `refetchInterval`. So the workload sections kept showing the deleted user for up to 10 seconds after deletion.
+
+### Fix
+Added two more cache invalidations to `deleteMutation.onSuccess` in `Settings.tsx`:
+```ts
+queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
+queryClient.invalidateQueries({ queryKey: ['packer-admin-stats'] })
+```
+
+Now all three caches refresh immediately when a user is deleted.
+
+### Rule
+When a mutation in one page affects data displayed by a different page's query, **invalidate all affected query keys**, not just the one directly related to the mutated resource.
+
+### Files Affected
+- `frontend/src/pages/Settings.tsx` — `deleteMutation.onSuccess`
+
+---
+
+## [2026-04-17] Packer Scan — Final Fix Summary
+
+The "not found" scan issue was resolved across multiple steps. All steps work together:
+
+| Step | File | What it does |
+|---|---|---|
+| 1 | `packerService.ts` | `buildCandidates()` — tries all URL query params + path segments |
+| 2 | `packerService.ts` | Bidirectional SQL substring fallback |
+| 3 | `packer.ts` route | `GET /packer/orders` returns real PICKER_COMPLETE list |
+| 4 | `PackerMobile.tsx` | Client-side queue match — compares scan against known queue before hitting API |
+| 5 | `PackerMobile.tsx` | Debug card — shows Scanned vs Queue values on failure |
+
+---
+
+## [2026-04-17] Packer Scan — "Not Found" Error (URL Barcode Format Mismatch)
+
+### Problem
+Packer got "Order not found in this tenant" when scanning a barcode.
+
+### Root Cause
+**Two different barcode formats colliding:**
+- Inbound admin enters a plain tracking number → stored in DB as `JT1234567890`
+- Packer camera reads a QR code that encodes a full URL (e.g. `https://track.jtexpress.ph/tracking?logisticNo=JT1234567890`)
+
+The old `extractTrackingNumber` only checked `?tn=` and `?tracking=` query params. Carriers like J&T, Shopee, etc. use different param names (`logisticNo`, `billCode`, `no`). When no matching param was found, it fell back to the last URL path segment — returning `TRACKING` instead of the actual tracking number.
+
+### Fix (3 layers)
+
+**1. Frontend — improved `extractTrackingNumber` (`PackerMobile.tsx`):**
+- Tries every URL query param using an alphanumeric heuristic (`[A-Z0-9]{6,40}`)
+- Applies same heuristic to URL path segments in reverse order
+- Sends raw barcode value as `raw` param to backend
+
+**2. Backend — `buildCandidates()` (`packerService.ts`):**
+- Builds a deduplicated candidate list from extracted `tn` + raw barcode
+- If raw is a URL: all query param values + all path segments are added as candidates
+- Each candidate is tried for exact match in sequence
+
+**3. Backend — Bidirectional substring fallback (raw SQL):**
+```sql
+AND (
+  ${candidate} ILIKE '%' || tracking_number || '%'
+  OR tracking_number ILIKE '%' || ${candidate} || '%'
+)
+```
+Handles: URL barcode contains DB tracking number, or DB has longer format than what was scanned.
+
+**Error message improvement:**
+Shows `extracted: "XYZ" | raw: "https://..."` when values differ — format mismatch is immediately visible.
+
+### Files Affected
+- `frontend/src/pages/PackerMobile.tsx` — `extractTrackingNumber`, `handleScan`, `?raw=` param
+- `backend/src/services/packerService.ts` — `buildCandidates()`, `findOrderForPacking()`, `diagnoseTracking()`
+- `backend/src/routes/packer.ts` — accepts `raw` query param, passes to both service functions
+
+### Rule
+When working on packer scan: always check how inbound stores tracking numbers (plain text vs URL) and what barcode type the packer reads. Never assume a single format — always use bidirectional search + multi-candidate approach.
+
+---
+
+## [2026-04-17] Packer Scan — Client-Side Queue Match (Backend Search Bypass)
+
+### Problem
+Even after the backend multi-strategy search, scanning still returned "not found". The queue showed 2 orders but no search strategy matched.
+
+### Root Cause
+Relying solely on the backend was insufficient: deployment delays, SQL enum cast issues, or a completely different barcode format could cause all server-side searches to fail.
+
+### Fix
+Added client-side queue match in `handleScan` — runs before the API call:
+
+```ts
+const queue = queueData?.orders ?? []
+const clientMatch = queue.find(order => {
+  const dbTn = order.trackingNumber.toUpperCase()
+  return (
+    dbTn === tnUp ||
+    dbTn === rawUp ||
+    rawUp.includes(dbTn) ||   // barcode URL contains tracking number
+    dbTn.includes(tnUp) ||    // DB has longer format, scan has shorter
+    tnUp.includes(dbTn)       // scan has longer format, DB has shorter
+  )
+})
+if (clientMatch) { setPendingOrder(clientMatch); return }
+```
+
+Error message also shows `queue: [tn1, tn2]` — scan value and DB values visible side by side, format mismatch detected instantly.
+
+### Rule
+- Even if backend search fails, always do client-side bidirectional match against the local queue cache
+- Always show both the scanned value and queue tracking numbers in the error message
+- `GET /packer/orders` must always return real PICKER_COMPLETE orders (never an empty array)
+
+### Files Affected
+- `frontend/src/pages/PackerMobile.tsx` — `handleScan` client-side match + queue hint in error
+- `backend/src/routes/packer.ts` — `/orders` endpoint returns real queue
+
+---
+
+## [2026-04-17] Packer Scan — Debug Card (Scanned vs Queue Visualization)
+
+### Problem
+Client-side match also failed — there was no common substring between the scanned value and the queue tracking numbers. The cause was not visible.
+
+### Fix
+A yellow debug card appears after a failed scan showing:
+- `Scanned:` — extracted tracking number
+- `Raw:` — raw barcode value (full URL if applicable)
+- `Queue:` — DB PICKER_COMPLETE tracking numbers line by line
+
+This card made the format mismatch immediately visible. Once the mismatch was diagnosed and the client-side match corrected, scanning worked.
+
+### Rule
+For packer scan issues: activate the debug card first, compare Scanned vs Queue values.
+
+### Files Affected
+- `frontend/src/pages/PackerMobile.tsx` — `debugInfo` state + yellow debug card UI
+
+---
+
+## [2026-04-14] Packer Mobile — List Was Full, Should Be Empty
+
+### Problem
+When logged in as `PACKER`, the mobile page listed all tenant's `PICKER_COMPLETE` orders. Expected behavior: empty list — packer self-assigns by scanning.
+
+### Root Cause
+`GET /packer/orders` returned all `PICKER_COMPLETE` orders via `getAllPickerCompleteOrders(tenantId)`. No per-user filtering.
+
+### Fix
+1. `GET /packer/orders` → returns actual PICKER_COMPLETE queue (later changed from always-empty)
+2. New endpoint: `GET /packer/find?tn=TRACKING_NUMBER` — looks up a PICKER_COMPLETE order by tracking number
+3. `PackerMobile.tsx` updated: list query removed, scan triggers `/packer/find`, confirm dialog shows order details, confirm → `/packer/complete`
+
+### Files Affected
+- `backend/src/services/packerService.ts` — `findOrderForPacking()` added
+- `backend/src/routes/packer.ts` — `/find` endpoint added
+- `frontend/src/pages/PackerMobile.tsx` — list query removed, `handleScan` does API lookup
+
+---
+
+## [2026-04-14] Picker/Packer Mobile — Camera Scan Feature Added
+
+### Change
+`enableCamera` prop added to `ScanInput`. When active, shows a camera button that reads barcodes via `@zxing/browser`.
+
+### Files Affected
+- `frontend/src/components/ScanInput.tsx` — camera button + overlay + BrowserMultiFormatReader
+- `frontend/src/pages/PickerMobile.tsx` — `enableCamera` prop enabled
+- `frontend/src/pages/PackerMobile.tsx` — `enableCamera` prop enabled
+
+---
+
+## [2026-04-14] InboundScan + PickerAdminScan — Sign Out Button Added
+
+### Change
+Sign Out button added to the top-right corner of both scan pages.
+
+### Files Affected
 - `frontend/src/pages/InboundScan.tsx`
 - `frontend/src/pages/PickerAdminScan.tsx`
 
 ---
 
-## [2026-04-13] Philippines Inbound Panel — Scan Pop-up Çıkmıyor (WebSocket Nginx Fix)
+## [2026-04-13] Philippines Inbound Panel — Scan Pop-up Not Appearing (WebSocket Nginx Fix)
 
-### Sorun
-Filipinler ofisinde INBOUND_ADMIN telefondan waybill scan yapıyor ancak masaüstü Inbound panel'de pop-up çıkmıyor. Kanada'da aynı işlem yapılınca pop-up çıkıyor. Her iki cihaz da aynı WiFi ağına bağlı.
+### Problem
+INBOUND_ADMIN scanning a waybill on mobile did not trigger a pop-up on the desktop Inbound panel. Same flow worked in Canada. Both devices on the same WiFi.
 
-### Kök Neden
-**Nginx'te `/socket.io/` için location block eksik.**
+### Root Cause
+**Missing `/socket.io/` location block in Nginx.**
 
-Pop-up akışı:
-1. Telefon → `POST /api/orders/handheld-scan` → Backend
+Pop-up flow:
+1. Phone → `POST /api/orders/handheld-scan` → Backend
 2. Backend → `io.to('user:X').emit('order:handheld-scan', ...)` → Socket
-3. Masaüstü → `wss://domwarehouse.com/socket.io` → WebSocket bağlantısı → Pop-up
+3. Desktop → `wss://domwarehouse.com/socket.io` → WebSocket → Pop-up
 
-Masaüstü `https://domwarehouse.com` üzerinden Nginx'e bağlanır. Nginx sadece `/api/` trafiğini backend'e yönlendiriyordu. `/socket.io/` için location block olmadığından WebSocket bağlantısı hiç kurulmuyordu → masaüstü `user:X` room'una katılamıyordu → pop-up gelmiyordu.
+Desktop connects to Nginx at `https://domwarehouse.com`. Nginx only proxied `/api/` to the backend. Without a `/socket.io/` location block, the WebSocket connection was never established — desktop could not join the `user:X` room — no pop-up.
 
-Kanada'da HTTP IP (`http://45.32.107.63:5173`) ile bağlanılıyordu. Bu durumda Nginx bypass edilip Vite dev server proxy'si devreye giriyor (`ws: true` ile), WebSocket sorunsuz çalışıyor.
+In Canada, HTTP IP (`http://45.32.107.63:5173`) was used, bypassing Nginx and hitting Vite's dev server proxy directly (`ws: true`), so WebSocket worked.
 
-### Çözüm
+### Fix
 
-**1. Nginx config'e `/socket.io/` location block ekle:**
+**1. Add `/socket.io/` location block to Nginx:**
 
 ```bash
 sudo nano /etc/nginx/sites-available/dom
 ```
 
-HTTPS server bloğuna ekle:
+Add to the HTTPS server block:
 
 ```nginx
 location /socket.io/ {
@@ -94,13 +299,13 @@ location /socket.io/ {
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-**2. `CORS_ORIGIN` env var'ını kontrol et:**
+**2. Check `CORS_ORIGIN` env var:**
 
 ```bash
 docker exec dom_backend printenv CORS_ORIGIN
 ```
 
-`https://domwarehouse.com` yoksa `/opt/dom/.env`'e ekle:
+If `https://domwarehouse.com` is missing, add to `/opt/dom/.env`:
 
 ```
 CORS_ORIGIN=https://domwarehouse.com,https://www.domwarehouse.com
@@ -110,75 +315,69 @@ CORS_ORIGIN=https://domwarehouse.com,https://www.domwarehouse.com
 docker compose -f /opt/dom/docker-compose.yml restart backend
 ```
 
-**3. `vite.config.ts` — `allowedHosts` kalıcı fix (kod repo'sunda):**
+**3. `vite.config.ts` — permanent `allowedHosts` fix:**
 
 ```typescript
 server: {
   allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
-  ...
 }
 ```
 
 ---
 
-## [2026-04-11] Modal / Fixed Overlay Açılmıyor
+## [2026-04-11] Modal / Fixed Overlay Not Rendering
 
-### Sorun
-`position: fixed` ile tanımlanan overlay/modal bileşeni render olmuyor veya görünmüyor.
+### Problem
+A `position: fixed` overlay/modal component renders but is not visible.
 
-### Kök Neden
-React, `position: fixed` elementleri normal DOM hiyerarşisine göre render eder.
-Eğer herhangi bir parent element `transform`, `filter`, `will-change` veya `perspective`
-CSS özelliğine sahipse, `position: fixed` o elementin içinde kalır (viewport'a göre değil).
-Ayrıca `overflow: hidden` olan bir parent içinde `position: fixed` child görünmeyebilir.
+### Root Cause
+If any parent element has `transform`, `filter`, `will-change`, or `perspective` CSS properties, `position: fixed` children are contained within that element instead of the viewport. Also, `overflow: hidden` on a parent can clip fixed children.
 
-### Çözüm
-`createPortal` kullanarak modal'ı `document.body`'ye render etmek:
+### Fix
+Use `createPortal` to render the modal directly under `document.body`:
 
 ```tsx
 import { createPortal } from 'react-dom'
 
 export default function Modal({ onClose }: Props) {
   const modal = (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, ... }}>
-      {/* modal içeriği */}
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
+      {/* modal content */}
     </div>
   )
   return createPortal(modal, document.body)
 }
 ```
 
-### Bu Projede Kullanılan Yerler
+### Used In This Project
 - `frontend/src/components/BulkScanModal.tsx`
 
 ---
 
-## [2026-04-11] Beyaz Sayfa (White Page / React Crash)
+## [2026-04-11] White Page (React Crash)
 
-### Sorun
-Uygulama açılıyor ama tamamen beyaz sayfa görünüyor.
+### Problem
+App opens but shows a completely white page.
 
-### Olası Nedenler ve Kontroller
+### Possible Causes & Checks
 
-**1. Vite cache sorunu**
+**1. Vite cache issue**
 ```bash
-# Vite cache'ini temizle ve yeniden başlat
 rm -rf frontend/node_modules/.vite
 cd frontend && npx vite --force
 ```
 
-**2. Birden fazla Vite process çalışıyor**
-Port 5173 dolu görünüyorsa eski process'ler temizlenmemiş demektir.
+**2. Multiple Vite processes running**
 ```bash
 npx kill-port 5173 5174 5175 3000
 taskkill /F /IM node.exe   # Windows
 ```
 
-**3. Stale tarayıcı cache**
-Tarayıcıda `Ctrl+Shift+R` ile hard refresh yap.
+**3. Stale browser cache**
+Hard refresh with `Ctrl+Shift+R`.
 
-**4. Runtime hatayı yakalamak için geçici hata handler**
-`main.tsx`'e geçici olarak ekle, hatayı gör, sonra kaldır:
+**4. Temporary error handler to capture runtime errors**
+Add to `main.tsx`, note the error, then remove:
 ```tsx
 window.addEventListener('error', (e) => {
   document.getElementById('root')!.innerHTML =
@@ -186,162 +385,113 @@ window.addEventListener('error', (e) => {
 })
 ```
 
-**5. Shared package build edilmemiş**
-`@dom/shared` paketi güncellendiyse mutlaka build et:
+**5. Shared package not built**
+If `@dom/shared` was updated, always rebuild:
 ```bash
 cd shared && npm run build
 ```
-Sonra Vite cache'ini temizle (Vite eski dist'i cache'ler):
+Then clear Vite cache (Vite caches the old dist):
 ```bash
 rm -rf frontend/node_modules/.vite
 ```
 
 ---
 
-## [2026-04-11] Shared Package Yeni Export Ekleme
+## [2026-04-11] Shared Package — Adding a New Export
 
-### Sorun
-`shared/src/index.ts`'e yeni export eklendikten sonra backend veya frontend bulamıyor.
+### Problem
+New export added to `shared/src/index.ts` but backend or frontend can't find it.
 
-### Çözüm (Sırayla)
+### Fix (in order)
 ```bash
-# 1. Shared paketi build et
+# 1. Build shared package
 cd shared && npm run build
 
-# 2. Backend için Prisma generate (schema değiştiyse)
+# 2. Prisma generate if schema changed
 cd backend && npx prisma db push && npx prisma generate
 
-# 3. Frontend Vite cache'ini temizle
+# 3. Clear frontend Vite cache
 rm -rf frontend/node_modules/.vite
 
-# 4. Servisleri yeniden başlat
+# 4. Restart services
 cd backend && npm run dev
 cd frontend && npx vite
 ```
 
 ---
 
-## [2026-04-11] Docker'da Shared Export Bulunamıyor (SyntaxError: does not provide an export named 'X')
+## [2026-04-11] Docker — Shared Export Not Found (SyntaxError: does not provide an export named 'X')
 
-### Sorun
-`@dom/shared`'e yeni bir export (örn. `CARRIER_LABELS`) eklendi. Lokal çalışıyor ama
-Docker container'ında beyaz sayfa + şu hata:
-
+### Problem
+New export added to `@dom/shared`. Works locally but Docker shows white page + error:
 ```
 SyntaxError: The requested module '/node_modules/.vite/deps/@dom_shared.js?v=...'
 does not provide an export named 'CARRIER_LABELS'
 ```
 
-### Kök Neden
-Docker image build sırasında `shared/dist` derlendi. Sonradan `shared/src/index.ts`'e
-eklenen exportlar host'ta `npm run build` ile güncellendi ama container içindeki
-`node_modules/@dom/shared/dist/` hala eski versiyonu içeriyor. Vite bu eski dist'i
-cache'lediği için yeni export görünmüyor.
+### Root Cause
+The Docker image build compiled `shared/dist`. The new export was added locally and rebuilt, but the container's `node_modules/@dom/shared/dist/` still has the old version. Vite cached the old dist.
 
-**Dikkat:** Vite cache Docker'da `/app/node_modules/.vite/` DEĞİL,
-`/app/frontend/node_modules/.vite/` altındadır.
+**Note:** Vite cache in Docker is at `/app/frontend/node_modules/.vite/` — not `/app/node_modules/.vite/`.
 
-### Çözüm
+### Fix
 ```bash
-# 1. Container içinde shared'i rebuild et
+# 1. Rebuild shared inside container
 docker exec dom_frontend sh -c "cd /app && npm run build --workspace=shared"
 
-# 2. Doğru Vite cache'ini temizle
+# 2. Clear correct Vite cache
 docker exec dom_frontend sh -c "rm -rf /app/frontend/node_modules/.vite/deps"
 
-# 3. Frontend container'ı yeniden başlat
+# 3. Restart frontend container
 docker restart dom_frontend
 
-# 4. Tarayıcıda hard refresh
+# 4. Hard refresh browser
 # Ctrl+Shift+R
 ```
 
-### Kalıcı Çözüm
-`shared/src` değiştikten sonra Docker image'ı yeniden build et:
+### Permanent Fix
+After changing `shared/src`, rebuild the Docker image:
 ```bash
 docker compose build frontend && docker compose up -d frontend
 ```
 
-### TypeScript Kontrolü
+---
+
+## [2026-04-11] Docker — Backend Route / Prisma Client Stale
+
+### Problem
+New route or Prisma schema field added to backend. Works locally but Docker returns 404 or "Unknown argument".
+
+### Root Cause
+Docker container can have stale code in three layers:
+1. `backend/dist/` — TypeScript not recompiled, old JS running
+2. `node_modules/@prisma/client` — `prisma generate` not run
+3. `node_modules/@dom/shared/dist/` — shared package not updated
+
+### Fix (in order)
 ```bash
-# Backend
-cd backend && npx tsc --noEmit
-
-# Frontend
-cd frontend && npx tsc --noEmit
-```
-
----
-
-## [2026-04-11] `Re-export` Pattern — platformDetect.ts
-
-### Sorun
-Aynı fonksiyon hem `shared/` hem `backend/src/lib/` içinde tanımlıydı.
-İkisinin de sync tutulması gerekiyordu.
-
-### Çözüm
-`backend/src/lib/platformDetect.ts` içeriği tamamen shared'den re-export'a dönüştürüldü:
-```typescript
-export { detectPlatform } from '@dom/shared'
-```
-Tek kaynak `shared/src/index.ts` — değişiklik sadece orada yapılır.
-
----
-
-## [2026-04-11] `React.CSSProperties` Kullanımı
-
-### Sorun
-`React` import edilmeden `React.CSSProperties` tip annotation'ı kullanılırsa
-bazı konfigürasyonlarda TypeScript hata verebilir.
-
-### Çözüm
-```typescript
-// Yerine şunu kullan:
-const myStyle: Record<string, string | number> = { ... }
-
-// Veya React'i import et:
-import type { CSSProperties } from 'react'
-const myStyle: CSSProperties = { ... }
-```
-
----
-
-## [2026-04-11] Docker Container'da Backend Route / Prisma Client Eski Kalıyor
-
-### Sorun
-Backend source'a yeni route veya Prisma schema alanı ekleniyor. Lokal'de çalışıyor ama
-Docker container'ında "Not Found" (404) veya "Unknown argument" hatası alınıyor.
-
-### Kök Neden
-Docker container üç ayrı katmanda eski koda sahip olabilir:
-1. `backend/dist/` — TypeScript compile edilmemiş, eski JS çalışıyor
-2. `node_modules/@prisma/client` — `prisma generate` çalıştırılmamış
-3. `node_modules/@dom/shared/dist/` — shared package güncellenmemiş
-
-### Çözüm (Sırayla)
-```bash
-# 1. Shared package'ı lokal'de build et
+# 1. Build shared locally
 cd shared && npm run build
 
-# 2. Shared dist'i container'a kopyala
+# 2. Copy shared dist into container
 docker cp shared/dist/. dom_backend:/app/node_modules/@dom/shared/dist/
 
-# 3. Backend'i lokal'de compile et
+# 3. Compile backend locally
 cd backend && npm run build
 
-# 4. Yeni dist'i container'a kopyala
+# 4. Copy new dist into container
 docker cp backend/dist/. dom_backend:/app/backend/dist/
 
-# 5. Prisma client'ı container'da regenerate et (schema değiştiyse)
+# 5. Regenerate Prisma client if schema changed
 docker cp backend/prisma/schema.prisma dom_backend:/app/backend/prisma/schema.prisma
 docker exec dom_backend sh -c "cd /app/backend && npx prisma generate"
 
-# 6. Backend'i restart et
+# 6. Restart backend
 docker compose restart backend
 ```
 
-### Kalıcı Çözüm
-Her backend değişikliğinde:
+### Permanent Fix
+After every backend change:
 ```bash
 cd backend && npm run build
 docker cp backend/dist/. dom_backend:/app/backend/dist/
@@ -350,220 +500,82 @@ docker compose restart backend
 
 ---
 
-## [2026-04-11] Bulk Scan — Carrier ve Shop Name Zorunlu Alanlar
+## [2026-04-11] Rate Limiter Triggered — Page Won't Load (429)
 
-### Davranış
-- Carrier ve Shop Name her ikisi de **zorunludur** (optional değil)
-- Barkod tarandıktan sonra biri boşsa sarı uyarı mesajı gösterilir
-- Confirm butonu her ikisi dolu olmadan disabled kalır
-- Backend de `z.string().min(1)` ile validate eder → 400 döner
+### Problem
+Backend returns `Too many requests. Please slow down.` for all requests. Orders, stats, and other data fail to load.
 
-### İlgili Dosyalar
-- `frontend/src/components/BulkScanModal.tsx` — `canConfirm` koşulu, label, uyarı mesajı
-- `backend/src/routes/orders.ts` — `BulkScanSchema.shopName` optional kaldırıldı
+### Root Cause
+Two compounding issues:
+1. **Bulk action `Promise.all`**: All selected orders fired N simultaneous requests. 50 orders = 50 concurrent requests → rate limit exceeded.
+2. **Aggressive polling**: Each page polled multiple endpoints every 3–5 seconds. With multiple tabs/users, this multiplied fast (3 tabs × 3 queries × 12/min = 108 req/min → exceeded limit of 100).
 
----
+### Fix (3 layers)
 
-## [2026-04-11] Preset Shop Names — BulkScanModal
-
-### Davranış
-`PRESET_SHOPS` sabiti `BulkScanModal.tsx` içinde tanımlıdır (18 isim).
-API'den gelen mevcut shop'larla birleştirilir (`Set` ile dedup), dropdown'da her zaman görünür.
-
-### İlgili Dosyalar
-- `frontend/src/components/BulkScanModal.tsx` — `PRESET_SHOPS` sabiti, `existingShops` merge
-
----
-
-## [2026-04-11] Handheld Socket Event Kayboluyor — Sayfa Kapalıyken Send Basılıyor
-
-### Sorun
-Telefonda (InboundScan / PickerAdminScan) "Send to Desktop" basıldığında backend socket event emit eder.
-Ancak desktop'ta Inbound veya PickerAdmin sayfası o anda açık değilse event uçup gidiyor —
-sayfa sonradan açıldığında hiçbir şey olmuyor.
-
-### Kök Neden
-Socket event fire-and-forget'dir. Listener o an bağlı değilse event kaybolur, kuyruklanmaz.
-
-### Çözüm
-İki katmanlı yaklaşım:
-
-**1. Backend — Redis'e yaz (TTL 5 dk):**
-- `POST /orders/handheld-scan` → `redis.setex('pending:handheld:single:{userId}', 300, tn)`
-- `POST /orders/handheld-bulk-scan` → `redis.setex('pending:handheld:bulk:{userId}', 300, JSON.stringify(tns))`
-- `POST /picker-admin/scan` → `redis.rpush('pending:staged:{userId}', JSON.stringify(order))`
-- Yeni GET endpoint'ler: `/orders/pending-handheld` ve `/picker-admin/pending-staged`
-
-**2. Frontend — sayfa mount'unda Redis'i kontrol et:**
-```tsx
-useEffect(() => {
-  api.get('/orders/pending-handheld').then(res => {
-    if (res.data.bulk?.length > 0) { setBulkInitialTNs(res.data.bulk); setShowBulkModal(true) }
-    else if (res.data.single) { setPendingScan(res.data.single) }
-  }).catch(() => {})
-}, [])
-```
-
-Socket event gelirse önce Redis temizlenir (çifte gösterim önlenir).
-
-### İlgili Dosyalar
-- `backend/src/routes/orders.ts` — Redis yazma + `GET /pending-handheld`
-- `backend/src/routes/pickerAdmin.ts` — Redis yazma + `GET /pending-staged`
-- `frontend/src/pages/Inbound.tsx` — mount effect
-- `frontend/src/pages/PickerAdmin.tsx` — mount effect
-
----
-
-## [2026-04-11] Docker Backend Değişikliği Yansımıyor
-
-### Sorun
-`backend/src/` dosyaları değiştirildi, ancak container'da eski davranış devam ediyor.
-
-### Kök Neden
-Docker container `node backend/dist/index.js` çalıştırır. `src/` dosyaları volume olarak mount edilir
-ama `dist/` image build sırasında derlenir ve sabit kalır. `tsx watch` yoktur.
-
-### Çözüm
-Backend her değiştiğinde image rebuild edilmeli:
-```bash
-docker-compose up --build backend -d
-```
-
----
-
-## [2026-04-11] PickerAdminScan Bulk — Sistemde Olmayan Waybill Listeye Ekleniyor
-
-### Sorun
-Bulk modda scan edilen waybill önce listeye ekleniyor, "Send" basılınca backend not_found hatası dönüyor.
-Kullanıcı listeye yanlış ürün eklendiğini fark etmiyor.
-
-### Çözüm
-Bulk modda her scan için anında `/picker-admin/scan` endpoint'i çağrılır.
-- Başarılı → listeye `status: staged` ile eklenir
-- Hata (404/409) → beep + titreme + hata mesajı, **listeye eklenmez**
-
-```tsx
-const bulkValidateMutation = useMutation({
-  mutationFn: (tn: string) => api.post('/picker-admin/scan', { trackingNumber: tn }),
-  onSuccess: (res) => { /* listeye ekle */ },
-  onError: (err, tn) => { playBeep(false); vibrate([80,60,80]); setFeedback(error) }
-})
-```
-
-### İlgili Dosyalar
-- `frontend/src/pages/PickerAdminScan.tsx`
-
----
-
-## [2026-04-11] Inbound — Duplicate Waybill QuickScanModal Açıyor
-
-### Sorun
-Zaten inbound listesinde olan bir waybill scan edilince QuickScanModal açılıyor.
-Kullanıcı carrier/shop seçiyor, Confirm'e basıyor, sonra backend 409 hatası dönüyor.
-Gereksiz UX adımı.
-
-### Çözüm
-`onScan` callback'inde modal açılmadan önce `allOrders` listesine karşı anlık kontrol:
-```tsx
-<ScanInput
-  onScan={(tn) => {
-    const exists = allOrders.some(o => o.trackingNumber.toUpperCase() === tn.trim().toUpperCase())
-    if (exists) { setScanFeedback({ type: 'error', message: `Already in inbound list: ${tn}` }); return }
-    setPendingScan(tn)
-  }}
-/>
-```
-Backend 409 güvenlik ağı olarak korunur (farklı statüdeki order'lar için).
-
-### İlgili Dosyalar
-- `frontend/src/pages/Inbound.tsx`
-
----
-
----
-
-## [2026-04-11] Rate Limiter Tetikleniyor — Sayfa Yüklenmiyor (429)
-
-### Sorun
-Backend tüm isteklere `Too many requests. Please slow down.` (500/429) hatası dönüyor.
-Orderlar, stats ve diğer veriler yüklenemiyor.
-
-### Kök Neden
-İki katmanlı sorun:
-1. **Bulk action `Promise.all`**: Seçili tüm orderlar için aynı anda N istek atıldı. 50 order = 50 eşzamanlı request → rate limit aşıldı.
-2. **Agresif polling**: Her sayfa 3–5 saniyede bir birden fazla endpoint polling yapıyordu. Birden fazla tab/kullanıcı olunca katlanarak artıyor (3 tab × 3 query × 12/dk = 108 req/dk → 100 limitini aşar).
-
-### Çözüm (3 katman)
-
-**1. Backend: Tek bulk endpoint**
+**1. Backend: Single bulk endpoint**
 ```
 POST /picker-admin/bulk-complete   { orderIds[], pickerId }
 POST /picker-admin/bulk-unassign   { orderIds[], pickerId }
 ```
-Backend içinde sequential for-loop ile işler — N işlem için tek HTTP request.
+Backend processes sequentially in a for-loop — one HTTP request for N operations.
 
-**2. Backend: Rate limit artırıldı**
+**2. Backend: Rate limit raised**
 `backend/src/plugins/rateLimit.ts` → `max: 100` → `max: 500`
 
-**3. Frontend: Polling aralığı uzatıldı**
-Tüm `refetchInterval: 3000 / 5000` → `10_000` ms
-Socket zaten real-time güncelliyor; polling sadece fallback — 10 sn yeterli.
+**3. Frontend: Polling interval extended**
+All `refetchInterval: 3000 / 5000` → `10_000` ms. Socket handles real-time updates; polling is just a fallback — 10s is sufficient.
 
-### İlgili Dosyalar
+### Files Affected
 - `backend/src/services/pickerAdminService.ts` — `bulkCompleteOrders`, `bulkUnassignOrders`
 - `backend/src/routes/pickerAdmin.ts` — `/bulk-complete`, `/bulk-unassign`
 - `backend/src/plugins/rateLimit.ts` — max: 500
-- `frontend/src/pages/PickerAdmin.tsx` — `executeBulkAction` tek API çağrısı
+- `frontend/src/pages/PickerAdmin.tsx` — `executeBulkAction` single API call
 - `frontend/src/pages/Inbound.tsx`, `Outbound.tsx`, `PackerAdmin.tsx` — polling 10s
 
 ---
 
-## [2026-04-11] `docker cp` Sonrası Backend Crash Loop (exit code 0)
+## [2026-04-11] `docker cp` Followed by Backend Crash Loop (exit code 0)
 
-### Sorun
-`docker cp backend/dist/... dom_backend:/app/...` ile dist dosyası güncellendi.
-Ardından `docker compose up -d backend` çalıştırılınca container sürekli restart loop'a girdi (exit code 0).
+### Problem
+Updated dist files with `docker cp backend/dist/... dom_backend:/app/...`. Then ran `docker compose up -d backend` — container entered a constant restart loop (exit code 0).
 
-### Kök Neden
-`docker compose up` mevcut container'ı yeniden oluşturur (recreate).
-Yeni container image'dan açılır → `docker cp` ile yapılan değişiklikler kaybolur.
-Eksik JS dosyası runtime'da import hatası yerine sessiz çıkışa neden olabilir.
+### Root Cause
+`docker compose up` recreates the container from the image — changes made via `docker cp` are lost. A missing JS file at runtime can cause a silent exit instead of a visible error.
 
-### Çözüm
-Backend kodu her değiştiğinde **image rebuild** zorunlu:
+### Fix
+Always **rebuild the image** when backend code changes:
 ```bash
 docker compose build backend
 docker compose up -d backend
 ```
-`docker compose restart` mevcut container'ı yeniden başlatır (cp değişiklikleri korunur).
-`docker compose up` yeni container açar (cp değişiklikleri kaybolur) — dikkat.
+
+`docker compose restart` restarts the existing container (cp changes preserved).
+`docker compose up` creates a new container (cp changes lost) — be careful.
 
 ---
 
----
+## [2026-04-13] Vultr Server — Domain + HTTPS + iPhone Camera Setup
 
-## [2026-04-13] Vultr Sunucusuna Domain + HTTPS + iPhone Kamera Kurulumu
+### Problem
+- iPhone Safari does not allow camera access over `http://`
+- App was running at `http://45.32.107.63:5173`, camera wouldn't open on iPhone
 
-### Sorun
-- iPhone Safari `http://` üzerinde kamera iznine izin vermiyor
-- Uygulama `http://45.32.107.63:5173` adresinde çalışıyordu, iPhone'da kamera açılmıyordu
+### Fix
 
-### Çözüm
-
-#### 1. Domain Al (Namecheap)
-- `namecheap.com`'dan domain satın al (örn. `domwarehouse.com`)
-- **Advanced DNS** → **Host Records** bölümüne iki A Record ekle:
+#### 1. Buy Domain (Namecheap)
+- Purchase domain (e.g. `domwarehouse.com`)
+- **Advanced DNS** → **Host Records** → add two A Records:
   - `@` → `45.32.107.63`
   - `www` → `45.32.107.63`
-- DNS yayılması 10–30 dakika sürer, `nslookup domwarehouse.com 8.8.8.8` ile kontrol et
+- DNS propagation takes 10–30 min, verify with `nslookup domwarehouse.com 8.8.8.8`
 
-#### 2. Sunucuya Nginx + Certbot Kur
+#### 2. Install Nginx + Certbot
 ```bash
 sudo apt update && sudo apt install nginx -y
 sudo apt install certbot python3-certbot-nginx -y
 ```
 
-#### 3. Nginx Config Yaz
+#### 3. Write Nginx Config
 ```bash
 sudo tee /etc/nginx/sites-available/dom << 'EOF'
 server {
@@ -610,8 +622,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-#### 4. Firewall Portlarını Aç (ÖNEMLİ)
-UFW aktifse 80 ve 443 açık olmalı, yoksa certbot "connection refused" hatası verir:
+#### 4. Open Firewall Ports (IMPORTANT)
 ```bash
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
@@ -619,229 +630,138 @@ sudo ufw allow 22/tcp
 sudo ufw reload
 ```
 
-#### 5. SSL Sertifikası Al
+#### 5. Obtain SSL Certificate
 ```bash
 sudo certbot --nginx -d domwarehouse.com -d www.domwarehouse.com
 ```
-- Email gir, şartları kabul et (Y)
-- Certbot 90 günde bir otomatik yeniler
 
-#### 6. Vite `allowedHosts` Ayarı (ÖNEMLİ)
-Vite varsayılan olarak dış domain'lerden gelen istekleri bloke eder.
-`vite.config.ts` → `server:` bloğuna ekle:
+#### 6. Vite `allowedHosts` Setting (IMPORTANT)
 ```ts
 server: {
   allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
-  // ...diğer ayarlar
 }
 ```
 
-Docker kullanılıyorsa container içindeki dosyayı da güncelle:
-```bash
-# Container içindeki config'e ekle
-sudo docker exec -it dom_frontend sh -c "sed -i 's/server: {/server: {\n    allowedHosts: [\"domwarehouse.com\", \"www.domwarehouse.com\"],/' /app/frontend/vite.config.ts"
+### Common Errors
 
-# Frontend'i yeniden başlat
-cd /opt/dom && sudo docker compose restart frontend
-```
-
-### Karşılaşılan Hatalar ve Çözümleri
-
-| Hata | Neden | Çözüm |
+| Error | Cause | Fix |
 |---|---|---|
-| `certbot: connection refused` | UFW port 80 kapalı | `sudo ufw allow 80/tcp && sudo ufw reload` |
-| `certbot: NXDOMAIN` | DNS henüz yayılmamış | 10-30 dk bekle, `nslookup` ile kontrol et |
-| `Blocked request. This host not allowed` | Vite allowedHosts eksik | vite.config.ts'e domain ekle, container restart |
-| `403 Forbidden` | Nginx default config çakışıyor | `sudo rm /etc/nginx/sites-enabled/default` |
-| `This site can't be reached` | UFW port 443 kapalı | `sudo ufw allow 443/tcp && sudo ufw reload` |
+| `certbot: connection refused` | UFW port 80 closed | `sudo ufw allow 80/tcp && sudo ufw reload` |
+| `certbot: NXDOMAIN` | DNS not propagated yet | Wait 10–30 min, check with `nslookup` |
+| `Blocked request. This host not allowed` | Vite allowedHosts missing | Add domain to vite.config.ts, restart container |
+| `403 Forbidden` | Nginx default config conflict | `sudo rm /etc/nginx/sites-enabled/default` |
+| `This site can't be reached` | UFW port 443 closed | `sudo ufw allow 443/tcp && sudo ufw reload` |
 
-### Telefon URL'i
-
-Tüm roller için **tek URL**:
-
+### Mobile URL (All Roles)
 ```
 https://domwarehouse.com/scan
 ```
 
-Kullanıcı username + password giriyor, sistem role'ü tanıyıp doğru scan sayfasına yönlendiriyor:
-
-| Rol | Yönlendirilen Sayfa |
+| Role | Redirected Page |
 |---|---|
 | ADMIN / INBOUND_ADMIN | `/inbound-scan` |
 | PICKER_ADMIN | `/picker-admin-scan` |
 | PICKER | `/picker` |
 | PACKER | `/packer` |
 
-**Not:** Zaten giriş yapılmış kullanıcı `/scan`'e gelirse formu görmez, direkt kendi sayfasına yönlendirilir.
-
 ---
 
-## [2026-04-17] Packer Scan — "Not Found" Hatası (URL Barkod Format Uyuşmazlığı)
+## [2026-04-11] Handheld Socket Event Lost — Page Closed When Send Is Pressed
 
-### Sorun
-Packer kamerasıyla paket üzerindeki barkodu taradığında "Order not found in this tenant" hatası alınıyordu.
+### Problem
+When phone (InboundScan / PickerAdminScan) sends "Send to Desktop", backend emits a socket event. If the desktop Inbound/PickerAdmin page is not open at that moment, the event is lost — nothing happens when the page opens later.
 
-### Kök Neden
-**İki farklı barkod formatının çakışması:**
-- Inbound admin paketi sisteme girerken düz tracking number yazıyor → DB'de `JT1234567890` kaydediliyor
-- Packer kamerasıyla okuyunca barkod bir URL içeriyor (örn. `https://track.jtexpress.ph/tracking?logisticNo=JT1234567890`)
+### Root Cause
+Socket events are fire-and-forget. If the listener is not connected at that moment, the event is dropped — it is not queued.
 
-Eski `extractTrackingNumber` fonksiyonu URL'den sadece `?tn=` veya `?tracking=` query param'larını arıyordu. J&T, Shopee, vb. carrier'lar farklı param isimleri kullanır (`logisticNo`, `billCode`, `no`, `waybill`). Param bulunamazsa **son path segment**'i dönüyordu → `TRACKING` gibi tamamen yanlış bir değer gidiyordu.
+### Fix
+Two-layer approach:
 
-### Çözüm (3 katmanlı)
+**1. Backend — write to Redis (TTL 5 min):**
+- `POST /orders/handheld-scan` → `redis.setex('pending:handheld:single:{userId}', 300, tn)`
+- `POST /orders/handheld-bulk-scan` → `redis.setex('pending:handheld:bulk:{userId}', 300, JSON.stringify(tns))`
+- New GET endpoints: `/orders/pending-handheld` and `/picker-admin/pending-staged`
 
-**1. Frontend — `extractTrackingNumber` iyileştirildi (`PackerMobile.tsx`):**
-- Tüm URL query param'ları deneniyor
-- `[A-Z0-9]{6,40}` regex ile "tracking number'a benziyor mu?" heuristic kontrolü
-- Path segment'ler de aynı heuristic ile kontrol ediliyor
-- Ham barkod değeri de `raw` param olarak backend'e gönderiliyor
-
-**2. Backend — `buildCandidates()` fonksiyonu (`packerService.ts`):**
-- Extracted `tn` + ham `raw` barkod'dan tüm adaylar çıkarılır
-- `raw` URL ise tüm query param değerleri + tüm path segment'leri aday listesine eklenir
-- Her aday için sırayla arama yapılır
-
-**3. Backend — Çift yönlü substring fallback (raw SQL):**
-```sql
-AND (
-  ${candidate} ILIKE '%' || tracking_number || '%'
-  OR tracking_number ILIKE '%' || ${candidate} || '%'
-)
-```
-- Scanned değer DB tracking'i içeriyorsa → bulur (URL barcode case)
-- DB tracking scanned değeri içeriyorsa → bulur (kısaltılmış barcode case)
-
-**Hata mesajı iyileştirmesi:**
-- `extracted: "XYZ" | raw: "https://..."` formatında gösterilir
-- Format uyuşmazlığı hemen görünür hale gelir
-
-### Etkilenen Dosyalar
-- `frontend/src/pages/PackerMobile.tsx` — `extractTrackingNumber`, `handleScan`, `?raw=` param
-- `backend/src/services/packerService.ts` — `buildCandidates()`, `findOrderForPacking()`, `diagnoseTracking()`
-- `backend/src/routes/packer.ts` — `raw` query param kabul, her iki fonksiyona geçiriliyor
-
-### Kural: Packer Scan Geliştirmelerinde
-- Packer sayfasına dokunurken: inbound'un tracking number'ı nasıl kaydettiğini (plain text mi URL mi?) ve packer'ın hangi barkod tipini okuduğunu her zaman kontrol et
-- Tek format varsayımı yapma — her zaman bidirectional search + multi-candidate yaklaşımı kullan
-- Yeni carrier formatı eklenince `extractTrackingNumber`'ı güncelle
-
----
-
-## [2026-04-17] Packer Scan — Nihai Çözüm Özeti
-
-Sorun birden fazla adımda çözüldü. Tüm adımlar birlikte çalışıyor:
-
-| Adım | Dosya | Ne yapıyor |
-|---|---|---|
-| 1 | `packerService.ts` | `buildCandidates()` — URL'den tüm query param + path segment denenir |
-| 2 | `packerService.ts` | Bidirectional SQL substring fallback |
-| 3 | `packer.ts` route | `GET /packer/orders` gerçek PICKER_COMPLETE listesini döndürür |
-| 4 | `PackerMobile.tsx` | Client-side queue match — backend'e gitmeden önce queue'daki siparişlerle karşılaştırır |
-| 5 | `PackerMobile.tsx` | Debug kartı — başarısız taramada Scanned vs Queue değerlerini gösterir |
-
-**Adım 4 çözümü:** Client-side bidirectional match — backend search çalışmasa bile queue'daki siparişlerle eşleştirir:
-```ts
-rawUp.includes(dbTn) || dbTn.includes(tnUp) || tnUp.includes(dbTn)
+**2. Frontend — check Redis on page mount:**
+```tsx
+useEffect(() => {
+  api.get('/orders/pending-handheld').then(res => {
+    if (res.data.bulk?.length > 0) { setBulkInitialTNs(res.data.bulk); setShowBulkModal(true) }
+    else if (res.data.single) { setPendingScan(res.data.single) }
+  }).catch(() => {})
+}, [])
 ```
 
+When the socket event arrives, Redis is cleared first to prevent double display.
+
+### Files Affected
+- `backend/src/routes/orders.ts` — Redis write + `GET /pending-handheld`
+- `backend/src/routes/pickerAdmin.ts` — Redis write + `GET /pending-staged`
+- `frontend/src/pages/Inbound.tsx` — mount effect
+- `frontend/src/pages/PickerAdmin.tsx` — mount effect
+
 ---
 
-## [2026-04-17] Packer Scan — Client-Side Queue Match (Backend Search Bypass)
+## [2026-04-11] Inbound — Duplicate Waybill Opens QuickScanModal
 
-### Sorun
-Backend multi-strategy search yapmasına rağmen scan hâlâ "not found" dönüyordu. Queue'da 2 sipariş görünüyordu ama hiçbir search stratejisi eşleşme bulamıyordu.
+### Problem
+Scanning a waybill already in the inbound list opened the QuickScanModal. User selected carrier/shop and hit Confirm, then got a 409 from the backend. Unnecessary UX step.
 
-### Kök Neden
-Backend'e güvenmek yetersizdi: deployment gecikmesi, SQL enum cast sorunu veya tamamen farklı barcode formatı nedeniyle hiçbir server-side search çalışmayabilir.
-
-### Çözüm
-`handleScan` fonksiyonuna API çağrısından ÖNCE client-side queue match eklendi:
-
-```ts
-const queue = queueData?.orders ?? []
-const clientMatch = queue.find(order => {
-  const dbTn = order.trackingNumber.toUpperCase()
-  return (
-    dbTn === tnUp ||
-    dbTn === rawUp ||
-    rawUp.includes(dbTn) ||   // barkod URL içinde tracking number geçiyor
-    dbTn.includes(tnUp) ||    // DB uzun format, scan kısa
-    tnUp.includes(dbTn)       // scan uzun, DB kısa
-  )
-})
-if (clientMatch) { setPendingOrder(clientMatch); return }
+### Fix
+Check `allOrders` list before opening the modal:
+```tsx
+<ScanInput
+  onScan={(tn) => {
+    const exists = allOrders.some(o => o.trackingNumber.toUpperCase() === tn.trim().toUpperCase())
+    if (exists) { setScanFeedback({ type: 'error', message: `Already in inbound list: ${tn}` }); return }
+    setPendingScan(tn)
+  }}
+/>
 ```
+Backend 409 stays as a safety net for edge cases.
 
-Aynı zamanda hata mesajına `queue: [tn1, tn2]` eklendi — scan değeri ile DB değeri yan yana görünür, format farkı anında tespit edilir.
-
-### Kural
-- Packer scan'de backend search başarısız olsa bile client queue'daki verilerle bidirectional match yap
-- Hata mesajında her zaman hem scanned değeri hem queue tracking number'larını göster
-- `GET /packer/orders` her zaman gerçek PICKER_COMPLETE siparişleri döndürmeli (boş array değil)
-
-### Etkilenen Dosyalar
-- `frontend/src/pages/PackerMobile.tsx` — `handleScan` client-side match + queue hint in error
-- `backend/src/routes/packer.ts` — `/orders` endpoint gerçek queue'yu döndürür
+### Files Affected
+- `frontend/src/pages/Inbound.tsx`
 
 ---
 
-## [2026-04-17] Packer Scan — Debug Kartı (Scanned vs Queue Görselleştirme)
+## [2026-04-11] PickerAdminScan Bulk — Non-Existent Waybill Added to List
 
-### Sorun
-Client-side match de başarısız oldu — scanned değer ile queue tracking number'ları arasında hiçbir substring eşleşmesi yoktu. Sebebi görünmüyordu.
+### Problem
+In bulk mode, a scanned waybill was added to the list immediately. On "Send", backend returned not_found. User didn't realize the wrong item was added.
 
-### Çözüm
-Başarısız taramadan sonra sarı bir debug kartı gösterildi:
-- `Scanned:` — extracted tracking number
-- `Raw:` — ham barkod değeri (URL ise tam URL)
-- `Queue:` — DB'deki PICKER_COMPLETE tracking number'ları
+### Fix
+In bulk mode, each scan immediately calls `/picker-admin/scan`:
+- Success → add to list with `status: staged`
+- Error (404/409) → beep + vibrate + error message, **not added to list**
 
-Bu kart, format uyuşmazlığını anında görünür kıldı. Sorun tespit edilip client-side match düzeltilince scanning çalıştı.
-
-### Kural
-Packer scan sorunlarında ilk adım: debug kartını aktif et, Scanned vs Queue değerlerini karşılaştır.
-
-### Etkilenen Dosyalar
-- `frontend/src/pages/PackerMobile.tsx` — `debugInfo` state + sarı debug kartı UI
+### Files Affected
+- `frontend/src/pages/PickerAdminScan.tsx`
 
 ---
 
-## [2026-04-17] Silinen Kullanıcılar Picker/Packer Admin Sayfalarında Görünüyor
+## [2026-04-11] Bulk Scan — Carrier and Shop Name Required
 
-### Sorun
-Settings'den silinen picker/packer kullanıcıları PickerAdmin ve PackerAdmin sayfalarındaki listelerden kaybolmuyordu.
+### Behavior
+- Carrier and Shop Name are both **required** (not optional)
+- If either is empty after scanning, a yellow warning message is shown
+- Confirm button stays disabled until both are filled
+- Backend validates with `z.string().min(1)` → returns 400
 
-### Kök Neden
-`DELETE /users/:id` endpoint'i **soft delete** yapıyor — kullanıcıyı silmiyor, `isActive = false` olarak işaretliyor. `getPickerStats()` ve `getPackerStats()` fonksiyonları kullanıcı listesini çekerken `isActive` filtresi kullanmıyordu, bu yüzden silinmiş kullanıcılar da listeye giriyordu.
-
-`getPickers()` ve `getPackers()` fonksiyonları doğruydu (`isActive: true` vardı), sadece stats fonksiyonları eksikti.
-
-### Çözüm
-İki fonksiyona `isActive: true` eklendi:
-
-```typescript
-// pickerAdminService.ts — getPickerStats()
-where: { tenantId, role: UserRole.PICKER, isActive: true }
-
-// packerAdminService.ts — getPackerStats()
-where: { tenantId, role: UserRole.PACKER, isActive: true }
-```
-
-### Kural
-Bu projede kullanıcı silme **soft delete**'tir (`isActive = false`). Kullanıcı listesi döndüren HER Prisma sorgusunda `isActive: true` filtresi zorunludur. Yeni bir kullanıcı listesi sorgusu yazılırken bu filtre unutulmamalı.
-
-### Etkilenen Dosyalar
-- `backend/src/services/pickerAdminService.ts` — `getPickerStats()` içinde `isActive: true` eklendi
-- `backend/src/services/packerAdminService.ts` — `getPackerStats()` içinde `isActive: true` eklendi
+### Files Affected
+- `frontend/src/components/BulkScanModal.tsx` — `canConfirm` condition, label, warning message
+- `backend/src/routes/orders.ts` — `BulkScanSchema.shopName` no longer optional
 
 ---
 
-## Genel Kurallar
+## General Rules
 
-- Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan
-- `@dom/shared` güncellenince mutlaka `npm run build` çalıştır
-- Birden fazla Vite process çalışıyorsa beyaz sayfa veya stale kod görünebilir
-- `npx tsc --noEmit` her değişiklikten sonra çalıştırılmalı
-- Backend değişikliklerinde `docker compose build backend && docker compose up -d backend`
-- Bulk API işlemlerinde asla `Promise.all(tümIDs)` kullanma — backend'e single bulk endpoint ekle
-- Frontend polling: socket real-time güncelleme varsa `refetchInterval` en az 10_000 ms olmalı
+- Always use `createPortal(modal, document.body)` for modal/overlay components
+- Always run `npm run build` in `shared/` after any update to `@dom/shared`
+- Multiple Vite processes running can cause white page or stale code
+- Run `npx tsc --noEmit` after every change
+- For backend Docker changes: `docker compose build backend && docker compose up -d backend`
+- Never use `Promise.all(allIDs)` for bulk API operations — add a single bulk endpoint on the backend
+- Frontend polling: if socket handles real-time updates, `refetchInterval` should be at least `10_000` ms
+- All user-list Prisma queries must include `isActive: true` — user deletion is soft delete
+- All cron schedules must use `tz: 'Asia/Manila'` with local Manila time — never convert to UTC manually
