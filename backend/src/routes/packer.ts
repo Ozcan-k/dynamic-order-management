@@ -14,17 +14,18 @@ export default async function packerRoutes(fastify: FastifyInstance) {
     return reply.send({ orders: [] })
   })
 
-  // GET /packer/find?tn=TRACKING_NUMBER — look up a PICKER_COMPLETE order before confirming
+  // GET /packer/find?tn=EXTRACTED&raw=RAW_BARCODE — look up a PICKER_COMPLETE order
   fastify.get('/find', { preHandler: authHandler }, async (request, reply) => {
-    const { tn } = request.query as { tn?: string }
+    const { tn, raw } = request.query as { tn?: string; raw?: string }
     if (!tn || tn.trim().length === 0) {
       return reply.code(400).send({ error: 'tn query param is required' })
     }
     const { tenantId, userId } = request.user as JWTPayload
-    request.log.warn({ tn: tn.trim(), tenantId, userId }, 'packer find attempt')
-    const order = await findOrderForPacking(tn.trim(), tenantId)
+    const rawTrimmed = raw?.trim()
+    request.log.warn({ tn: tn.trim(), raw: rawTrimmed?.substring(0, 300), tenantId, userId }, 'packer find attempt')
+    const order = await findOrderForPacking(tn.trim(), tenantId, rawTrimmed)
     if (!order) {
-      const any = await diagnoseTracking(tn.trim(), tenantId)
+      const any = await diagnoseTracking(tn.trim(), tenantId, rawTrimmed)
       const msg = any
         ? `Order status is ${any.status}${any.archivedAt ? ' (archived)' : ''}, not PICKER_COMPLETE`
         : 'Order not found in this tenant'

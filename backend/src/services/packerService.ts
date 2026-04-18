@@ -3,57 +3,99 @@ import { prisma } from '../lib/prisma'
 import { completeOrder } from './packerAdminService'
 
 const ORDER_SELECT = { id: true, trackingNumber: true, platform: true, delayLevel: true, status: true } as const
-
 type OrderRow = { id: string; trackingNumber: string; platform: string; delayLevel: number; status: string }
+const TRACKING_RE = /^[A-Z0-9]{6,40}$/i
 
-export async function findOrderForPacking(trackingNumber: string, tenantId: string) {
-  // 1. Exact case-insensitive match
-  const exact = await prisma.order.findFirst({
-    where: {
-      trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
-      tenantId,
-      status: OrderStatus.PICKER_COMPLETE,
-    },
-    select: ORDER_SELECT,
-  })
-  if (exact) return exact
+// Build a de-duped list of candidate tracking numbers from the extracted value and raw barcode.
+// The raw barcode may be a URL — we try all query params and path segments.
+function buildCandidates(tn: string, rawBarcode?: string): string[] {
+  const set = new Set<string>()
+  set.add(tn)
 
-  // 2. Fallback: the scanned value might be a URL that contains the tracking number.
-  //    Find a PICKER_COMPLETE order whose stored trackingNumber is a substring of what was scanned.
-  if (trackingNumber.length >= 8) {
+  if (rawBarcode) {
+    const rawUp = rawBarcode.trim().toUpperCase()
+    if (rawUp) set.add(rawUp)
+
+    try {
+      const url = new URL(rawBarcode)
+      for (const [, v] of url.searchParams) {
+        if (v && TRACKING_RE.test(v)) set.add(v.toUpperCase())
+      }
+      const parts = url.pathname.split('/').filter(Boolean)
+      for (const p of parts) {
+        if (TRACKING_RE.test(p)) set.add(p.toUpperCase())
+      }
+    } catch {}
+  }
+
+  return [...set]
+}
+
+export async function findOrderForPacking(tn: string, tenantId: string, rawBarcode?: string) {
+  const candidates = buildCandidates(tn, rawBarcode)
+
+  // 1. Exact case-insensitive match for each candidate
+  for (const c of candidates) {
+    const exact = await prisma.order.findFirst({
+      where: {
+        trackingNumber: { equals: c, mode: 'insensitive' },
+        tenantId,
+        status: OrderStatus.PICKER_COMPLETE,
+      },
+      select: ORDER_SELECT,
+    })
+    if (exact) return exact
+  }
+
+  // 2. Bidirectional substring fallback — handles mismatched formats:
+  //    e.g. DB has "JT123456" but barcode encodes a URL containing it,
+  //    or DB has the full format but scan gives a shorter variant.
+  for (const c of candidates) {
+    if (c.length < 6) continue
     const rows = await prisma.$queryRaw<OrderRow[]>`
       SELECT id, tracking_number AS "trackingNumber", platform, delay_level AS "delayLevel", status::text
       FROM orders
       WHERE tenant_id = ${tenantId}
         AND status = 'PICKER_COMPLETE'
         AND archived_at IS NULL
-        AND ${trackingNumber} ILIKE '%' || tracking_number || '%'
+        AND (
+          ${c} ILIKE '%' || tracking_number || '%'
+          OR tracking_number ILIKE '%' || ${c} || '%'
+        )
       LIMIT 1
     `
-    return rows[0] ?? null
+    if (rows[0]) return rows[0]
   }
+
   return null
 }
 
-export async function diagnoseTracking(trackingNumber: string, tenantId: string) {
-  // 1. Exact match
-  const exact = await prisma.order.findFirst({
-    where: { trackingNumber: { equals: trackingNumber, mode: 'insensitive' }, tenantId },
-    select: { status: true, archivedAt: true },
-  })
-  if (exact) return exact
+export async function diagnoseTracking(tn: string, tenantId: string, rawBarcode?: string) {
+  const candidates = buildCandidates(tn, rawBarcode)
 
-  // 2. Fallback: substring match (same logic as findOrderForPacking)
-  if (trackingNumber.length >= 8) {
+  for (const c of candidates) {
+    const exact = await prisma.order.findFirst({
+      where: { trackingNumber: { equals: c, mode: 'insensitive' }, tenantId },
+      select: { status: true, archivedAt: true },
+    })
+    if (exact) return exact
+  }
+
+  for (const c of candidates) {
+    if (c.length < 6) continue
     const rows = await prisma.$queryRaw<Array<{ status: string; archivedAt: Date | null }>>`
       SELECT status::text, archived_at AS "archivedAt"
       FROM orders
       WHERE tenant_id = ${tenantId}
-        AND ${trackingNumber} ILIKE '%' || tracking_number || '%'
+        AND (
+          ${c} ILIKE '%' || tracking_number || '%'
+          OR tracking_number ILIKE '%' || ${c} || '%'
+        )
       LIMIT 1
     `
-    return rows[0] ?? null
+    if (rows[0]) return rows[0]
   }
+
   return null
 }
 
