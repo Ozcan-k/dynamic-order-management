@@ -1191,7 +1191,7 @@ export default function PickerAdmin() {
 
   const todayStr = getManilaDateString()
   const orderList = orders ?? []
-  const carryoverCount = orderList.filter(o => o.workDate?.slice(0, 10) < todayStr).length
+  const carryoverCount = orderList.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr).length
   const pickerList = pickers ?? []
   const statsList = statsData?.stats ?? []
   const returnedFromPacker = statsData?.returnedCount ?? 0

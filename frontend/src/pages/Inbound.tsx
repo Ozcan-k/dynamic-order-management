@@ -141,15 +141,15 @@ export default function Inbound() {
 
   const todayStr = getManilaDateString()
   const allOrders = data ?? []
-  const todayOrders = allOrders.filter(o => o.workDate?.slice(0, 10) === todayStr)
-  const carryoverOrders = allOrders.filter(o => o.workDate?.slice(0, 10) < todayStr)
+  const todayOrders = allOrders.filter(o => getManilaDateString(new Date(o.workDate)) === todayStr)
+  const carryoverOrders = allOrders.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr)
   const pending = allOrders.length
   const totalScanned = statsData?.totalScanned ?? pending
   const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-  const todayPaged = pagedOrders.filter(o => o.workDate?.slice(0, 10) === todayStr)
-  const carryoverPaged = pagedOrders.filter(o => o.workDate?.slice(0, 10) < todayStr)
+  const todayPaged = pagedOrders.filter(o => getManilaDateString(new Date(o.workDate)) === todayStr)
+  const carryoverPaged = pagedOrders.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr)
   // Header stats
   const headerStats = (
     <>
