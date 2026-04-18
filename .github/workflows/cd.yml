@@ -82,7 +82,6 @@ jobs:
           script: |
             cd /opt/dom
             git pull origin main
-            docker compose pull
-            docker compose up -d --remove-orphans
+            docker compose up -d --build --remove-orphans
             docker exec dom_backend npx prisma migrate deploy || true
             docker image prune -f
