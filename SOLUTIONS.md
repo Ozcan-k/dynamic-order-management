@@ -676,6 +676,57 @@ Kullanıcı username + password giriyor, sistem role'ü tanıyıp doğru scan sa
 
 ---
 
+## [2026-04-17] Packer Scan — "Not Found" Hatası (URL Barkod Format Uyuşmazlığı)
+
+### Sorun
+Packer kamerasıyla paket üzerindeki barkodu taradığında "Order not found in this tenant" hatası alınıyordu.
+
+### Kök Neden
+**İki farklı barkod formatının çakışması:**
+- Inbound admin paketi sisteme girerken düz tracking number yazıyor → DB'de `JT1234567890` kaydediliyor
+- Packer kamerasıyla okuyunca barkod bir URL içeriyor (örn. `https://track.jtexpress.ph/tracking?logisticNo=JT1234567890`)
+
+Eski `extractTrackingNumber` fonksiyonu URL'den sadece `?tn=` veya `?tracking=` query param'larını arıyordu. J&T, Shopee, vb. carrier'lar farklı param isimleri kullanır (`logisticNo`, `billCode`, `no`, `waybill`). Param bulunamazsa **son path segment**'i dönüyordu → `TRACKING` gibi tamamen yanlış bir değer gidiyordu.
+
+### Çözüm (3 katmanlı)
+
+**1. Frontend — `extractTrackingNumber` iyileştirildi (`PackerMobile.tsx`):**
+- Tüm URL query param'ları deneniyor
+- `[A-Z0-9]{6,40}` regex ile "tracking number'a benziyor mu?" heuristic kontrolü
+- Path segment'ler de aynı heuristic ile kontrol ediliyor
+- Ham barkod değeri de `raw` param olarak backend'e gönderiliyor
+
+**2. Backend — `buildCandidates()` fonksiyonu (`packerService.ts`):**
+- Extracted `tn` + ham `raw` barkod'dan tüm adaylar çıkarılır
+- `raw` URL ise tüm query param değerleri + tüm path segment'leri aday listesine eklenir
+- Her aday için sırayla arama yapılır
+
+**3. Backend — Çift yönlü substring fallback (raw SQL):**
+```sql
+AND (
+  ${candidate} ILIKE '%' || tracking_number || '%'
+  OR tracking_number ILIKE '%' || ${candidate} || '%'
+)
+```
+- Scanned değer DB tracking'i içeriyorsa → bulur (URL barcode case)
+- DB tracking scanned değeri içeriyorsa → bulur (kısaltılmış barcode case)
+
+**Hata mesajı iyileştirmesi:**
+- `extracted: "XYZ" | raw: "https://..."` formatında gösterilir
+- Format uyuşmazlığı hemen görünür hale gelir
+
+### Etkilenen Dosyalar
+- `frontend/src/pages/PackerMobile.tsx` — `extractTrackingNumber`, `handleScan`, `?raw=` param
+- `backend/src/services/packerService.ts` — `buildCandidates()`, `findOrderForPacking()`, `diagnoseTracking()`
+- `backend/src/routes/packer.ts` — `raw` query param kabul, her iki fonksiyona geçiriliyor
+
+### Kural: Packer Scan Geliştirmelerinde
+- Packer sayfasına dokunurken: inbound'un tracking number'ı nasıl kaydettiğini (plain text mi URL mi?) ve packer'ın hangi barkod tipini okuduğunu her zaman kontrol et
+- Tek format varsayımı yapma — her zaman bidirectional search + multi-candidate yaklaşımı kullan
+- Yeni carrier formatı eklenince `extractTrackingNumber`'ı güncelle
+
+---
+
 ## Genel Kurallar
 
 - Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan
