@@ -806,6 +806,36 @@ Packer scan sorunlarında ilk adım: debug kartını aktif et, Scanned vs Queue 
 
 ---
 
+## [2026-04-17] Silinen Kullanıcılar Picker/Packer Admin Sayfalarında Görünüyor
+
+### Sorun
+Settings'den silinen picker/packer kullanıcıları PickerAdmin ve PackerAdmin sayfalarındaki listelerden kaybolmuyordu.
+
+### Kök Neden
+`DELETE /users/:id` endpoint'i **soft delete** yapıyor — kullanıcıyı silmiyor, `isActive = false` olarak işaretliyor. `getPickerStats()` ve `getPackerStats()` fonksiyonları kullanıcı listesini çekerken `isActive` filtresi kullanmıyordu, bu yüzden silinmiş kullanıcılar da listeye giriyordu.
+
+`getPickers()` ve `getPackers()` fonksiyonları doğruydu (`isActive: true` vardı), sadece stats fonksiyonları eksikti.
+
+### Çözüm
+İki fonksiyona `isActive: true` eklendi:
+
+```typescript
+// pickerAdminService.ts — getPickerStats()
+where: { tenantId, role: UserRole.PICKER, isActive: true }
+
+// packerAdminService.ts — getPackerStats()
+where: { tenantId, role: UserRole.PACKER, isActive: true }
+```
+
+### Kural
+Bu projede kullanıcı silme **soft delete**'tir (`isActive = false`). Kullanıcı listesi döndüren HER Prisma sorgusunda `isActive: true` filtresi zorunludur. Yeni bir kullanıcı listesi sorgusu yazılırken bu filtre unutulmamalı.
+
+### Etkilenen Dosyalar
+- `backend/src/services/pickerAdminService.ts` — `getPickerStats()` içinde `isActive: true` eklendi
+- `backend/src/services/packerAdminService.ts` — `getPackerStats()` içinde `isActive: true` eklendi
+
+---
+
 ## Genel Kurallar
 
 - Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan
