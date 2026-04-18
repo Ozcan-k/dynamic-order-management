@@ -134,11 +134,19 @@ export default function PackerMobile() {
 
   function extractTrackingNumber(raw: string): string {
     const s = raw.trim()
+    // Matches typical tracking numbers: alphanumeric, 6–40 chars, no slashes/dots
+    const TRACKING_RE = /^[A-Z0-9]{6,40}$/i
     try {
       const url = new URL(s)
-      const tn = url.searchParams.get('tn') || url.searchParams.get('tracking')
-      if (tn) return tn.trim().toUpperCase()
+      // Try every query param — take the first value that looks like a tracking number
+      for (const [, v] of url.searchParams) {
+        if (v && TRACKING_RE.test(v)) return v.toUpperCase()
+      }
+      // Try path segments in reverse — take the last segment that looks like a tracking number
       const parts = url.pathname.split('/').filter(Boolean)
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (TRACKING_RE.test(parts[i])) return parts[i].toUpperCase()
+      }
       if (parts.length > 0) return parts[parts.length - 1].toUpperCase()
     } catch {}
     return s.toUpperCase()
