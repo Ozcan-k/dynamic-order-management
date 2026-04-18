@@ -727,6 +727,25 @@ AND (
 
 ---
 
+## [2026-04-17] Packer Scan — Nihai Çözüm Özeti
+
+Sorun birden fazla adımda çözüldü. Tüm adımlar birlikte çalışıyor:
+
+| Adım | Dosya | Ne yapıyor |
+|---|---|---|
+| 1 | `packerService.ts` | `buildCandidates()` — URL'den tüm query param + path segment denenir |
+| 2 | `packerService.ts` | Bidirectional SQL substring fallback |
+| 3 | `packer.ts` route | `GET /packer/orders` gerçek PICKER_COMPLETE listesini döndürür |
+| 4 | `PackerMobile.tsx` | Client-side queue match — backend'e gitmeden önce queue'daki siparişlerle karşılaştırır |
+| 5 | `PackerMobile.tsx` | Debug kartı — başarısız taramada Scanned vs Queue değerlerini gösterir |
+
+**Adım 4 çözümü:** Client-side bidirectional match — backend search çalışmasa bile queue'daki siparişlerle eşleştirir:
+```ts
+rawUp.includes(dbTn) || dbTn.includes(tnUp) || tnUp.includes(dbTn)
+```
+
+---
+
 ## [2026-04-17] Packer Scan — Client-Side Queue Match (Backend Search Bypass)
 
 ### Sorun
@@ -763,6 +782,27 @@ Aynı zamanda hata mesajına `queue: [tn1, tn2]` eklendi — scan değeri ile DB
 ### Etkilenen Dosyalar
 - `frontend/src/pages/PackerMobile.tsx` — `handleScan` client-side match + queue hint in error
 - `backend/src/routes/packer.ts` — `/orders` endpoint gerçek queue'yu döndürür
+
+---
+
+## [2026-04-17] Packer Scan — Debug Kartı (Scanned vs Queue Görselleştirme)
+
+### Sorun
+Client-side match de başarısız oldu — scanned değer ile queue tracking number'ları arasında hiçbir substring eşleşmesi yoktu. Sebebi görünmüyordu.
+
+### Çözüm
+Başarısız taramadan sonra sarı bir debug kartı gösterildi:
+- `Scanned:` — extracted tracking number
+- `Raw:` — ham barkod değeri (URL ise tam URL)
+- `Queue:` — DB'deki PICKER_COMPLETE tracking number'ları
+
+Bu kart, format uyuşmazlığını anında görünür kıldı. Sorun tespit edilip client-side match düzeltilince scanning çalıştı.
+
+### Kural
+Packer scan sorunlarında ilk adım: debug kartını aktif et, Scanned vs Queue değerlerini karşılaştır.
+
+### Etkilenen Dosyalar
+- `frontend/src/pages/PackerMobile.tsx` — `debugInfo` state + sarı debug kartı UI
 
 ---
 
