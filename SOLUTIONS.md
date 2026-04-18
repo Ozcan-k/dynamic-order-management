@@ -727,6 +727,45 @@ AND (
 
 ---
 
+## [2026-04-17] Packer Scan — Client-Side Queue Match (Backend Search Bypass)
+
+### Sorun
+Backend multi-strategy search yapmasına rağmen scan hâlâ "not found" dönüyordu. Queue'da 2 sipariş görünüyordu ama hiçbir search stratejisi eşleşme bulamıyordu.
+
+### Kök Neden
+Backend'e güvenmek yetersizdi: deployment gecikmesi, SQL enum cast sorunu veya tamamen farklı barcode formatı nedeniyle hiçbir server-side search çalışmayabilir.
+
+### Çözüm
+`handleScan` fonksiyonuna API çağrısından ÖNCE client-side queue match eklendi:
+
+```ts
+const queue = queueData?.orders ?? []
+const clientMatch = queue.find(order => {
+  const dbTn = order.trackingNumber.toUpperCase()
+  return (
+    dbTn === tnUp ||
+    dbTn === rawUp ||
+    rawUp.includes(dbTn) ||   // barkod URL içinde tracking number geçiyor
+    dbTn.includes(tnUp) ||    // DB uzun format, scan kısa
+    tnUp.includes(dbTn)       // scan uzun, DB kısa
+  )
+})
+if (clientMatch) { setPendingOrder(clientMatch); return }
+```
+
+Aynı zamanda hata mesajına `queue: [tn1, tn2]` eklendi — scan değeri ile DB değeri yan yana görünür, format farkı anında tespit edilir.
+
+### Kural
+- Packer scan'de backend search başarısız olsa bile client queue'daki verilerle bidirectional match yap
+- Hata mesajında her zaman hem scanned değeri hem queue tracking number'larını göster
+- `GET /packer/orders` her zaman gerçek PICKER_COMPLETE siparişleri döndürmeli (boş array değil)
+
+### Etkilenen Dosyalar
+- `frontend/src/pages/PackerMobile.tsx` — `handleScan` client-side match + queue hint in error
+- `backend/src/routes/packer.ts` — `/orders` endpoint gerçek queue'yu döndürür
+
+---
+
 ## Genel Kurallar
 
 - Modal/overlay bileşenlerinde her zaman `createPortal(modal, document.body)` kullan
