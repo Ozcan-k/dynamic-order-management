@@ -691,6 +691,11 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ['packer-admin-stats'] })
       setDeleteTarget(null)
     },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? (err instanceof Error ? err.message : 'Failed to delete user')
+      alert(`Delete failed: ${msg}`)
+    },
   })
 
   const activeUsers = allUsers.filter((u) => u.isActive)
