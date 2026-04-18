@@ -68,29 +68,27 @@ User deletion in this project is **soft delete** (`isActive = false`). Every Pri
 ## [2026-04-17] Deleted Users Still Visible in Workload Section After Deletion (Cache Not Cleared)
 
 ### Problem
-After deleting a picker or packer from Settings, the user continued to appear in the "Picker Workload" / "Packer Workload" sections on the PickerAdmin and PackerAdmin pages — even though the backend filter (`isActive: true`) was correct.
+After deleting a picker or packer from Settings, the deleted user continued to appear in the PickerAdmin assignment dropdown and workload stats — even though the backend filter (`isActive: true`) was correct.
 
-### Root Cause (Two Layers)
-1. **Missing cache update**: `deleteMutation.onSuccess` only refreshed `['users']`, not `['picker-admin-stats']` / `['packer-admin-stats']`.
-2. **Wrong invalidation method**: `invalidateQueries` marks cache as stale but does NOT remove the data. When PickerAdmin/PackerAdmin mounts next, React Query still shows old (stale) data while refetching in background — deleted user visible for ~200–500ms ("stale-while-revalidate" behavior).
+### Root Cause (Three Layers — discovered progressively)
+
+1. **Missing stats cache update**: `deleteMutation.onSuccess` only refreshed `['users']`, not `['picker-admin-stats']` / `['packer-admin-stats']`.
+2. **Wrong invalidation method**: `invalidateQueries` marks cache as stale but serves old data on next mount (stale-while-revalidate). `removeQueries` wipes cache entirely → no flash.
+3. **Missing dropdown cache**: `['picker-admin-pickers']` (the picker assignment dropdown query) was NEVER cleared on delete — this was the root cause of the persistent bug. Deleted pickers kept appearing in the "assign to picker" dropdown even after stats were fixed.
 
 ### Fix
-Use `removeQueries` (not `invalidateQueries`) for stats caches in `deleteMutation.onSuccess` in `Settings.tsx`:
+All four caches must be cleared in `deleteMutation.onSuccess` in `Settings.tsx`:
 ```ts
-queryClient.invalidateQueries({ queryKey: ['users'] })           // same-page cache: invalidate is fine
-queryClient.removeQueries({ queryKey: ['picker-admin-stats'] })  // cross-page: remove entirely
-queryClient.removeQueries({ queryKey: ['packer-admin-stats'] })  // cross-page: remove entirely
+queryClient.invalidateQueries({ queryKey: ['users'] })             // same-page list: invalidate OK
+queryClient.removeQueries({ queryKey: ['picker-admin-stats'] })    // workload stats cards
+queryClient.removeQueries({ queryKey: ['picker-admin-pickers'] })  // ← THE REAL FIX: assignment dropdown
+queryClient.removeQueries({ queryKey: ['packer-admin-stats'] })    // packer workload stats
 ```
 
-`removeQueries` wipes the cache entry completely. When the admin pages mount, there is no stale data — they go straight to loading state and fetch fresh data. Deleted user never appears.
-
-| Method | Effect on next mount | Deleted user visible? |
-|---|---|---|
-| `invalidateQueries` | Shows stale data + background refetch | Yes (~200–500ms) |
-| `removeQueries` | Loading state + fresh fetch | Never |
-
 ### Rule
-For cross-page cache management after a mutation: use `removeQueries`. Use `invalidateQueries` only when the consumer component is currently mounted (same page) and will immediately refetch.
+When deleting a user, trace ALL query keys that display that user — not just the obvious ones. A user can appear in: (a) their own list, (b) stats cards, AND (c) assignment dropdowns. Each is a separate query key that must be cleared.
+
+Use `removeQueries` (not `invalidateQueries`) for cross-page caches: removes data entirely so no stale flash occurs on next mount.
 
 ### Files Affected
 - `frontend/src/pages/Settings.tsx` — `deleteMutation.onSuccess`

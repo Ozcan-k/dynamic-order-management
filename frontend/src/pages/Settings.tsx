@@ -687,6 +687,7 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       queryClient.removeQueries({ queryKey: ['picker-admin-stats'] })
+      queryClient.removeQueries({ queryKey: ['picker-admin-pickers'] })
       queryClient.removeQueries({ queryKey: ['packer-admin-stats'] })
       setDeleteTarget(null)
     },
