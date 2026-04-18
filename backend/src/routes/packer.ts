@@ -3,15 +3,18 @@ import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { findOrderForPacking, diagnoseTracking, completeByTracking } from '../services/packerService'
+import { getPickerCompleteOrders } from '../services/packerAdminService'
 
 const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
 
 export default async function packerRoutes(fastify: FastifyInstance) {
   const authHandler = [fastify.authenticate, requireRole(UserRole.PACKER)]
 
-  // GET /packer/orders — always empty; packers self-assign by scanning
-  fastify.get('/orders', { preHandler: authHandler }, async (_request, reply) => {
-    return reply.send({ orders: [] })
+  // GET /packer/orders — returns PICKER_COMPLETE orders for the tenant
+  fastify.get('/orders', { preHandler: authHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const orders = await getPickerCompleteOrders(tenantId)
+    return reply.send({ orders })
   })
 
   // GET /packer/find?tn=EXTRACTED&raw=RAW_BARCODE — look up a PICKER_COMPLETE order
