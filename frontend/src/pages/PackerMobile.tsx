@@ -163,6 +163,30 @@ export default function PackerMobile() {
   async function handleScan(rawInput: string) {
     setErrorMsg(null)
     const tn = extractTrackingNumber(rawInput)
+    const rawUp = rawInput.trim().toUpperCase()
+    const tnUp = tn.toUpperCase()
+
+    // Client-side match against the known queue — works even if API search fails.
+    // Covers: exact, scanned-contains-db, db-contains-scanned (bidirectional).
+    const queue = queueData?.orders ?? []
+    const clientMatch = queue.find(order => {
+      const dbTn = order.trackingNumber.toUpperCase()
+      return (
+        dbTn === tnUp ||
+        dbTn === rawUp ||
+        rawUp.includes(dbTn) ||
+        dbTn.includes(tnUp) ||
+        tnUp.includes(dbTn)
+      )
+    })
+    if (clientMatch) {
+      setPendingOrder(clientMatch)
+      playBeep(true)
+      try { navigator.vibrate?.(80) } catch {}
+      return
+    }
+
+    // Fallback: ask the backend (handles orders not yet in local queue cache)
     setLookingUp(true)
     try {
       const res = await api.get<{ order: PackerOrder }>(
@@ -174,13 +198,16 @@ export default function PackerMobile() {
     } catch (err: any) {
       const apiError = err?.response?.data?.error || err?.response?.data?.message || null
       const status = err?.response?.status ?? 0
-      // Show both extracted and raw values so mismatches are visible
       const scannedInfo = rawInput !== tn
         ? `extracted: "${tn}" | raw: "${rawInput.substring(0, 80)}"`
         : `scanned: "${tn}"`
+      // Show queue tracking numbers so the user can compare directly
+      const queueHint = queue.length > 0
+        ? ` | queue: ${queue.map(o => o.trackingNumber).join(', ')}`
+        : ''
       const msg = apiError
-        ? `${apiError} — ${scannedInfo}`
-        : `[${status}] ${scannedInfo} — not found or not ready for packing`
+        ? `${apiError} — ${scannedInfo}${queueHint}`
+        : `[${status}] ${scannedInfo} — not found${queueHint}`
       setErrorMsg(msg)
       playBeep(false)
       try { navigator.vibrate?.([80, 60, 80]) } catch {}
