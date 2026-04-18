@@ -47,6 +47,7 @@ export default function PackerMobile() {
   const [lookingUp, setLookingUp] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [queueOpen, setQueueOpen] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<{ extracted: string; raw: string; queue: string[] } | null>(null)
 
   const { data: queueData, refetch: refetchQueue } = useQuery({
     queryKey: ['packer-queue'],
@@ -193,22 +194,15 @@ export default function PackerMobile() {
         `/packer/find?tn=${encodeURIComponent(tn)}&raw=${encodeURIComponent(rawInput)}`
       )
       setPendingOrder(res.data.order)
+      setDebugInfo(null)
       playBeep(true)
       try { navigator.vibrate?.(80) } catch {}
     } catch (err: any) {
       const apiError = err?.response?.data?.error || err?.response?.data?.message || null
       const status = err?.response?.status ?? 0
-      const scannedInfo = rawInput !== tn
-        ? `extracted: "${tn}" | raw: "${rawInput.substring(0, 80)}"`
-        : `scanned: "${tn}"`
-      // Show queue tracking numbers so the user can compare directly
-      const queueHint = queue.length > 0
-        ? ` | queue: ${queue.map(o => o.trackingNumber).join(', ')}`
-        : ''
-      const msg = apiError
-        ? `${apiError} — ${scannedInfo}${queueHint}`
-        : `[${status}] ${scannedInfo} — not found${queueHint}`
+      const msg = apiError ?? `[${status}] not found or not ready for packing`
       setErrorMsg(msg)
+      setDebugInfo({ extracted: tn, raw: rawInput, queue: queue.map(o => o.trackingNumber) })
       playBeep(false)
       try { navigator.vibrate?.([80, 60, 80]) } catch {}
     } finally {
@@ -299,6 +293,34 @@ export default function PackerMobile() {
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             {errorMsg}
+          </div>
+        )}
+
+        {debugInfo && (
+          <div style={{
+            background: '#fefce8', border: '1px solid #fde68a', borderRadius: '12px',
+            padding: '12px 14px', marginBottom: '14px', fontSize: '12px',
+          }}>
+            <div style={{ fontWeight: 700, color: '#92400e', marginBottom: '6px' }}>Scan Debug</div>
+            <div style={{ color: '#78350f', marginBottom: '4px' }}>
+              <span style={{ fontWeight: 600 }}>Scanned: </span>
+              <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{debugInfo.extracted}</span>
+            </div>
+            {debugInfo.raw !== debugInfo.extracted && (
+              <div style={{ color: '#78350f', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 600 }}>Raw: </span>
+                <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{debugInfo.raw.substring(0, 150)}</span>
+              </div>
+            )}
+            <div style={{ color: '#78350f' }}>
+              <span style={{ fontWeight: 600 }}>Queue: </span>
+              {debugInfo.queue.length === 0
+                ? <span style={{ fontStyle: 'italic' }}>empty</span>
+                : debugInfo.queue.map((tn, i) => (
+                    <span key={i} style={{ fontFamily: 'monospace', display: 'block', marginTop: '2px' }}>• {tn}</span>
+                  ))
+              }
+            </div>
           </div>
         )}
 
