@@ -99,6 +99,10 @@ export async function deleteUser(tenantId: string, userId: string, adminId: stri
             changedById: adminId,
           })),
         })
+        // Remove orphaned incomplete assignments so they don't accumulate
+        await tx.pickerAssignment.deleteMany({
+          where: { pickerId: userId, completedAt: null },
+        })
       }
     }
 
@@ -120,6 +124,9 @@ export async function deleteUser(tenantId: string, userId: string, adminId: stri
             toStatus: OrderStatus.PICKER_COMPLETE,
             changedById: adminId,
           })),
+        })
+        await tx.packerAssignment.deleteMany({
+          where: { packerId: userId, completedAt: null },
         })
       }
     }

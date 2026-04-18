@@ -149,6 +149,49 @@ Do NOT set a high global `staleTime` for queries that must reflect deletions/dea
 
 ---
 
+## [2026-04-18] deleteUser Leaves Orphaned pickerAssignment / packerAssignment Records
+
+### Problem
+When a picker or packer was deactivated (soft-deleted) via `DELETE /users/:id`, their incomplete assignments (`completedAt: null`) were NOT deleted from the `PickerAssignment` / `PackerAssignment` tables. The orders were correctly moved back to INBOUND / PICKER_COMPLETE, but the assignment rows remained. This is a data integrity issue that could cause subtle bugs in future queries.
+
+### Root Cause
+`deleteUser` in `userService.ts` correctly reassigned orders but did not call `deleteMany` on the assignment records afterwards.
+
+### Fix
+After reassigning orders, delete the now-orphaned incomplete assignments:
+```ts
+// For PICKER
+await tx.pickerAssignment.deleteMany({
+  where: { pickerId: userId, completedAt: null },
+})
+
+// For PACKER
+await tx.packerAssignment.deleteMany({
+  where: { packerId: userId, completedAt: null },
+})
+```
+
+### How to delete test users from live DB (one-time cleanup)
+SSH into the Vultr server, then run:
+```bash
+docker exec dom_backend node -e "
+const { PrismaClient } = require('@prisma/client');
+const p = new PrismaClient();
+p.user.updateMany({
+  where: { username: { in: ['picker1_test','picker2_test','picker3_test','picker11','packer1_test','packer2_test','packer3_test'] } },
+  data: { isActive: false }
+}).then(r => { console.log('Deactivated:', r.count); return p.\$disconnect(); }).catch(e => { console.error(e); process.exit(1); });
+"
+```
+
+### Rule
+When deactivating a user, ALWAYS clean up their incomplete assignment records in the same transaction. Orphaned assignments with `completedAt: null` are invisible to the UI (filtered by `isActive: true`) but pollute the DB and can cause subtle bugs.
+
+### Files Affected
+- `backend/src/services/userService.ts` — `deleteUser()`
+
+---
+
 ## [2026-04-17] Packer Scan — Final Fix Summary
 
 The "not found" scan issue was resolved across multiple steps. All steps work together:
