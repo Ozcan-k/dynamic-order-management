@@ -5,59 +5,48 @@ When the same issue appears again, check here first.
 
 ---
 
-## [2026-04-19] Archive Page Returns HTML Instead of JSON — Missing nginx Location on Prod
+## [2026-04-19] Archive Page Returns HTML Instead of JSON — Missing `/archive` in Vite proxyRoutes
 
 ### Problem
 After v2.13.4 shipped, clicking **Archive OUTBOUND Now** still showed *"Archive failed"*. DevTools network tab:
 ```
 POST https://domwarehouse.com/archive/trigger  →  404 Not Found
+GET  https://domwarehouse.com/archive/stats    →  200 text/html (SPA index.html)
 ```
-No archived records were ever visible on the Archive page either — not because the archive job was broken, but because the list query was also silently returning the wrong content.
+No archived records were visible either — the stats/list GETs returned HTML, so React Query got `undefined` for `.total` and `.orders`.
 
-### Root Cause
-**Nginx on the Vultr host had no `location /archive` block.** Every other API prefix (`/auth`, `/users`, `/orders`, `/picker-admin`, `/picker`, `/packer-admin`, `/packer`, `/outbound`, `/reports`) was proxied to `localhost:3000`. `/archive` was missing, so:
+### Root Cause (correction — earlier diagnosis was wrong)
+Initial suspicion was **nginx** missing a `location /archive` block. **That was wrong.** This project's nginx config only has three locations: `/socket.io/`, `/api/`, and `/` (catch-all → Vite on port 5173). Per-prefix routing happens one layer deeper: **Vite's dev-server `server.proxy` config** (`frontend/vite.config.ts`) decides which prefixes get forwarded to Fastify on `:3000` and which get served the SPA.
 
-| Request | What happened | Result |
+The real bug: `proxyRoutes` in `frontend/vite.config.ts:8` listed every other prefix but **`/archive` was missing**. So Vite did this:
+
+| Request | Vite behavior | Result |
 |---|---|---|
-| `GET /archive/stats` | nginx SPA fallback → served `index.html` | 200 **but `Content-Type: text/html`** — React Query got HTML, `res.data.total` was undefined, UI showed zero archived |
-| `GET /archive` (list) | same SPA fallback | 200 HTML — `res.data.orders` undefined, empty table |
-| `POST /archive/trigger` | Static HTML file can't accept POST | nginx returns **404** — frontend falls back to generic *"Archive failed"* toast |
+| `GET /archive/stats` | No proxy match → SPA fallback → `index.html` | 200 `text/html`, React Query sees undefined fields → empty UI |
+| `GET /archive` (list) | Same SPA fallback | 200 `text/html`, empty table |
+| `POST /archive/trigger` | No proxy match, static HTML can't POST | 404 → frontend generic *"Archive failed"* toast |
 
-External probe that made the diagnosis unambiguous:
-```bash
-curl -sSI https://domwarehouse.com/archive/stats | grep -i content-type
-# Content-Type: text/html            ← SPA fallback, NOT reaching backend
-curl -sSI https://domwarehouse.com/auth/me    | grep -i content-type
-# Content-Type: application/json     ← correctly proxied to backend
-```
+Archive feature (Phase 7) worked locally because `npm run dev` hits Fastify directly; the Vite proxy gap only bites when traffic actually flows `browser → nginx → Vite`.
 
-The archive feature (Phase 7) shipped code-complete months ago and functional tests passed locally because local dev doesn't go through nginx — it talks to the Fastify port directly. In prod the route was never reachable.
+### Wasted detour
+I initially edited the nginx config on the Vultr host thinking it needed a `location /archive` block. nginx was already correct (the catch-all sends everything to Vite); I nearly broke the site by adding an unnecessary location outside the `server {}` block. Lesson: **before blaming nginx, read the nginx config** and identify whether per-prefix routing actually happens there.
 
 ### Fix
-Server-side, not repo-side. SSH into the Vultr host and add the missing location to the nginx site config (mirror the existing `/auth` / `/outbound` blocks):
-```nginx
-location /archive {
-    proxy_pass http://localhost:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+One line in `frontend/vite.config.ts:8`:
+```diff
+- const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound']
++ const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive']
 ```
-Then:
-```bash
-nginx -t && systemctl reload nginx
-curl -sSI https://domwarehouse.com/archive/stats | grep -i content-type
-# expected: application/json; charset=utf-8
-```
+Shipped as **v2.13.6**. Deploy via CD → frontend container rebuild → Vite picks up new proxy list.
 
 ### Rules
-- **When shipping a new backend route prefix, the nginx site config is part of the release.** Grep your prod nginx config for every prefix in `backend/src/index.ts` `fastify.register(..., { prefix })` — any missing one is a time bomb that silently degrades to HTML responses.
-- **SPA-fallback + unproxied API = silent failure.** GET requests return 200 HTML (looks like "no data"), POST requests return 404 (looks like "failed"). Neither surfaces the actual nginx misconfig. When debugging a 404 on an API path, first check `Content-Type` of a GET on the same prefix — `text/html` means it never reached the backend.
-- **Keep the nginx config in the repo.** Current setup has it on the server only, which is how this regression escaped review. A future task should move `/etc/nginx/sites-enabled/domwarehouse.com` into `deploy/nginx.conf` under version control, mounted into an nginx container or rendered on deploy.
+- **When you register a new route prefix in `backend/src/index.ts`, you MUST also add it to `frontend/vite.config.ts` `proxyRoutes`.** Otherwise Vite will SPA-fallback that prefix and every API call silently returns `index.html`.
+- **SPA-fallback + unproxied API = silent failure.** GETs return 200 HTML (React Query sees undefined → "no data"), POSTs return 404 (→ generic "failed" toast). Neither surfaces the real cause. When debugging a 404 on an API path, first check `Content-Type` of a GET on the same prefix — `text/html` means it never reached Fastify.
+- **Read the actual nginx config before theorising about nginx.** In this stack nginx is a thin shell (`/api/`, `/socket.io/`, `/ → :5173`); the real per-route allowlist lives in Vite.
 
-### Verification commands (audit every prefix at once)
+### Verification commands
 ```bash
+# audit every backend prefix at once
 for p in /auth/me /users /orders /picker-admin/pickers /packer-admin/packers \
          /picker/my-orders /packer/my-orders /outbound/stats /reports/dashboard \
          /archive/stats; do
@@ -66,11 +55,12 @@ for p in /auth/me /users /orders /picker-admin/pickers /packer-admin/packers \
   echo "$code $ct $p"
 done
 ```
-Every row should report `application/json`. Any `text/html` row means nginx is serving the SPA instead of proxying to the backend.
+Every row should report `application/json`. Any `text/html` row = that prefix is not in `proxyRoutes`.
 
 ### Files Affected
-- (server-only) `/etc/nginx/sites-enabled/domwarehouse.com`
-- `SOLUTIONS.md` — this entry
+- `frontend/vite.config.ts` — added `/archive` to `proxyRoutes`
+- `CLAUDE.md` — bumped to v2.13.6
+- `SOLUTIONS.md` — this (corrected) entry
 
 ---
 
