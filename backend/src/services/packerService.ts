@@ -104,17 +104,19 @@ export async function completeByTracking(
   packerId: string,
   tenantId: string,
 ) {
+  // Active, non-archived, picker-complete row only. Partial unique index allows
+  // archived duplicates with the same trackingNumber in the same tenant —
+  // without this filter, findFirst can pick an archived row and misreport state.
   const order = await prisma.order.findFirst({
     where: {
       trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
       tenantId,
+      archivedAt: null,
+      status: OrderStatus.PICKER_COMPLETE,
     },
   })
 
   if (!order) throw new Error('Order not found')
-  if (order.status !== OrderStatus.PICKER_COMPLETE) {
-    throw new Error('Order is not ready for packing')
-  }
 
   return completeOrder(order.id, packerId, tenantId)
 }

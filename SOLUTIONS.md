@@ -5,6 +5,64 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] Picker/Packer "Order not assigned to you" on Scan — Archived Duplicate
+
+### Problem
+`picker1` sees an assigned order in their mobile list. Scanning that order's waybill and pressing **Confirm Complete** returns HTTP 403 `"Order not assigned to you"`. The order is clearly the picker's — list says so — but completion fails.
+
+### Root Cause
+`backend/prisma/schema.prisma:108` replaced the `@@unique([tenantId, trackingNumber])` constraint with a **partial unique index** (`archived_at IS NULL`) via a raw SQL migration. So the same `(tenantId, trackingNumber)` pair can legally exist multiple times: one active row + any number of archived rows (re-shipment of the same logistics code over time).
+
+`pickerService.completeByTracking` looked up the order like this:
+```ts
+const order = await prisma.order.findFirst({
+  where: { trackingNumber: { equals: trackingNumber, mode: 'insensitive' }, tenantId },
+})
+```
+No `archivedAt: null` filter, no status filter, no `orderBy`. Postgres returns **any** matching row in undefined order — `findFirst` could return the **old archived** row whose `pickerAssignment.completedAt` was already set long ago. The follow-up `pickerAssignment.findFirst({ orderId: <archived-id>, pickerId, completedAt: null })` then matched nothing → `"Order not assigned to you"` → route mapped that message to HTTP 403.
+
+The same latent anti-pattern existed in `packerService.completeByTracking`.
+
+Meanwhile, `getMyOrders` correctly joins on `order.status ∈ {PICKER_ASSIGNED, PICKING}` (never on archived rows), so the picker's **list** always shows the active row — the mismatch made the bug look like a permission error.
+
+### Fix
+Add `archivedAt: null` + status filter inside the Prisma `findFirst` for both services. Because the status filter now lives in the query, the redundant post-fetch status check is dropped.
+
+```ts
+// pickerService.completeByTracking
+const order = await prisma.order.findFirst({
+  where: {
+    trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
+    tenantId,
+    archivedAt: null,
+    status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] },
+  },
+})
+
+// packerService.completeByTracking
+const order = await prisma.order.findFirst({
+  where: {
+    trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
+    tenantId,
+    archivedAt: null,
+    status: OrderStatus.PICKER_COMPLETE,
+  },
+})
+```
+
+The canonical filter pattern was already used correctly in `pickerAdminService.lookupOrderByScan` (`backend/src/services/pickerAdminService.ts:94-96`, `archivedAt: null`) — reference it for any future scan-resolution code.
+
+### Rule
+**Every Prisma query that resolves a scan to an `Order` by `trackingNumber` MUST include `archivedAt: null` in its `where`.** The partial unique index makes archived duplicates legal; any query that omits this filter is a time bomb that fires when a carrier re-uses a tracking number.
+
+Also prefer putting the expected `status` filter inside the query (single round trip, clearer intent) rather than fetching and re-checking in application code.
+
+### Files Affected
+- `backend/src/services/pickerService.ts` — `completeByTracking`
+- `backend/src/services/packerService.ts` — `completeByTracking`
+
+---
+
 ## [2026-04-18] Backend Container Never Rebuilt on CD — All Backend Fixes Silently No-Op'd
 
 ### Problem
