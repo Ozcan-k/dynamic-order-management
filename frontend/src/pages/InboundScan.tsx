@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import ScanCelebration from '../components/shared/ScanCelebration'
 
 type ScanMode = 'single' | 'bulk'
 
@@ -55,6 +56,7 @@ export default function InboundScan() {
   }
   const [mode, setMode] = useState<ScanMode>('single')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'duplicate'; message: string } | null>(null)
+  const [celebration, setCelebration] = useState<{ msg: string; variant: 'success' | 'error' } | null>(null)
   const [bulkItems, setBulkItems] = useState<BulkEntry[]>([])
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -69,6 +71,7 @@ export default function InboundScan() {
       playBeep(true)
       vibrate(100)
       setFeedback({ type: 'success', message: `Sent to desktop: ${tn}` })
+      setCelebration({ msg: `Sent: ${tn}`, variant: 'success' })
       setTimeout(() => setFeedback(null), 2500)
     },
     onError: (err: any, tn) => {
@@ -89,6 +92,7 @@ export default function InboundScan() {
       playBeep(true)
       vibrate(150)
       setFeedback({ type: 'success', message: `${tns.length} item${tns.length !== 1 ? 's' : ''} sent to desktop` })
+      setCelebration({ msg: `${tns.length} item${tns.length !== 1 ? 's' : ''} sent`, variant: 'success' })
       setBulkItems([])
       setTimeout(() => setFeedback(null), 3000)
     },
@@ -179,6 +183,13 @@ export default function InboundScan() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(170deg, #0f172a 0%, #0f2444 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+      <ScanCelebration
+        show={!!celebration}
+        message={celebration?.msg}
+        variant={celebration?.variant}
+        onDone={() => setCelebration(null)}
+      />
 
       {/* Top bar */}
       <div style={{ width: '100%', maxWidth: '480px', padding: '20px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxSizing: 'border-box' }}>

@@ -6,6 +6,7 @@ import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
+import NumberTicker from '../components/shared/NumberTicker'
 import { getSocket } from '../lib/socket'
 import { getManilaDateString } from '../lib/manila'
 import SlaSummaryCard from '../components/SlaSummaryCard'
@@ -100,10 +101,11 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 }
 
 function MetricCard({
-  label, value, color, subtitle,
+  label, value, color, subtitle, animate,
 }: {
-  label: string; value: number | string; color: string; subtitle?: string
+  label: string; value: number | string; color: string; subtitle?: string; animate?: boolean
 }) {
+  const isNumeric = typeof value === 'number'
   return (
     <div style={{
       background: colors.surfaceAlt,
@@ -116,7 +118,7 @@ function MetricCard({
         fontSize: '26px', fontWeight: 700, color,
         fontVariantNumeric: 'tabular-nums', lineHeight: 1.1,
       }}>
-        {value}
+        {animate && isNumeric ? <NumberTicker value={value as number} /> : value}
       </div>
       <div style={{ fontSize: font.sizeMd, color: colors.textSecondary, marginTop: '5px', fontWeight: 500 }}>
         {label}
@@ -485,10 +487,12 @@ export default function Dashboard() {
           <MetricCard
             label="Total Inbound" value={dash(rangeLoading, rangeData?.inboundTotal ?? 0)}
             color={colors.primary} subtitle={`${rangeStart} → ${rangeEnd}`}
+            animate
           />
           <MetricCard
             label="Total Outbound" value={dash(rangeLoading, rangeData?.outboundTotal ?? 0)}
             color={colors.success} subtitle={`${rangeStart} → ${rangeEnd}`}
+            animate
           />
         </div>
       </Card>

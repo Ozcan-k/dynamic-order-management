@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import DelayBadge from '../components/DelayBadge'
+import ScanCelebration from '../components/shared/ScanCelebration'
 
 interface PackerOrder {
   id: string
@@ -46,6 +47,7 @@ export default function PackerMobile() {
   const [pendingOrder, setPendingOrder] = useState<PackerOrder | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [celebration, setCelebration] = useState<{ msg: string; variant: 'success' | 'error' } | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [debugInfo, setDebugInfo] = useState<{ extracted: string; raw: string; queue: string[] } | null>(null)
@@ -82,6 +84,7 @@ export default function PackerMobile() {
     onSuccess: (_, trackingNumber) => {
       setPendingOrder(null)
       setSuccessMsg(`Packed: ${trackingNumber}`)
+      setCelebration({ msg: `Packed: ${trackingNumber}`, variant: 'success' })
       playBeep(true)
       try { navigator.vibrate?.(100) } catch {}
       refetchQueue()
@@ -229,6 +232,13 @@ export default function PackerMobile() {
 
   return (
     <div style={{ minHeight: '100dvh', background: '#f1f5f9', overflowX: 'hidden' }}>
+
+      <ScanCelebration
+        show={!!celebration}
+        message={celebration?.msg}
+        variant={celebration?.variant}
+        onDone={() => setCelebration(null)}
+      />
 
       {/* ── Header ── */}
       <div style={{

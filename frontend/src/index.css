@@ -118,16 +118,18 @@ button {
 }
 
 .sidebar-link {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 12px;
+  padding: 12px 14px;
   border-radius: 8px;
   text-decoration: none;
   color: #94a3b8;
   font-size: 13.5px;
   font-weight: 500;
-  transition: background 0.15s, color 0.15s;
+  min-height: 44px;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
   cursor: pointer;
 }
 
@@ -139,6 +141,18 @@ button {
 .sidebar-link--active {
   background: rgba(59, 130, 246, 0.15);
   color: #60a5fa;
+}
+
+.sidebar-link--active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: #2563eb;
+  box-shadow: 0 0 10px rgba(37, 130, 235, 0.6);
 }
 
 .sidebar-link--active .sidebar-link-icon {
@@ -1313,3 +1327,60 @@ button {
     text-align: center;
   }
 }
+
+/* ─── Scan celebration keyframes ────────────────────────────────────────── */
+
+@keyframes celebrate-pop {
+  0%   { transform: scale(0.2); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+@keyframes celebrate-glow {
+  0%   { transform: scale(0.4); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0;   }
+}
+
+@keyframes celebrate-check {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes celebrate-message {
+  0%   { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0);   opacity: 1; }
+}
+
+/* ─── BorderBeam (urgent card pulse) ────────────────────────────────────── */
+
+.beam-wrap {
+  position: relative;
+  isolation: isolate;
+}
+
+.beam-wrap::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid var(--beam-color, #ef4444);
+  pointer-events: none;
+  z-index: 1;
+  animation: beam-pulse 1.6s ease-in-out infinite;
+}
+
+.beam-wrap--soft::after {
+  animation-duration: 2.4s;
+  opacity: 0.6;
+}
+
+@keyframes beam-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--beam-color, #ef4444), 0 0 0 0 rgba(0,0,0,0);
+    opacity: 0.9;
+  }
+  50% {
+    box-shadow: 0 0 0 3px transparent, 0 0 18px 2px var(--beam-color, #ef4444);
+    opacity: 1;
+  }
+}
+
