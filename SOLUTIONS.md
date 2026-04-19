@@ -5,6 +5,46 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] Outbound / Reports 403 for PICKER_ADMIN and PACKER_ADMIN — Frontend/Backend Role List Mismatch
+
+### Problem
+After a picker + packer completed an order via scan, a PICKER_ADMIN or PACKER_ADMIN user navigating to `/outbound` saw repeating `GET /outbound/grouped 403` and `GET /outbound/stats 403` errors. The same user on `/reports` saw `Failed to load performance data. Please try again.` (also from a 403 on `/reports/performance`).
+
+### Root Cause
+Frontend route guards in `frontend/src/App.tsx` allow the page:
+```
+/outbound → [ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN]
+/reports  → [ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN]
+```
+So the user reaches the page and React Query starts polling. But the backend `requireRole(...)` preHandler for the endpoints those pages hit was narrower:
+```
+/outbound/{grouped,stats,stuck}           → [ADMIN, INBOUND_ADMIN]
+/reports/performance (+ export, export-pdf) → [ADMIN, INBOUND_ADMIN]
+/reports/sla (+ export-pdf)               → [ADMIN, INBOUND_ADMIN]
+```
+Result: page renders, every poll 403s, user sees error toasts while the sidebar link that got them there is clearly "allowed."
+
+### Fix
+Widen the backend `requireRole` lists to match the frontend `allowedRoles` for the exact endpoints those pages call:
+- `backend/src/routes/outbound.ts` — shared `preHandler` → add PICKER_ADMIN + PACKER_ADMIN.
+- `backend/src/routes/reports.ts` — `/performance`, `/performance/export`, `/performance/export-pdf`, `/sla`, `/sla/export-pdf` → add PICKER_ADMIN + PACKER_ADMIN.
+
+Intentionally **not** widened:
+- `/reports/dashboard` — only called from `/` (Dashboard) and `/dashboard` (Inbound), both gated to ADMIN + INBOUND_ADMIN. Widening would grant data access a *_ADMIN never needs.
+- `/reports/trigger-nightly` — admin-only debug trigger.
+- `/reports/order-timeline` — already correctly 4-role.
+
+### Rule
+**Frontend `ProtectedRoute allowedRoles` and backend `requireRole(...)` for the endpoints that page calls MUST stay in sync.** When adding a role to a page's `allowedRoles` in `App.tsx`, grep the page component for every `api.get(...)` / `api.post(...)` path and update the matching backend routes in the same commit. A narrower backend than frontend produces a 403-spam UX; a wider backend is a privilege leak.
+
+When debugging a `403` that only hits some user roles: first check frontend allowedRoles vs backend requireRole for the exact URL path in the network tab — the list mismatch is the most common cause.
+
+### Files Affected
+- `backend/src/routes/outbound.ts`
+- `backend/src/routes/reports.ts`
+
+---
+
 ## [2026-04-18] Picker/Packer "Order not assigned to you" on Scan — Archived Duplicate
 
 ### Problem
