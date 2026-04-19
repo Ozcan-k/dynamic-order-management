@@ -378,7 +378,7 @@ export default function Archive() {
             </svg>
           </div>
           <p className="empty-state-title">No archived orders</p>
-          <p className="empty-state-desc">Archived orders will appear here after the daily 7 PM archive job runs.</p>
+          <p className="empty-state-desc">Archived orders will appear here after the nightly archive job runs at 11:30 PM (Manila time).</p>
         </div>
       ) : (
         <div className="data-table-wrap">
@@ -465,7 +465,7 @@ export default function Archive() {
 
       {showTriggerConfirm && (
         <ConfirmDialog
-          message="This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 7:00 PM. Proceed?"
+          message="This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 11:30 PM (Manila time). Proceed?"
           confirmLabel="Archive Now"
           variant="primary"
           onConfirm={() => triggerMutation.mutate()}

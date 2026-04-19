@@ -57,13 +57,35 @@ export default async function archiveRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
 
-      // Archive synchronously so the response shows the count
-      const result = await archiveOutboundOrders(tenantId)
+      try {
+        // Archive synchronously so the response shows the count
+        const result = await archiveOutboundOrders(tenantId)
+        request.log.info(
+          { tenantId, archived: result.archived },
+          '[archive] manual trigger completed',
+        )
 
-      // Also enqueue for audit trail
-      await archiveOutboundQueue.add('archive', { tenantId }, { removeOnComplete: 10, removeOnFail: 5 })
+        // Audit enqueue is best-effort — Redis hiccups must not fail the request
+        // when the DB archive already succeeded.
+        try {
+          await archiveOutboundQueue.add(
+            'archive',
+            { tenantId },
+            { removeOnComplete: 10, removeOnFail: 5 },
+          )
+        } catch (enqueueErr) {
+          request.log.warn(
+            { err: enqueueErr, tenantId },
+            '[archive] audit enqueue failed (DB archive OK)',
+          )
+        }
 
-      return reply.send({ archived: result.archived })
+        return reply.send({ archived: result.archived })
+      } catch (err) {
+        request.log.error({ err, tenantId }, '[archive] manual trigger failed')
+        const message = err instanceof Error ? err.message : 'Archive failed'
+        return reply.code(500).send({ error: message })
+      }
     },
   )
 

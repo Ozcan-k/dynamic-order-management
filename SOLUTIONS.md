@@ -5,6 +5,39 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-18] Archive Now — Wrong Schedule Text in UI + Brittle Manual-Trigger Route
+
+### Problem
+1. On `/archive`, the "Archive OUTBOUND Now" confirm popup showed: *"This normally runs automatically at 7:00 PM. Proceed?"* and the empty-state copy referred to *"the daily 7 PM archive job"*. The actual cron fires at **23:30 Manila**.
+2. Clicking Archive Now surfaced *"Archive failed"* with no server-side detail.
+3. Archive list appeared empty even when admins expected archived rows to be there.
+
+### Root Cause
+**Stale UI text:** The cron pattern in `backend/src/index.ts:118` is `'30 23 * * *', tz: 'Asia/Manila'` (23:30 nightly). `frontend/src/pages/Archive.tsx` lines 381 + 468 and the comment at `backend/src/lib/queues.ts:25` were never updated when the schedule moved from 19:00 to 23:30 in an earlier phase.
+
+**Brittle route:** `backend/src/routes/archive.ts` POST `/trigger` did:
+```ts
+const result = await archiveOutboundOrders(tenantId)                    // DB update
+await archiveOutboundQueue.add('archive', { tenantId }, {...})          // Redis enqueue
+return reply.send({ archived: result.archived })
+```
+If the BullMQ `add(...)` threw (Redis hiccup, auth issue, etc.), Fastify surfaced a 500 with no `error` field, so the frontend fell back to a generic *"Archive failed"* toast — **even though the DB archive had already committed**. The audit enqueue is not the critical path; treating it as critical collapsed a successful operation into a user-visible failure.
+
+### Fix
+- UI/comment text aligned with the real cron: `"11:30 PM (Manila time)"` / `23:30 Manila`.
+- Route wrapped with an outer try/catch around the DB archive (explicit error log + typed 500 with message) and an **inner try/catch around the queue enqueue** that logs-and-swallows, so the main flow always reflects the DB outcome. Also added structured info/warn/error logs so future failures leave a trail in `docker compose logs backend`.
+
+### Rules
+- **Best-effort telemetry/audit queues must never fail the critical path.** Isolate them with a local try/catch and log the enqueue error — the response must describe the main operation's outcome, not the audit hop.
+- **Any UI copy that mentions a schedule must match the cron definition.** Single source of truth: `backend/src/index.ts` `repeat: { pattern, tz }`. When changing either, grep the frontend for the old time (`7 PM`, `19:00`, etc.) in the same change.
+
+### Files Affected
+- `frontend/src/pages/Archive.tsx`
+- `backend/src/lib/queues.ts`
+- `backend/src/routes/archive.ts`
+
+---
+
 ## [2026-04-18] Outbound / Reports 403 for PICKER_ADMIN and PACKER_ADMIN — Frontend/Backend Role List Mismatch
 
 ### Problem
