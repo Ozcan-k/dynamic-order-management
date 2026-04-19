@@ -22,6 +22,13 @@ interface DashboardStats {
   slaSummary: { d0: number; d1: number; d2: number; d3: number; d4: number; escalatedToday: number }
 }
 
+interface RangeTotals {
+  startDate: string
+  endDate: string
+  inboundTotal: number
+  outboundTotal: number
+}
+
 interface OutboundStats {
   dispatchedToday: number
   outboundTotal: number
@@ -156,6 +163,9 @@ export default function Dashboard() {
   const queryClient = useQueryClient()
   const [now, setNow] = useState(new Date())
   const [colon, setColon] = useState(true)
+  const todayStr = getManilaDateString()
+  const [rangeStart, setRangeStart] = useState<string>(todayStr)
+  const [rangeEnd, setRangeEnd] = useState<string>(todayStr)
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -177,12 +187,23 @@ export default function Dashboard() {
     refetchInterval: 10_000,
   })
 
+  const { data: rangeData, isLoading: rangeLoading } = useQuery({
+    queryKey: ['range-totals', rangeStart, rangeEnd],
+    queryFn: async () =>
+      (await api.get<RangeTotals>(
+        `/reports/range-totals?startDate=${rangeStart}&endDate=${rangeEnd}`,
+      )).data,
+    enabled: !!rangeStart && !!rangeEnd && rangeStart <= rangeEnd,
+    refetchInterval: rangeEnd === todayStr ? 30_000 : false,
+  })
+
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
     const handler = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['outbound-stats-dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['range-totals'] })
     }
     socket.on('sla:escalated', handler)
     socket.on('order:stats_changed', handler)
@@ -316,49 +337,6 @@ export default function Dashboard() {
         </div>
       </Card>
 
-      {/* ── Picker + Packer Summary ───────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '20px',
-        marginBottom: '20px',
-      }}>
-        {/* Picker */}
-        <Card style={{ padding: '20px 24px' }}>
-          <SectionHeader title="Picker Summary" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-            <MetricCard
-              label="Inbound Queue" value={dash(isLoading, stats.pickerSummary.inbound)}
-              color={colors.primary} subtitle="Awaiting assignment"
-            />
-            <MetricCard
-              label="In Progress"
-              value={dash(isLoading, (stats.pickerSummary.assigned ?? 0) + (stats.pickerSummary.inProgress ?? 0))}
-              color={colors.warning} subtitle="Assigned + currently picking"
-            />
-            <MetricCard
-              label="Completed" value={dash(isLoading, stats.pickerSummary.complete)}
-              color={colors.success} subtitle="Ready for packing"
-            />
-          </div>
-        </Card>
-
-        {/* Packer */}
-        <Card style={{ padding: '20px 24px' }}>
-          <SectionHeader title="Packer Summary" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <MetricCard
-              label="Unassigned" value={dash(isLoading, stats.packerSummary.unassigned)}
-              color={colors.textSecondary} subtitle="No packer yet"
-            />
-            <MetricCard
-              label="Completed" value={dash(isLoading, stats.packerSummary.complete)}
-              color={colors.success} subtitle="Ready to dispatch"
-            />
-          </div>
-        </Card>
-      </div>
-
       {/* ── Outbound Summary ──────────────────────────────────────── */}
       <Card style={{ padding: '20px 24px', marginBottom: '20px' }}>
         <SectionHeader title="Outbound Summary" />
@@ -384,6 +362,48 @@ export default function Dashboard() {
 
       {/* ── SLA Breakdown ─────────────────────────────────────────── */}
       <SlaSummaryCard slaSummary={stats.slaSummary} loading={isLoading} />
+
+      {/* ── Date Range Totals ─────────────────────────────────────── */}
+      <Card style={{ padding: '20px 24px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <SectionHeader title="Date Range Totals" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12, color: colors.textSecondary }}>From</label>
+            <input
+              type="date"
+              value={rangeStart}
+              max={rangeEnd}
+              onChange={(e) => setRangeStart(e.target.value)}
+              style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
+            />
+            <label style={{ fontSize: 12, color: colors.textSecondary }}>To</label>
+            <input
+              type="date"
+              value={rangeEnd}
+              min={rangeStart}
+              max={todayStr}
+              onChange={(e) => setRangeEnd(e.target.value)}
+              style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
+            />
+            <button
+              onClick={() => { setRangeStart(todayStr); setRangeEnd(todayStr) }}
+              style={{ padding: '6px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, background: '#fff', fontSize: 12, cursor: 'pointer' }}
+            >
+              Today
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: 12 }}>
+          <MetricCard
+            label="Total Inbound" value={dash(rangeLoading, rangeData?.inboundTotal ?? 0)}
+            color={colors.primary} subtitle={`${rangeStart} → ${rangeEnd}`}
+          />
+          <MetricCard
+            label="Total Outbound" value={dash(rangeLoading, rangeData?.outboundTotal ?? 0)}
+            color={colors.success} subtitle={`${rangeStart} → ${rangeEnd}`}
+          />
+        </div>
+      </Card>
 
     </PageShell>
   )

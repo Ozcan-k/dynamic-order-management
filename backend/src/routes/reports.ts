@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { UserRole, JWTPayload, OrderStatus } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import { prisma } from '../lib/prisma'
-import { getManilaStartOfToday, getManilaDateString } from '../lib/manila'
+import { getManilaStartOfToday, getManilaDateString, getManilaStartOf } from '../lib/manila'
 import { runNightlyReport } from '../jobs/nightlyReport'
 import PDFDocument from 'pdfkit'
 
@@ -92,6 +92,42 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
         },
         slaSummary: { d0, d1, d2, d3, d4, escalatedToday },
       })
+    },
+  )
+
+  // GET /reports/range-totals?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD — ADMIN, INBOUND_ADMIN
+  fastify.get(
+    '/range-totals',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const { startDate, endDate } = request.query as { startDate?: string; endDate?: string }
+
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+      if (!startDate || !endDate || !dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        return reply.code(400).send({ error: 'startDate and endDate required (YYYY-MM-DD)' })
+      }
+      if (startDate > endDate) {
+        return reply.code(400).send({ error: 'startDate must be <= endDate' })
+      }
+
+      const from = getManilaStartOf(startDate)
+      const toExclusive = new Date(getManilaStartOf(endDate).getTime() + 24 * 60 * 60 * 1000)
+
+      const [inboundTotal, outboundTotal] = await Promise.all([
+        prisma.order.count({
+          where: { tenantId, workDate: { gte: from, lt: toExclusive } },
+        }),
+        prisma.order.count({
+          where: {
+            tenantId,
+            status: OrderStatus.OUTBOUND,
+            slaCompletedAt: { gte: from, lt: toExclusive },
+          },
+        }),
+      ])
+
+      return reply.send({ startDate, endDate, inboundTotal, outboundTotal })
     },
   )
 
