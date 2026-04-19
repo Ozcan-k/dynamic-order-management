@@ -1542,7 +1542,7 @@ export default function PickerAdmin() {
                           STAGED
                         </span>
                       )}
-                      {order.workDate?.slice(0, 10) < todayStr && (
+                      {order.workDate && getManilaDateString(new Date(order.workDate)) < todayStr && (
                         <span style={{
                           marginLeft: '6px', fontSize: '10px', fontWeight: 700,
                           background: '#fef3c7', color: '#d97706',

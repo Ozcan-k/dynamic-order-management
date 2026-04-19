@@ -584,7 +584,7 @@ export default function PackerAdmin() {
                       <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                       <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                         {order.trackingNumber}
-                        {order.workDate?.slice(0, 10) < todayStr && (
+                        {order.workDate && getManilaDateString(new Date(order.workDate)) < todayStr && (
                           <span style={{
                             marginLeft: '6px', fontSize: '10px', fontWeight: 700,
                             background: '#fef3c7', color: '#d97706',
