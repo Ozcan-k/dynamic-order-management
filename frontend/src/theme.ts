@@ -30,6 +30,8 @@ export const colors = {
   danger:       '#ef4444',
   dangerLight:  '#fef2f2',
   dangerBorder: '#fecaca',
+  info:         '#3b82f6',
+  infoLight:    '#eff6ff',
 
   // Delay levels D0–D4
   delay:     ['#64748b', '#eab308', '#f97316', '#ef4444', '#991b1b'],
@@ -69,15 +71,22 @@ export const shadow = {
   card:      '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
   cardHover: '0 4px 12px rgba(0,0,0,0.1)',
   btn:       '0 2px 8px rgba(37,99,235,0.25)',
+  xl:        '0 24px 64px rgba(0,0,0,0.18)',
 }
 
 export const font = {
   base: `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`,
   mono: `'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace`,
-  sizeXs:  '11px',
-  sizeSm:  '12px',
-  sizeMd:  '13px',
-  sizeLg:  '14px',
-  sizeXl:  '15px',
-  size2xl: '16px',
+  xs:  '11px',
+  sm:  '12px',
+  md:  '13px',
+  lg:  '14px',
+  xl:  '15px',
+  xxl: '16px',
+}
+
+export const motion = {
+  fast:   '120ms',
+  normal: '200ms',
+  slow:   '320ms',
 }

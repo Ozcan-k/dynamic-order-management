@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
@@ -212,6 +212,21 @@ function formatDisplayDate(dateStr: string): { day: string; month: string; year:
   }
 }
 
+function daysBetween(fromStr: string, toStr: string): number {
+  const a = new Date(`${fromStr}T12:00:00+08:00`).getTime()
+  const b = new Date(`${toStr}T12:00:00+08:00`).getTime()
+  return Math.round((b - a) / 86_400_000)
+}
+
+function formatRelative(dateStr: string, todayStr: string): string {
+  const diff = daysBetween(dateStr, todayStr)
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Yesterday'
+  if (diff === -1) return 'Tomorrow'
+  if (diff > 0)    return `${diff} days ago`
+  return `in ${-diff} days`
+}
+
 interface DateNavigatorProps {
   value: string        // YYYY-MM-DD or '' (today)
   todayStr: string
@@ -310,6 +325,7 @@ export default function Outbound() {
   const user = useAuthStore((s) => s.user)
   const todayStr = getManilaDateString()
   const [selectedDate, setSelectedDate] = useState<string>('')  // '' = today
+  const [carrierSort, setCarrierSort] = useState<'name' | 'volume'>('volume')
   const isHistorical = selectedDate !== ''
   const activeDate = selectedDate || todayStr
   const dateParam = isHistorical ? `?date=${selectedDate}` : ''
@@ -334,9 +350,20 @@ export default function Outbound() {
 
   const isLoading = groupsLoading || statsLoading
   const carrierGroups = groups ?? []
+  const sortedCarrierGroups = useMemo(() => {
+    const list = [...carrierGroups]
+    if (carrierSort === 'name') {
+      list.sort((a, b) => getCarrierLabel(a.carrierName).localeCompare(getCarrierLabel(b.carrierName)))
+    } else {
+      list.sort((a, b) => b.totalOrders - a.totalOrders)
+    }
+    return list
+  }, [carrierGroups, carrierSort])
+
   const dispatchedCount = statsData?.dispatchedToday ?? 0
-  const { day, month, year } = formatDisplayDate(activeDate)
+  const { weekday, day, month, year } = formatDisplayDate(activeDate)
   const displayLabel = isHistorical ? `${day} ${month} ${year}` : 'Today'
+  const relativeLabel = isHistorical ? `${weekday} · ${formatRelative(activeDate, todayStr)}` : null
 
   const headerStats = isHistorical ? (
     <StatCard label={`Dispatched — ${displayLabel}`} value={dispatchedCount} color={colors.success} />
@@ -361,8 +388,20 @@ export default function Outbound() {
         marginBottom: '20px', gap: 12, flexWrap: 'wrap',
       }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.textPrimary }}>
-            {isHistorical ? `Shipments — ${displayLabel}` : "Today's Shipments"}
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.textPrimary, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>{isHistorical ? `Shipments — ${displayLabel}` : "Today's Shipments"}</span>
+            {relativeLabel && (
+              <span style={{
+                fontSize: 11, fontWeight: 600,
+                color: colors.textSecondary,
+                background: colors.surfaceAlt,
+                border: `1px solid ${colors.border}`,
+                padding: '2px 8px', borderRadius: 999,
+                letterSpacing: '0.02em',
+              }}>
+                {relativeLabel}
+              </span>
+            )}
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textSecondary }}>
             {isHistorical
@@ -412,15 +451,60 @@ export default function Outbound() {
           </div>
         </div>
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: '16px',
-        }}>
-          {carrierGroups.map((group) => (
-            <CarrierCard key={group.carrierName} group={group} />
-          ))}
-        </div>
+        <>
+          {/* Sort pill */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            marginBottom: 12, gap: 10, flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Sort
+            </span>
+            <div style={{
+              display: 'inline-flex',
+              background: '#fff',
+              border: `1px solid ${colors.border}`,
+              borderRadius: 999,
+              padding: 3,
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            }}>
+              {([
+                { k: 'volume', label: 'Volume' },
+                { k: 'name',   label: 'Name' },
+              ] as const).map(opt => {
+                const active = carrierSort === opt.k
+                return (
+                  <button
+                    key={opt.k}
+                    onClick={() => setCarrierSort(opt.k)}
+                    style={{
+                      border: 'none',
+                      background: active ? colors.primary : 'transparent',
+                      color: active ? '#fff' : colors.textSecondary,
+                      fontSize: 12, fontWeight: 700,
+                      padding: '6px 14px',
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                      transition: 'background 0.15s, color 0.15s',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '16px',
+          }}>
+            {sortedCarrierGroups.map((group) => (
+              <CarrierCard key={group.carrierName} group={group} />
+            ))}
+          </div>
+        </>
       )}
     </PageShell>
   )

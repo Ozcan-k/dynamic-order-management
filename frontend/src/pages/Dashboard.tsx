@@ -128,11 +128,11 @@ function MetricCard({
       }}>
         {animate && isNumeric ? <NumberTicker value={value as number} /> : value}
       </div>
-      <div style={{ fontSize: font.sizeMd, color: colors.textSecondary, marginTop: '5px', fontWeight: 500 }}>
+      <div style={{ fontSize: font.md, color: colors.textSecondary, marginTop: '5px', fontWeight: 500 }}>
         {label}
       </div>
       {subtitle && (
-        <div style={{ fontSize: font.sizeXs, color: colors.textMuted, marginTop: '2px' }}>
+        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '2px' }}>
           {subtitle}
         </div>
       )}
@@ -162,11 +162,11 @@ function PipelineStage({
       }}>
         <NumberTicker value={count} />
       </div>
-      <div style={{ fontSize: font.sizeSm, color: colors.textSecondary, marginTop: '5px', fontWeight: 600 }}>
+      <div style={{ fontSize: font.sm, color: colors.textSecondary, marginTop: '5px', fontWeight: 600 }}>
         {label}
       </div>
       {sublabel && (
-        <div style={{ fontSize: font.sizeXs, color: colors.textMuted, marginTop: '2px' }}>{sublabel}</div>
+        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '2px' }}>{sublabel}</div>
       )}
     </div>
   )
