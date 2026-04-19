@@ -5,6 +5,75 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-19] Archive Page Returns HTML Instead of JSON — Missing nginx Location on Prod
+
+### Problem
+After v2.13.4 shipped, clicking **Archive OUTBOUND Now** still showed *"Archive failed"*. DevTools network tab:
+```
+POST https://domwarehouse.com/archive/trigger  →  404 Not Found
+```
+No archived records were ever visible on the Archive page either — not because the archive job was broken, but because the list query was also silently returning the wrong content.
+
+### Root Cause
+**Nginx on the Vultr host had no `location /archive` block.** Every other API prefix (`/auth`, `/users`, `/orders`, `/picker-admin`, `/picker`, `/packer-admin`, `/packer`, `/outbound`, `/reports`) was proxied to `localhost:3000`. `/archive` was missing, so:
+
+| Request | What happened | Result |
+|---|---|---|
+| `GET /archive/stats` | nginx SPA fallback → served `index.html` | 200 **but `Content-Type: text/html`** — React Query got HTML, `res.data.total` was undefined, UI showed zero archived |
+| `GET /archive` (list) | same SPA fallback | 200 HTML — `res.data.orders` undefined, empty table |
+| `POST /archive/trigger` | Static HTML file can't accept POST | nginx returns **404** — frontend falls back to generic *"Archive failed"* toast |
+
+External probe that made the diagnosis unambiguous:
+```bash
+curl -sSI https://domwarehouse.com/archive/stats | grep -i content-type
+# Content-Type: text/html            ← SPA fallback, NOT reaching backend
+curl -sSI https://domwarehouse.com/auth/me    | grep -i content-type
+# Content-Type: application/json     ← correctly proxied to backend
+```
+
+The archive feature (Phase 7) shipped code-complete months ago and functional tests passed locally because local dev doesn't go through nginx — it talks to the Fastify port directly. In prod the route was never reachable.
+
+### Fix
+Server-side, not repo-side. SSH into the Vultr host and add the missing location to the nginx site config (mirror the existing `/auth` / `/outbound` blocks):
+```nginx
+location /archive {
+    proxy_pass http://localhost:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+Then:
+```bash
+nginx -t && systemctl reload nginx
+curl -sSI https://domwarehouse.com/archive/stats | grep -i content-type
+# expected: application/json; charset=utf-8
+```
+
+### Rules
+- **When shipping a new backend route prefix, the nginx site config is part of the release.** Grep your prod nginx config for every prefix in `backend/src/index.ts` `fastify.register(..., { prefix })` — any missing one is a time bomb that silently degrades to HTML responses.
+- **SPA-fallback + unproxied API = silent failure.** GET requests return 200 HTML (looks like "no data"), POST requests return 404 (looks like "failed"). Neither surfaces the actual nginx misconfig. When debugging a 404 on an API path, first check `Content-Type` of a GET on the same prefix — `text/html` means it never reached the backend.
+- **Keep the nginx config in the repo.** Current setup has it on the server only, which is how this regression escaped review. A future task should move `/etc/nginx/sites-enabled/domwarehouse.com` into `deploy/nginx.conf` under version control, mounted into an nginx container or rendered on deploy.
+
+### Verification commands (audit every prefix at once)
+```bash
+for p in /auth/me /users /orders /picker-admin/pickers /packer-admin/packers \
+         /picker/my-orders /packer/my-orders /outbound/stats /reports/dashboard \
+         /archive/stats; do
+  ct=$(curl -sS -o /dev/null -w "%{content_type}" "https://domwarehouse.com$p")
+  code=$(curl -sS -o /dev/null -w "%{http_code}" "https://domwarehouse.com$p")
+  echo "$code $ct $p"
+done
+```
+Every row should report `application/json`. Any `text/html` row means nginx is serving the SPA instead of proxying to the backend.
+
+### Files Affected
+- (server-only) `/etc/nginx/sites-enabled/domwarehouse.com`
+- `SOLUTIONS.md` — this entry
+
+---
+
 ## [2026-04-18] Archive Now — Wrong Schedule Text in UI + Brittle Manual-Trigger Route
 
 ### Problem
