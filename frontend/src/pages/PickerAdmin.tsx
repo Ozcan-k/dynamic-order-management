@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
@@ -12,7 +12,10 @@ import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
+import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
+
+type PickerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'scannedAt' | 'scannedBy'
 
 interface Order {
   id: string
@@ -1032,6 +1035,14 @@ export default function PickerAdmin() {
   const PAGE_SIZE = 10
   const [modalPicker, setModalPicker] = useState<{ id: string; username: string } | null>(null)
 
+  // Sort + filter state (Phase C)
+  const [sortKey, setSortKey] = useState<PickerSortKey | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [platformFilter, setPlatformFilter] = useState<Set<string>>(new Set())
+  const [delayFilter, setDelayFilter] = useState<Set<number>>(new Set())
+  const [carrierFilter, setCarrierFilter] = useState('')
+  const [shopFilter, setShopFilter] = useState('')
+
   // Staging state
   const [stagedOrders, setStagedOrders] = useState<Order[]>([])
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
@@ -1198,20 +1209,92 @@ export default function PickerAdmin() {
   const pickerList = pickers ?? []
   const statsList = statsData?.stats ?? []
   const returnedFromPacker = statsData?.returnedCount ?? 0
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(orderList.length / PAGE_SIZE))
-  const safePage = Math.min(currentPage, totalPages)
-  const pagedOrders = orderList.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
-  // Select / deselect helpers
-  const allSelected = orderList.length > 0 && orderList.every(o => selectedIds.has(o.id))
+  // Distinct platforms present in current data — drives filter chips
+  const availablePlatforms = useMemo(
+    () => Array.from(new Set(orderList.map(o => o.platform))).sort(),
+    [orderList],
+  )
+
+  // Apply filters + sort before paginating
+  const visibleOrders = useMemo(() => {
+    let list = orderList
+    if (platformFilter.size > 0) list = list.filter(o => platformFilter.has(o.platform))
+    if (delayFilter.size > 0) list = list.filter(o => delayFilter.has(o.delayLevel))
+    const carrierTrim = carrierFilter.trim().toLowerCase()
+    if (carrierTrim) list = list.filter(o => (o.carrierName ?? '').toLowerCase().includes(carrierTrim))
+    const shopTrim = shopFilter.trim().toLowerCase()
+    if (shopTrim) list = list.filter(o => (o.shopName ?? '').toLowerCase().includes(shopTrim))
+
+    if (sortKey) {
+      const dir = sortDir === 'asc' ? 1 : -1
+      const sorted = [...list].sort((a, b) => {
+        switch (sortKey) {
+          case 'tracking':  return a.trackingNumber.localeCompare(b.trackingNumber) * dir
+          case 'platform':  return a.platform.localeCompare(b.platform) * dir
+          case 'carrier':   return (a.carrierName ?? '').localeCompare(b.carrierName ?? '') * dir
+          case 'shop':      return (a.shopName ?? '').localeCompare(b.shopName ?? '') * dir
+          case 'delay':     return (a.delayLevel - b.delayLevel) * dir
+          case 'scannedAt': return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir
+          case 'scannedBy': return a.scannedBy.username.localeCompare(b.scannedBy.username) * dir
+          default:          return 0
+        }
+      })
+      list = sorted
+    }
+    return list
+  }, [orderList, platformFilter, delayFilter, carrierFilter, shopFilter, sortKey, sortDir])
+
+  const activeFilterCount =
+    platformFilter.size + delayFilter.size +
+    (carrierFilter.trim() ? 1 : 0) + (shopFilter.trim() ? 1 : 0)
+
+  function togglePlatformFilter(p: string) {
+    setCurrentPage(1)
+    setPlatformFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(p)) next.delete(p); else next.add(p)
+      return next
+    })
+  }
+  function toggleDelayFilter(level: number) {
+    setCurrentPage(1)
+    setDelayFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(level)) next.delete(level); else next.add(level)
+      return next
+    })
+  }
+  function resetFilters() {
+    setPlatformFilter(new Set())
+    setDelayFilter(new Set())
+    setCarrierFilter('')
+    setShopFilter('')
+    setCurrentPage(1)
+  }
+  function handleSort(key: PickerSortKey) {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  // Pagination over filtered+sorted list
+  const totalPages = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE))
+  const safePage = Math.min(currentPage, totalPages)
+  const pagedOrders = visibleOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // Select / deselect helpers — operate on visible list
+  const allSelected = visibleOrders.length > 0 && visibleOrders.every(o => selectedIds.has(o.id))
   const someSelected = selectedIds.size > 0
 
   function toggleAll() {
     if (allSelected) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(orderList.map(o => o.id)))
+      setSelectedIds(new Set(visibleOrders.map(o => o.id)))
     }
   }
 
@@ -1413,7 +1496,12 @@ export default function PickerAdmin() {
       </div>
 
       {/* Section heading */}
-      <SectionHeader title="Inbound Orders" count={orderList.length}>
+      <SectionHeader title="Inbound Orders" count={visibleOrders.length}>
+        {activeFilterCount > 0 && orderList.length !== visibleOrders.length && (
+          <span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 600 }}>
+            · filtered from {orderList.length}
+          </span>
+        )}
         {carryoverCount > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#d97706', fontWeight: 600 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1421,6 +1509,72 @@ export default function PickerAdmin() {
           </span>
         )}
       </SectionHeader>
+
+      {/* Filter bar */}
+      <div className="filter-bar">
+        {availablePlatforms.length > 0 && (
+          <div className="filter-bar-group">
+            <span className="filter-bar-label">Platform</span>
+            {availablePlatforms.map(p => (
+              <button
+                key={p}
+                type="button"
+                className={['filter-chip', platformFilter.has(p) ? 'filter-chip--active' : ''].filter(Boolean).join(' ')}
+                onClick={() => togglePlatformFilter(p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Delay</span>
+          {[0, 1, 2, 3, 4].map(level => (
+            <button
+              key={level}
+              type="button"
+              className={['filter-chip', delayFilter.has(level) ? 'filter-chip--active' : ''].filter(Boolean).join(' ')}
+              onClick={() => toggleDelayFilter(level)}
+              style={
+                delayFilter.has(level)
+                  ? { background: colors.delayBg[level], borderColor: colors.delay[level], color: colors.delayText[level] }
+                  : undefined
+              }
+            >
+              D{level}
+            </button>
+          ))}
+        </div>
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Carrier</span>
+          <input
+            type="text"
+            className="filter-bar-input"
+            placeholder="contains..."
+            value={carrierFilter}
+            onChange={e => { setCarrierFilter(e.target.value); setCurrentPage(1) }}
+          />
+        </div>
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Shop</span>
+          <input
+            type="text"
+            className="filter-bar-input"
+            placeholder="contains..."
+            value={shopFilter}
+            onChange={e => { setShopFilter(e.target.value); setCurrentPage(1) }}
+          />
+        </div>
+
+        {activeFilterCount > 0 && (
+          <button type="button" className="filter-bar-reset" onClick={resetFilters}>
+            Reset filters ({activeFilterCount})
+          </button>
+        )}
+      </div>
 
       {/* Toolbar */}
       <div className="toolbar-card">
@@ -1490,6 +1644,20 @@ export default function PickerAdmin() {
           <p className="empty-state-title">All orders assigned!</p>
           <p className="empty-state-desc">No inbound orders are waiting for assignment.</p>
         </div>
+      ) : visibleOrders.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </div>
+          <p className="empty-state-title">No orders match your filters</p>
+          <p className="empty-state-desc">
+            <button className="filter-bar-reset" onClick={resetFilters} style={{ marginLeft: 0 }}>
+              Reset filters
+            </button>
+          </p>
+        </div>
       ) : (
         <>
         <div className="data-table-wrap">
@@ -1498,13 +1666,13 @@ export default function PickerAdmin() {
               <tr>
                 <th style={{ width: 40 }} />
                 <th style={{ width: 40 }}>#</th>
-                <th>Tracking Number</th>
-                <th>Platform</th>
-                <th>Carrier</th>
-                <th>Shop</th>
-                <th>Delay</th>
-                <th>Scanned At</th>
-                <th>Scanned By</th>
+                <SortableTh<PickerSortKey> label="Tracking Number" sortKey="tracking" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Platform" sortKey="platform" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Carrier" sortKey="carrier" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Shop" sortKey="shop" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Delay" sortKey="delay" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Scanned At" sortKey="scannedAt" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableTh<PickerSortKey> label="Scanned By" sortKey="scannedBy" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <th style={{ textAlign: 'center' }}>Assign</th>
               </tr>
             </thead>
@@ -1603,7 +1771,7 @@ export default function PickerAdmin() {
         {totalPages > 1 && (
           <div className="pagination-bar">
             <span className="pagination-info">
-              Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, orderList.length)} of {orderList.length} orders
+              Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, visibleOrders.length)} of {visibleOrders.length} orders
             </span>
             <div className="pagination-controls">
               <button
@@ -1621,7 +1789,7 @@ export default function PickerAdmin() {
                 if (start > 1) { pages.push(1); if (start > 2) pages.push('ellipsis-start') }
                 for (let p = start; p <= end; p++) pages.push(p)
                 if (end < totalPages) { if (end < totalPages - 1) pages.push('ellipsis-end'); pages.push(totalPages) }
-                return pages.map((page, i) =>
+                return pages.map((page) =>
                   typeof page === 'string'
                     ? <span key={page} style={{ padding: '0 4px', color: '#94a3b8', alignSelf: 'center' }}>…</span>
                     : <button key={page} onClick={() => setCurrentPage(page)} className={['pagination-page-btn', page === safePage ? 'pagination-page-btn--active' : ''].filter(Boolean).join(' ')}>{page}</button>
@@ -1682,6 +1850,37 @@ export default function PickerAdmin() {
             queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
           }}
         />
+      )}
+
+      {/* Sticky bulk action bar */}
+      {someSelected && (
+        <div className="bulk-action-bar" role="region" aria-label="Bulk actions">
+          <span className="bulk-action-bar-count">
+            <span className="bulk-action-bar-count-pill">{selectedIds.size}</span>
+            order{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            {selectedPickerId
+              ? `Picker: ${pickerList.find(p => p.id === selectedPickerId)?.username ?? '—'}`
+              : 'Select a picker above'}
+          </span>
+          <span className="bulk-action-bar-spacer" />
+          <button
+            type="button"
+            className="bulk-action-bar-btn bulk-action-bar-btn--primary"
+            onClick={handleAssignSelected}
+            disabled={!selectedPickerId || isBusy}
+          >
+            Assign Selected
+          </button>
+          <button
+            type="button"
+            className="bulk-action-bar-btn bulk-action-bar-btn--ghost"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            Clear
+          </button>
+        </div>
       )}
     </PageShell>
   )
