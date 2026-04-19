@@ -142,7 +142,7 @@ function PerformanceTable({ people, days, sort }: { people: PersonStat[]; days: 
 
   if (sorted.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '32px', color: colors.textSecondary, fontSize: font.sizeMd }}>
+      <div style={{ textAlign: 'center', padding: '32px', color: colors.textSecondary, fontSize: font.md }}>
         No data available
       </div>
     )

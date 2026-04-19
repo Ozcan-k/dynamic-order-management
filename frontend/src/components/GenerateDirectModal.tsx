@@ -54,7 +54,7 @@ export default function GenerateDirectModal({ trackingNumber, onConfirm, onCance
     if (e.key === 'Enter') handleSubmit()
   }
 
-  const canConfirm = carrier !== '' && shop.trim() !== '' && !isSubmitting
+  const canConfirm = shop.trim() !== '' && !isSubmitting
 
   const labelStyle: Record<string, string | number> = {
     display: 'block', marginBottom: 6, fontWeight: 700, fontSize: 12,

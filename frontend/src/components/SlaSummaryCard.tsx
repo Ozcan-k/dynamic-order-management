@@ -66,7 +66,7 @@ export default function SlaSummaryCard({ slaSummary, loading = false }: SlaSumma
             border: '1px solid #fed7aa',
             borderRadius: radius.full,
             padding: '3px 10px',
-            fontSize: font.sizeXs,
+            fontSize: font.xs,
             fontWeight: 600,
             color: '#c2410c',
           }}>
@@ -129,13 +129,13 @@ export default function SlaSummaryCard({ slaSummary, loading = false }: SlaSumma
                 alignItems: 'center', marginBottom: '6px',
               }}>
                 <span style={{
-                  fontSize: font.sizeSm, color: SLA_COLOR[key],
+                  fontSize: font.sm, color: SLA_COLOR[key],
                   fontWeight: 700, letterSpacing: '0.03em',
                 }}>
                   {SLA_BADGE[key]}
                 </span>
                 <span style={{
-                  fontSize: font.sizeXs, color: colors.textMuted,
+                  fontSize: font.xs, color: colors.textMuted,
                   background: colors.border, borderRadius: radius.full,
                   padding: '1px 7px', fontWeight: 600,
                 }}>
@@ -149,7 +149,7 @@ export default function SlaSummaryCard({ slaSummary, loading = false }: SlaSumma
               }}>
                 {loading ? '—' : count}
               </div>
-              <div style={{ fontSize: font.sizeXs, color: colors.textSecondary, marginTop: '3px' }}>
+              <div style={{ fontSize: font.xs, color: colors.textSecondary, marginTop: '3px' }}>
                 {SLA_LABEL[key]}
               </div>
             </div>

@@ -174,7 +174,7 @@ export default function PickerAdminScan() {
         if (!controlsRef.current) controlsRef.current = controls
       }).catch(() => {})
     }).catch(() => { setCameraError('Could not start video stream.'); setCameraOpen(false) })
-    return () => { reader.stopAsyncDecode?.() }
+    return () => { (reader as any).stopAsyncDecode?.() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOpen])
 

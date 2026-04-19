@@ -101,7 +101,7 @@ export default function ScanInput({ onScan, disabled, buttonLabel, enableCamera 
       setCameraError('Could not start video stream.')
       setCameraOpen(false)
     })
-    return () => { reader.stopAsyncDecode?.() }
+    return () => { (reader as any).stopAsyncDecode?.() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOpen])
 
