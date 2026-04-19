@@ -7,6 +7,7 @@ import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
 import NumberTicker from '../components/shared/NumberTicker'
+import BorderBeam from '../components/shared/BorderBeam'
 import { getSocket } from '../lib/socket'
 import { getManilaDateString } from '../lib/manila'
 import SlaSummaryCard from '../components/SlaSummaryCard'
@@ -28,6 +29,13 @@ interface RangeTotals {
   endDate: string
   inboundTotal: number
   outboundTotal: number
+}
+
+interface DashboardTrends {
+  days: number
+  dates: string[]
+  inbound: number[]
+  outbound: number[]
 }
 
 type PresetKey = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
@@ -133,35 +141,40 @@ function MetricCard({
 }
 
 function PipelineStage({
-  label, count, color, sublabel, isLast = false,
+  label, count, color, sublabel, isLast = false, active = false,
 }: {
-  label: string; count: number; color: string; sublabel?: string; isLast?: boolean
+  label: string; count: number; color: string; sublabel?: string; isLast?: boolean; active?: boolean
 }) {
+  const stageBox = (
+    <div style={{
+      flex: 1,
+      background: colors.surfaceAlt,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radius.lg,
+      padding: '14px 10px',
+      textAlign: 'center',
+      borderTop: `3px solid ${color}`,
+      minWidth: 0,
+    }}>
+      <div style={{
+        fontSize: '28px', fontWeight: 800, color,
+        fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+      }}>
+        <NumberTicker value={count} />
+      </div>
+      <div style={{ fontSize: font.sizeSm, color: colors.textSecondary, marginTop: '5px', fontWeight: 600 }}>
+        {label}
+      </div>
+      {sublabel && (
+        <div style={{ fontSize: font.sizeXs, color: colors.textMuted, marginTop: '2px' }}>{sublabel}</div>
+      )}
+    </div>
+  )
   return (
     <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-      <div style={{
-        flex: 1,
-        background: colors.surfaceAlt,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.lg,
-        padding: '14px 10px',
-        textAlign: 'center',
-        borderTop: `3px solid ${color}`,
-        minWidth: 0,
-      }}>
-        <div style={{
-          fontSize: '28px', fontWeight: 800, color,
-          fontVariantNumeric: 'tabular-nums', lineHeight: 1,
-        }}>
-          {count}
-        </div>
-        <div style={{ fontSize: font.sizeSm, color: colors.textSecondary, marginTop: '5px', fontWeight: 600 }}>
-          {label}
-        </div>
-        {sublabel && (
-          <div style={{ fontSize: font.sizeXs, color: colors.textMuted, marginTop: '2px' }}>{sublabel}</div>
-        )}
-      </div>
+      {active
+        ? <BorderBeam color={color} borderRadius={radius.lg} style={{ flex: 1, minWidth: 0 }}>{stageBox}</BorderBeam>
+        : stageBox}
       {!isLast && (
         <div style={{
           padding: '0 6px',
@@ -257,6 +270,13 @@ export default function Dashboard() {
     refetchInterval: rangeEnd === todayStr ? 30_000 : false,
   })
 
+  const { data: trendData } = useQuery({
+    queryKey: ['dashboard-trends'],
+    queryFn: async () => (await api.get<DashboardTrends>('/reports/dashboard-trends?days=7')).data,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
@@ -264,6 +284,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['outbound-stats-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['range-totals'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-trends'] })
     }
     socket.on('sla:escalated', handler)
     socket.on('order:stats_changed', handler)
@@ -293,11 +314,11 @@ export default function Dashboard() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
       stats={
         <>
-          <StatCard label="Total Scanned" value={dash(isLoading, stats.inboundTotal)} color={colors.primary} />
-          <StatCard label="Dispatched" value={dash(isLoading, stats.outboundTotal)} color={colors.success} />
-          <StatCard label="Remaining" value={dash(isLoading, stats.remainingCount)} color={colors.warning} />
-          <StatCard label="Carryover Active" value={dash(isLoading, stats.carryoverCount)} color="#d97706" subtitle="From previous days" />
-          <StatCard label="D4 at Risk" value={dash(isLoading, stats.slaSummary.d4)} color={colors.danger} />
+          <StatCard label="Total Scanned" value={dash(isLoading, stats.inboundTotal)} color={colors.primary} animate trend={trendData?.inbound} />
+          <StatCard label="Dispatched" value={dash(isLoading, stats.outboundTotal)} color={colors.success} animate trend={trendData?.outbound} />
+          <StatCard label="Remaining" value={dash(isLoading, stats.remainingCount)} color={colors.warning} animate />
+          <StatCard label="Carryover Active" value={dash(isLoading, stats.carryoverCount)} color="#d97706" subtitle="From previous days" animate />
+          <StatCard label="D4 at Risk" value={dash(isLoading, stats.slaSummary.d4)} color={colors.danger} animate />
         </>
       }
     >
@@ -381,14 +402,17 @@ export default function Dashboard() {
           <PipelineStage
             label="Inbound Queue" count={outbound.pipeline.inboundQueue}
             color={colors.primary} sublabel="Awaiting pick"
+            active={outbound.pipeline.inboundQueue > 0}
           />
           <PipelineStage
             label="Picking" count={outbound.pipeline.pickerActive}
             color="#8b5cf6" sublabel="In progress"
+            active={outbound.pipeline.pickerActive > 0}
           />
           <PipelineStage
             label="Pick Done" count={outbound.pipeline.pickerComplete}
             color="#06b6d4" sublabel="Awaiting packer"
+            active={outbound.pipeline.pickerComplete > 0}
           />
           <PipelineStage
             label="Dispatched" count={outbound.pipeline.dispatched}
@@ -403,19 +427,19 @@ export default function Dashboard() {
         <div className="stats-grid">
           <MetricCard
             label="Dispatched Today" value={dash(outboundLoading, outbound.dispatchedToday)}
-            color={colors.success} subtitle="Since midnight"
+            color={colors.success} subtitle="Since midnight" animate
           />
           <MetricCard
             label="In Pipeline" value={dash(outboundLoading, outbound.missingCount)}
-            color={colors.primary} subtitle="Not yet dispatched"
+            color={colors.primary} subtitle="Not yet dispatched" animate
           />
           <MetricCard
             label="D4 — Not Shipped" value={dash(outboundLoading, outbound.d4Count)}
-            color={colors.danger} subtitle="Urgent dispatch needed"
+            color={colors.danger} subtitle="Urgent dispatch needed" animate
           />
           <MetricCard
             label="Total Dispatched" value={dash(outboundLoading, outbound.outboundTotal)}
-            color="#0891b2" subtitle="All time"
+            color="#0891b2" subtitle="All time" animate
           />
         </div>
       </Card>
