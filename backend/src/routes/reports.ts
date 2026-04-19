@@ -95,10 +95,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/performance?days=30 — ADMIN, INBOUND_ADMIN
+  // GET /reports/performance?days=30 — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
   fastify.get(
     '/performance',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const days = Math.min(Number((request.query as { days?: string }).days) || 30, 90)
@@ -197,10 +202,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/performance/export — ADMIN, INBOUND_ADMIN — CSV download
+  // GET /reports/performance/export — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN — CSV download
   fastify.get(
     '/performance/export',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const query = request.query as { days?: string; type?: string }
@@ -293,10 +303,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/sla?days=7|14|30 — ADMIN, INBOUND_ADMIN
+  // GET /reports/sla?days=7|14|30 — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
   fastify.get(
     '/sla',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const days = Math.min(Number((request.query as { days?: string }).days) || 30, 30)
@@ -366,10 +381,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/performance/export-pdf — ADMIN, INBOUND_ADMIN
+  // GET /reports/performance/export-pdf — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
   fastify.get(
     '/performance/export-pdf',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const query = request.query as { days?: string; type?: string }
@@ -505,10 +525,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/sla/export-pdf — ADMIN, INBOUND_ADMIN
+  // GET /reports/sla/export-pdf — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
   fastify.get(
     '/sla/export-pdf',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const days = Math.min(Number((request.query as { days?: string }).days) || 30, 30)
