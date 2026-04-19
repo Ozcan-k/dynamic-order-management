@@ -29,6 +29,40 @@ interface RangeTotals {
   outboundTotal: number
 }
 
+type PresetKey = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
+
+const PRESET_LABELS: Record<PresetKey, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  month: 'This month',
+  custom: 'Custom',
+}
+
+function addDaysIso(d: string, n: number): string {
+  const dt = new Date(`${d}T00:00:00+08:00`)
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return new Date(dt.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+function computePresetRange(key: PresetKey, today: string): [string, string] {
+  switch (key) {
+    case 'today':     return [today, today]
+    case 'yesterday': { const y = addDaysIso(today, -1); return [y, y] }
+    case '7d':        return [addDaysIso(today, -6), today]
+    case '30d':       return [addDaysIso(today, -29), today]
+    case 'month':     return [today.slice(0, 8) + '01', today]
+    default:          return [today, today]
+  }
+}
+
+function formatShort(d: string): string {
+  return new Date(`${d}T00:00:00+08:00`).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', timeZone: 'Asia/Manila',
+  })
+}
+
 interface OutboundStats {
   dispatchedToday: number
   outboundTotal: number
@@ -164,8 +198,32 @@ export default function Dashboard() {
   const [now, setNow] = useState(new Date())
   const [colon, setColon] = useState(true)
   const todayStr = getManilaDateString()
+  const [preset, setPreset] = useState<PresetKey>('today')
   const [rangeStart, setRangeStart] = useState<string>(todayStr)
   const [rangeEnd, setRangeEnd] = useState<string>(todayStr)
+
+  const applyPreset = (key: PresetKey) => {
+    setPreset(key)
+    if (key === 'custom') return
+    const [s, e] = computePresetRange(key, todayStr)
+    setRangeStart(s); setRangeEnd(e)
+  }
+  const onStartChange = (v: string) => {
+    if (!v) return
+    setRangeStart(v)
+    if (v > rangeEnd) setRangeEnd(v)
+    setPreset('custom')
+  }
+  const onEndChange = (v: string) => {
+    if (!v) return
+    setRangeEnd(v)
+    if (v < rangeStart) setRangeStart(v)
+    setPreset('custom')
+  }
+  const rangeDays = Math.floor(
+    (new Date(`${rangeEnd}T00:00:00+08:00`).getTime() -
+     new Date(`${rangeStart}T00:00:00+08:00`).getTime()) / 86_400_000,
+  ) + 1
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -363,37 +421,67 @@ export default function Dashboard() {
       {/* ── SLA Breakdown ─────────────────────────────────────────── */}
       <SlaSummaryCard slaSummary={stats.slaSummary} loading={isLoading} />
 
-      {/* ── Date Range Totals ─────────────────────────────────────── */}
+      {/* ── Volume Report ─────────────────────────────────────────── */}
       <Card style={{ padding: '20px 24px', marginTop: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <SectionHeader title="Date Range Totals" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+          <div>
+            <SectionHeader title="Volume Report" />
+            <div style={{ fontSize: 12, color: colors.textMuted, marginTop: -4 }}>
+              {formatShort(rangeStart)} → {formatShort(rangeEnd)} · {rangeDays} day{rangeDays === 1 ? '' : 's'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(['today','yesterday','7d','30d','month','custom'] as PresetKey[]).map((k) => {
+              const active = preset === k
+              return (
+                <button
+                  key={k}
+                  onClick={() => applyPreset(k)}
+                  style={{
+                    padding: '6px 12px',
+                    border: `1px solid ${active ? colors.primary : colors.border}`,
+                    borderRadius: 8,
+                    background: active ? colors.primary : '#fff',
+                    color: active ? '#fff' : colors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'background 0.12s, color 0.12s, border-color 0.12s',
+                  }}
+                >
+                  {PRESET_LABELS[k]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {preset === 'custom' && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            marginBottom: 14, padding: '10px 12px',
+            background: colors.surfaceAlt, border: `1px solid ${colors.border}`, borderRadius: 8,
+          }}>
             <label style={{ fontSize: 12, color: colors.textSecondary }}>From</label>
             <input
               type="date"
               value={rangeStart}
-              max={rangeEnd}
-              onChange={(e) => setRangeStart(e.target.value)}
+              max={todayStr}
+              onChange={(e) => onStartChange(e.target.value)}
               style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
             />
             <label style={{ fontSize: 12, color: colors.textSecondary }}>To</label>
             <input
               type="date"
               value={rangeEnd}
-              min={rangeStart}
               max={todayStr}
-              onChange={(e) => setRangeEnd(e.target.value)}
+              onChange={(e) => onEndChange(e.target.value)}
               style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
             />
-            <button
-              onClick={() => { setRangeStart(todayStr); setRangeEnd(todayStr) }}
-              style={{ padding: '6px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, background: '#fff', fontSize: 12, cursor: 'pointer' }}
-            >
-              Today
-            </button>
           </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: 12 }}>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <MetricCard
             label="Total Inbound" value={dash(rangeLoading, rangeData?.inboundTotal ?? 0)}
             color={colors.primary} subtitle={`${rangeStart} → ${rangeEnd}`}
