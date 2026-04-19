@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import DelayBadge from '../components/DelayBadge'
+import ScanCelebration from '../components/shared/ScanCelebration'
 
 interface PickerOrder {
   assignmentId: string
@@ -51,6 +52,7 @@ export default function PickerMobile() {
   const [pendingOrder, setPendingOrder] = useState<PickerOrder | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [celebration, setCelebration] = useState<{ msg: string; variant: 'success' | 'error' } | null>(null)
   const [manualInput, setManualInput] = useState('')
 
   // Camera state
@@ -89,6 +91,7 @@ export default function PickerMobile() {
       queryClient.invalidateQueries({ queryKey: ['picker-orders'] })
       setPendingOrder(null)
       setSuccessMsg(`Completed: ${trackingNumber}`)
+      setCelebration({ msg: `Completed: ${trackingNumber}`, variant: 'success' })
       playBeep(true)
       try { navigator.vibrate?.(100) } catch {}
     },
@@ -185,6 +188,13 @@ export default function PickerMobile() {
 
   return (
     <div style={{ minHeight: '100dvh', background: '#f1f5f9', overflowX: 'hidden' }}>
+
+      <ScanCelebration
+        show={!!celebration}
+        message={celebration?.msg}
+        variant={celebration?.variant}
+        onDone={() => setCelebration(null)}
+      />
 
       {/* ── Header ── */}
       <div style={{
@@ -395,8 +405,9 @@ export default function PickerMobile() {
               const cardBg =
                 order.delayLevel >= 3 ? '#fef2f2' :
                 order.delayLevel >= 1 ? '#fffbeb' : '#fff'
-              return (
-                <div key={order.assignmentId} style={{
+              const isUrgent = order.delayLevel >= 2
+              const cardEl = (
+                <div style={{
                   background: cardBg, borderRadius: '14px',
                   border: `1px solid ${order.delayLevel >= 3 ? '#fecaca' : order.delayLevel >= 1 ? '#fde68a' : '#e2e8f0'}`,
                   borderLeft: `4px solid ${borderLeft}`,
@@ -417,6 +428,12 @@ export default function PickerMobile() {
                       {formatTime(order.assignedAt)}
                     </span>
                   </div>
+                </div>
+              )
+              return (
+                <div key={order.assignmentId} className={isUrgent ? 'beam-wrap beam-wrap--strong' : undefined}
+                  style={isUrgent ? ({ ['--beam-color' as string]: '#ef4444', borderRadius: '14px' }) : undefined}>
+                  {cardEl}
                 </div>
               )
             })}
