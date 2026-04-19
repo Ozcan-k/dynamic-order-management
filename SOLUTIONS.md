@@ -64,6 +64,72 @@ Every row should report `application/json`. Any `text/html` row = that prefix is
 
 ---
 
+## [2026-04-19] Operational Tips — Uploading Long Terminal Output + nginx Recovery
+
+### When Terminal Copy Doesn't Work: Upload to Termbin for a Shareable URL
+
+**Problem:** SSH'de uzun çıktı geldiğinde (nginx config, log tail, error dump) terminal'den copy-paste ya başarısız ya da satırları bozar. Chat'e yapıştırmak için URL lazım.
+
+**Fix — pipe the command through `nc termbin.com 9999`:**
+```bash
+# tek komut çıktısı
+<command> 2>&1 | nc termbin.com 9999
+
+# örnekler
+sudo nginx -t 2>&1 | nc termbin.com 9999
+cat -n /etc/nginx/sites-available/dom | nc termbin.com 9999
+tail -n 30 /etc/nginx/sites-available/dom | nc termbin.com 9999
+docker compose logs backend --tail=200 | nc termbin.com 9999
+```
+`nc` komutu bir URL döner (`https://termbin.com/xxxx`). URL 1 ay kalır, public — sensitive content (API key, password, session token) varsa önce redakte et:
+```bash
+<command> | sed 's/Authorization: Bearer [^"]*/Authorization: Bearer REDACTED/g' | nc termbin.com 9999
+```
+
+**Rule:** Uzun çıktı için artık screenshot / satır satır copy deneme — tek komut termbin. İki çıktı lazımsa iki ayrı URL at.
+
+---
+
+### nginx Recovery — Stray `sites-enabled` File + Missing Canonical Symlink
+
+**Context:** Archive bug için debug yaparken, yanlışlıkla `location /archive` bloğunu `sites-enabled/domwarehouse.com` adıyla ayrı bir dosya olarak kaydetmişiz. Bu dosya `server { }` bloğu içermediği için `nginx -t` reddetti (*"location directive is not allowed here"*). Asıl config ise `/etc/nginx/sites-available/dom` idi ve `sites-enabled/dom` symlink'i hiç yoktu. Yani nginx sadece bozuk dosyayı görüyordu.
+
+**Diagnostic probe:**
+```bash
+ls -la /etc/nginx/sites-enabled/
+# beklenen: symlink → /etc/nginx/sites-available/<site>
+# bu kazada: sadece bozuk duplicate dosya vardı, symlink yoktu
+sudo nginx -t 2>&1 | nc termbin.com 9999
+```
+
+**Fix:**
+```bash
+sudo rm /etc/nginx/sites-enabled/domwarehouse.com        # stray bozuk dosya
+sudo ln -s /etc/nginx/sites-available/dom /etc/nginx/sites-enabled/dom
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Heredoc Trap — Leading Whitespace on EOF Terminator
+
+Heredoc ile çok satırlı config yazarken, kapanış `EOF`'un başında boşluk olursa bash onu terminator saymaz ve bekler. Bazen paste'de `EOF` satıra iki kez yazılıp dosyanın içine **literal "EOF" metni olarak** kaydolur — `nginx -t` sonra "unexpected end of file" verir.
+
+**Recovery:** Dosyayı tamamen yeniden yazmaya uğraşma — stray EOF satırlarını tek `sed` ile temizle:
+```bash
+sudo sed -i '/^[[:space:]]*EOF[[:space:]]*$/d' /etc/nginx/sites-available/<site>
+sudo nginx -t
+```
+
+**Rules (genel):**
+- **Bir site için `sites-available/` canonical, `sites-enabled/` sadece symlink olmalı.** Eğer `sites-enabled/` içinde symlink değil gerçek dosya varsa şüphelen — yanlış editörle yaratılmış veya önceki bir kaza.
+- **nginx düzenleme kesin çalışıyorsa önce doğrulama:** `ls -la /etc/nginx/sites-enabled/` (symlink kontrolü) + `sudo nginx -t` (syntax) + `sudo systemctl reload nginx` (uygulama). `systemctl reload` hatada graceful fail verir, site ayakta kalır — `restart` yerine her zaman `reload` tercih et.
+- **Heredoc yerine `sudo tee` + `<<'EOF'` daha güvenli** çünkü `<'EOF'` quotes expansion'ı durdurur ve çoğu paste bug'ını engeller. Ama kapanış EOF yine de column 0'da ve tamamen yalnız olmalı — whitespace yok.
+
+### Files Affected
+- (server-only) `/etc/nginx/sites-enabled/dom` (symlink restored), `/etc/nginx/sites-enabled/domwarehouse.com` (stray file removed)
+- `SOLUTIONS.md` — this entry
+
+---
+
 ## [2026-04-18] Archive Now — Wrong Schedule Text in UI + Brittle Manual-Trigger Route
 
 ### Problem
