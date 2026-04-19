@@ -40,10 +40,15 @@ export async function completeByTracking(
   pickerId: string,
   tenantId: string,
 ) {
+  // Active, non-archived order only. Partial unique index allows an archived row
+  // with the same trackingNumber in the same tenant — without this filter,
+  // findFirst can pick the old archived row and reject the scan as unassigned.
   const order = await prisma.order.findFirst({
     where: {
       trackingNumber: { equals: trackingNumber, mode: 'insensitive' },
       tenantId,
+      archivedAt: null,
+      status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] },
     },
   })
   if (!order) throw new Error('Order not found')
@@ -52,13 +57,6 @@ export async function completeByTracking(
     where: { orderId: order.id, pickerId, completedAt: null },
   })
   if (!assignment) throw new Error('Order not assigned to you')
-
-  if (
-    order.status !== OrderStatus.PICKER_ASSIGNED &&
-    order.status !== OrderStatus.PICKING
-  ) {
-    throw new Error('Order is not in a completable state')
-  }
 
   return completeOrder(order.id, pickerId, tenantId)
 }
