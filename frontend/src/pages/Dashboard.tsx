@@ -49,6 +49,15 @@ const PRESET_LABELS: Record<PresetKey, string> = {
   custom: 'Custom',
 }
 
+function getGreeting(now: Date): string {
+  const h = Number(now.toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Manila' }).slice(0, 2))
+  if (h < 5)  return 'Still awake'
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  if (h < 22) return 'Good evening'
+  return 'Good night'
+}
+
 function addDaysIso(d: string, n: number): string {
   const dt = new Date(`${d}T00:00:00+08:00`)
   dt.setUTCDate(dt.getUTCDate() + n)
@@ -323,77 +332,36 @@ export default function Dashboard() {
       }
     >
 
-      {/* ── Clock ─────────────────────────────────────────────────── */}
-      <Card style={{ padding: '20px 28px', marginBottom: '20px' }}>
-        <div className="clock-card-row">
-          {/* Time + Date */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            {/* Clock icon */}
-            <div style={{
-              width: 44, height: 44, borderRadius: '12px',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
-            }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            </div>
-            {/* Time */}
-            <div>
-              <div className="clock-time" style={{
-                color: colors.textPrimary,
-                fontFamily: font.mono,
-              }}>
-                {hh}
-                <span style={{
-                  opacity: colon ? 1 : 0.2,
-                  transition: 'opacity 0.15s',
-                  display: 'inline-block', width: '0.38em', textAlign: 'center',
-                }}>:</span>
-                {mm}
-              </div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                marginTop: '4px',
-              }}>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: colors.textSecondary, letterSpacing: '0.02em' }}>
-                  {weekday}
-                </span>
-                <span style={{ color: colors.border, fontSize: '12px' }}>·</span>
-                <span style={{ fontSize: '13px', color: colors.textMuted }}>
-                  {dateStr}
-                </span>
-              </div>
-            </div>
+      {/* ── Hero banner (clock + greeting) ──────────────────────────── */}
+      <div className="dashboard-hero">
+        <div className="dashboard-hero-bg" aria-hidden="true" />
+        <div className="dashboard-hero-inner">
+          {/* Left: greeting */}
+          <div className="dashboard-hero-greeting">
+            <span className="dashboard-hero-eyebrow">{getGreeting(now)}</span>
+            <h2 className="dashboard-hero-name">{user?.username ?? 'Admin'}</h2>
+            <span className="dashboard-hero-subtitle">{weekday} · {dateStr}</span>
           </div>
 
-          {/* Live indicator */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
-            background: colors.surfaceAlt,
-            border: `1px solid ${colors.border}`,
-            borderRadius: '10px',
-            padding: '8px 14px',
-          }}>
-            <span style={{
-              display: 'inline-block', width: '8px', height: '8px',
-              borderRadius: '50%', background: '#10b981',
-              boxShadow: '0 0 0 3px rgba(16,185,129,0.2)',
-              flexShrink: 0,
-            }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                Live
-              </span>
-              <span style={{ fontSize: '12px', color: colors.textMuted }}>
-                Updated {updatedStr}
-              </span>
+          {/* Right: live clock */}
+          <div className="dashboard-hero-clock">
+            <div
+              className="dashboard-hero-time"
+              style={{ fontFamily: font.mono }}
+            >
+              {hh}
+              <span className={`dashboard-hero-colon${colon ? '' : ' dashboard-hero-colon--off'}`}>:</span>
+              {mm}
+            </div>
+            <div className="dashboard-hero-live">
+              <span className="dashboard-hero-live-dot" />
+              <span className="dashboard-hero-live-label">Live</span>
+              <span className="dashboard-hero-live-sep">·</span>
+              <span className="dashboard-hero-live-updated">Updated {updatedStr}</span>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* ── Order Pipeline ────────────────────────────────────────── */}
       <Card style={{ padding: '20px 24px', marginBottom: '20px' }}>
