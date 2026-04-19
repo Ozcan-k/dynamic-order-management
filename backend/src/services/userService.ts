@@ -45,11 +45,36 @@ export async function createUser(
   const existing = await prisma.user.findUnique({
     where: { tenantId_username: { tenantId, username: input.username } },
   })
-  if (existing) {
+
+  if (existing && existing.isActive) {
     throw new Error(`Username "${input.username}" already exists in this tenant`)
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12)
+
+  // Reactivate a previously soft-deleted user so the username slot is reusable.
+  // Preserves user.id so historical assignments/reports stay linked.
+  if (existing && !existing.isActive) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        passwordHash,
+        role: input.role,
+        email: input.email ?? null,
+        isActive: true,
+        createdById,
+        createdAt: new Date(),
+      },
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+  }
+
   return prisma.user.create({
     data: {
       tenantId,
