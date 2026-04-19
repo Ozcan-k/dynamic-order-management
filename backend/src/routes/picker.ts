@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+import { getIO } from '../lib/socket'
 import { getMyOrders, completeByTracking } from '../services/pickerService'
 
 const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
@@ -25,6 +26,7 @@ export default async function pickerRoutes(fastify: FastifyInstance) {
     const { userId, tenantId } = request.user as JWTPayload
     try {
       const order = await completeByTracking(parsed.data.trackingNumber.trim(), userId, tenantId)
+      try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Complete failed'
