@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
+import Sparkline from '../components/shared/Sparkline'
+import Donut from '../components/shared/Donut'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -97,45 +99,22 @@ function durationLabel(ms: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-// ─── Mini Bar Chart ───────────────────────────────────────────────────────────
+// ─── Mini Sparkline (replaces old bar chart) ─────────────────────────────────
 
-function MiniBarChart({ daily, days }: { daily: DailyEntry[]; days: number }) {
+function MiniSparkline({ daily, days, color }: { daily: DailyEntry[]; days: number; color?: string }) {
   const last7 = daily.slice(-Math.min(7, days))
-  const maxVal = Math.max(...last7.map((d) => d.completed), 1)
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '32px' }}>
-      {last7.map((d) => {
-        const heightPct = (d.completed / maxVal) * 100
-        const label = d.date.slice(5)
-        return (
-          <div
-            key={d.date}
-            title={`${label}: ${d.completed}`}
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              height: '100%',
-            }}
-          >
-            <div
-              style={{
-                width: '100%',
-                height: `${Math.max(heightPct, d.completed > 0 ? 8 : 2)}%`,
-                background: d.completed > 0 ? colors.primary : colors.border,
-                borderRadius: '2px 2px 0 0',
-                minHeight: d.completed > 0 ? '4px' : '2px',
-                opacity: d.completed > 0 ? 1 : 0.4,
-              }}
-            />
-          </div>
-        )
-      })}
-    </div>
-  )
+  const values = last7.map((d) => d.completed)
+  const total = values.reduce((s, v) => s + v, 0)
+  const title = `Last ${last7.length} days — ${last7.map((d) => `${d.date.slice(5)}: ${d.completed}`).join(' · ')}`
+  if (total === 0) {
+    return (
+      <div style={{ width: 92, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: colors.textMuted, fontSize: 11 }}>
+        —
+      </div>
+    )
+  }
+  return <Sparkline data={values} color={color ?? colors.primary} width={92} height={24} title={title} />
 }
 
 // ─── Performance Table ────────────────────────────────────────────────────────
@@ -219,7 +198,7 @@ function PerformanceTable({ people, days, sort }: { people: PersonStat[]; days: 
                   </span>
                 </td>
                 <td style={{ ...tdStyle(), paddingTop: '8px', paddingBottom: '8px' }}>
-                  <MiniBarChart daily={person.daily} days={days} />
+                  <MiniSparkline daily={person.daily} days={days} color={today > 0 ? colors.success : colors.primary} />
                 </td>
               </tr>
             )
@@ -400,40 +379,19 @@ const D_LABELS = ['D0', 'D1', 'D2', 'D3', 'D4']
 function SlaDistributionBar({ dist }: { dist: SlaData['distribution'] }) {
   const counts = [dist.d0, dist.d1, dist.d2, dist.d3, dist.d4]
   const total = counts.reduce((s, v) => s + v, 0)
-
+  const segments = counts.map((value, i) => ({
+    label: D_LABELS[i],
+    value,
+    color: D_COLORS[i],
+  }))
   return (
-    <div>
-      {/* Bar */}
-      <div style={{ display: 'flex', height: '24px', borderRadius: radius.md, overflow: 'hidden', border: `1px solid ${colors.border}` }}>
-        {counts.map((count, i) => {
-          const pct = total > 0 ? (count / total) * 100 : 0
-          if (pct === 0) return null
-          return (
-            <div
-              key={i}
-              title={`${D_LABELS[i]}: ${count} (${pct.toFixed(1)}%)`}
-              style={{ width: `${pct}%`, background: D_COLORS[i], transition: 'width 0.3s' }}
-            />
-          )
-        })}
-        {total === 0 && (
-          <div style={{ flex: 1, background: colors.border }} />
-        )}
-      </div>
-
-      {/* Labels */}
-      <div style={{ display: 'flex', gap: '12px', marginTop: '10px', flexWrap: 'wrap' }}>
-        {counts.map((count, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: D_COLORS[i], flexShrink: 0 }} />
-            <span style={{ fontSize: font.xs, fontWeight: 600, color: D_COLORS[i] }}>{D_LABELS[i]}</span>
-            <span style={{ fontSize: font.xs, color: colors.textSecondary }}>
-              {count.toLocaleString()} {total > 0 ? `(${((count / total) * 100).toFixed(1)}%)` : '(0%)'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <Donut
+      segments={segments}
+      size={160}
+      thickness={22}
+      centerLabel="Total"
+      centerValue={total.toLocaleString()}
+    />
   )
 }
 

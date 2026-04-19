@@ -131,6 +131,66 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
+  // GET /reports/dashboard-trends?days=7 — ADMIN, INBOUND_ADMIN
+  // Returns per-day inbound + outbound counts for the last N days (sparkline data).
+  fastify.get(
+    '/dashboard-trends',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const rawDays = (request.query as { days?: string }).days
+      const days = Math.min(30, Math.max(2, parseInt(rawDays ?? '7', 10) || 7))
+
+      const todayStart = getManilaStartOf(new Date().toISOString().slice(0, 10))
+      const startIso = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000)
+
+      const [inboundRows, outboundRows] = await Promise.all([
+        prisma.order.findMany({
+          where: { tenantId, workDate: { gte: startIso } },
+          select: { workDate: true },
+        }),
+        prisma.order.findMany({
+          where: {
+            tenantId,
+            status: OrderStatus.OUTBOUND,
+            slaCompletedAt: { gte: startIso },
+          },
+          select: { slaCompletedAt: true },
+        }),
+      ])
+
+      const toManilaDateKey = (d: Date): string => {
+        const manila = new Date(d.getTime() + 8 * 60 * 60 * 1000)
+        return manila.toISOString().slice(0, 10)
+      }
+
+      const inboundByDay = new Map<string, number>()
+      for (const row of inboundRows) {
+        const key = toManilaDateKey(row.workDate)
+        inboundByDay.set(key, (inboundByDay.get(key) ?? 0) + 1)
+      }
+      const outboundByDay = new Map<string, number>()
+      for (const row of outboundRows) {
+        if (!row.slaCompletedAt) continue
+        const key = toManilaDateKey(row.slaCompletedAt)
+        outboundByDay.set(key, (outboundByDay.get(key) ?? 0) + 1)
+      }
+
+      const inbound: number[] = []
+      const outbound: number[] = []
+      const dates: string[] = []
+      for (let i = 0; i < days; i++) {
+        const d = new Date(startIso.getTime() + i * 24 * 60 * 60 * 1000)
+        const key = toManilaDateKey(d)
+        dates.push(key)
+        inbound.push(inboundByDay.get(key) ?? 0)
+        outbound.push(outboundByDay.get(key) ?? 0)
+      }
+
+      return reply.send({ days, dates, inbound, outbound })
+    },
+  )
+
   // GET /reports/performance?days=30 — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
   fastify.get(
     '/performance',
