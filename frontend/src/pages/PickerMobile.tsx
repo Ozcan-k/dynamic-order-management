@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useAuthStore } from '../stores/authStore'
@@ -42,6 +43,7 @@ function playBeep(success: boolean) {
 }
 
 export default function PickerMobile() {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
   const queryClient = useQueryClient()
@@ -170,6 +172,7 @@ export default function PickerMobile() {
   async function handleLogout() {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     setUser(null)
+    navigate('/scan', { replace: true })
   }
 
   function formatTime(iso: string) {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useAuthStore } from '../stores/authStore'
@@ -38,6 +39,7 @@ function playBeep(success: boolean) {
 }
 
 export default function PackerMobile() {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
 
@@ -218,6 +220,7 @@ export default function PackerMobile() {
   async function handleLogout() {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     setUser(null)
+    navigate('/scan', { replace: true })
   }
 
   const isPending = completeMutation.isPending || lookingUp

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { api } from '../api/client'
@@ -43,12 +44,14 @@ function vibrate(pattern: number | number[]) {
 }
 
 export default function InboundScan() {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
 
   async function handleLogout() {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     setUser(null)
+    navigate('/scan', { replace: true })
   }
   const [mode, setMode] = useState<ScanMode>('single')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'duplicate'; message: string } | null>(null)
