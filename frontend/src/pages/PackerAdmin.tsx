@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
@@ -10,7 +10,10 @@ import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
+import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
+
+type PackerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'pickedBy' | 'arrivedAt'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -283,6 +286,14 @@ export default function PackerAdmin() {
   const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Sort + filter state (Phase C)
+  const [sortKey, setSortKey] = useState<PackerSortKey | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [platformFilter, setPlatformFilter] = useState<Set<string>>(new Set())
+  const [delayFilter, setDelayFilter] = useState<Set<number>>(new Set())
+  const [carrierFilter, setCarrierFilter] = useState('')
+  const [shopFilter, setShopFilter] = useState('')
+
   // ── Queries ──────────────────────────────────────────────────────────────────
   const {
     data: orders,
@@ -348,13 +359,87 @@ export default function PackerAdmin() {
     },
   })
 
-  const isBusy = completeMutation.isPending || removeMutation.isPending
+  const [bulkConfirm, setBulkConfirm] = useState<null | 'complete' | 'remove'>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
-  // ── Search + Selection ───────────────────────────────────────────────────────
+  const isBusy = completeMutation.isPending || removeMutation.isPending || bulkBusy
+
+  // ── Search + Filters + Sort ──────────────────────────────────────────────────
   const trimmed = searchQuery.trim().toUpperCase()
-  const filteredList = trimmed
-    ? orderList.filter(o => o.trackingNumber.toUpperCase().includes(trimmed))
-    : orderList
+
+  const availablePlatforms = useMemo(
+    () => Array.from(new Set(orderList.map(o => o.platform))).sort(),
+    [orderList],
+  )
+
+  const filteredList = useMemo(() => {
+    let list = orderList
+    if (trimmed) list = list.filter(o => o.trackingNumber.toUpperCase().includes(trimmed))
+    if (platformFilter.size > 0) list = list.filter(o => platformFilter.has(o.platform))
+    if (delayFilter.size > 0) list = list.filter(o => delayFilter.has(o.delayLevel))
+    const carrierTrim = carrierFilter.trim().toLowerCase()
+    if (carrierTrim) list = list.filter(o => (o.carrierName ?? '').toLowerCase().includes(carrierTrim))
+    const shopTrim = shopFilter.trim().toLowerCase()
+    if (shopTrim) list = list.filter(o => (o.shopName ?? '').toLowerCase().includes(shopTrim))
+
+    if (sortKey) {
+      const dir = sortDir === 'asc' ? 1 : -1
+      const sorted = [...list].sort((a, b) => {
+        switch (sortKey) {
+          case 'tracking':  return a.trackingNumber.localeCompare(b.trackingNumber) * dir
+          case 'platform':  return a.platform.localeCompare(b.platform) * dir
+          case 'carrier':   return (a.carrierName ?? '').localeCompare(b.carrierName ?? '') * dir
+          case 'shop':      return (a.shopName ?? '').localeCompare(b.shopName ?? '') * dir
+          case 'delay':     return (a.delayLevel - b.delayLevel) * dir
+          case 'pickedBy':  return (a.pickerAssignments[0]?.picker.username ?? '').localeCompare(b.pickerAssignments[0]?.picker.username ?? '') * dir
+          case 'arrivedAt': {
+            const aTs = new Date(a.pickerAssignments[0]?.completedAt ?? a.createdAt).getTime()
+            const bTs = new Date(b.pickerAssignments[0]?.completedAt ?? b.createdAt).getTime()
+            return (aTs - bTs) * dir
+          }
+          default: return 0
+        }
+      })
+      list = sorted
+    }
+    return list
+  }, [orderList, trimmed, platformFilter, delayFilter, carrierFilter, shopFilter, sortKey, sortDir])
+
+  const activeFilterCount =
+    platformFilter.size + delayFilter.size +
+    (carrierFilter.trim() ? 1 : 0) + (shopFilter.trim() ? 1 : 0)
+
+  function togglePlatformFilter(p: string) {
+    setCurrentPage(1)
+    setPlatformFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(p)) next.delete(p); else next.add(p)
+      return next
+    })
+  }
+  function toggleDelayFilter(level: number) {
+    setCurrentPage(1)
+    setDelayFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(level)) next.delete(level); else next.add(level)
+      return next
+    })
+  }
+  function resetFilters() {
+    setPlatformFilter(new Set())
+    setDelayFilter(new Set())
+    setCarrierFilter('')
+    setShopFilter('')
+    setCurrentPage(1)
+  }
+  function handleSort(key: PackerSortKey) {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
@@ -366,6 +451,34 @@ export default function PackerAdmin() {
   function toggleAll() {
     if (allSelected) setSelectedIds(new Set())
     else setSelectedIds(new Set(filteredList.map(o => o.id)))
+  }
+
+  async function runBulk(action: 'complete' | 'remove') {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    let ok = 0
+    let fail = 0
+    const endpoint = action === 'complete' ? '/packer-admin/complete' : '/packer-admin/remove'
+    for (const orderId of ids) {
+      try {
+        await api.post(endpoint, { orderId })
+        ok++
+      } catch {
+        fail++
+      }
+    }
+    setBulkBusy(false)
+    setBulkConfirm(null)
+    setSelectedIds(new Set())
+    invalidateAll()
+    setActionFeedback({
+      type: fail === 0 ? 'success' : (ok === 0 ? 'error' : 'warning'),
+      message:
+        action === 'complete'
+          ? `Packed ${ok} order${ok !== 1 ? 's' : ''}${fail > 0 ? `, ${fail} failed` : ''}.`
+          : `Returned ${ok} order${ok !== 1 ? 's' : ''}${fail > 0 ? `, ${fail} failed` : ''}.`,
+    })
   }
 
   function toggleOne(id: string) {
@@ -482,6 +595,11 @@ export default function PackerAdmin() {
 
       {/* Section heading */}
       <SectionHeader title="Orders Waiting to Pack" count={filteredList.length}>
+        {(activeFilterCount > 0 || trimmed) && orderList.length !== filteredList.length && (
+          <span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 600 }}>
+            · filtered from {orderList.length}
+          </span>
+        )}
         {carryoverCount > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#d97706', fontWeight: 600 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -489,6 +607,72 @@ export default function PackerAdmin() {
           </span>
         )}
       </SectionHeader>
+
+      {/* Filter bar */}
+      <div className="filter-bar">
+        {availablePlatforms.length > 0 && (
+          <div className="filter-bar-group">
+            <span className="filter-bar-label">Platform</span>
+            {availablePlatforms.map(p => (
+              <button
+                key={p}
+                type="button"
+                className={['filter-chip', platformFilter.has(p) ? 'filter-chip--active' : ''].filter(Boolean).join(' ')}
+                onClick={() => togglePlatformFilter(p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Delay</span>
+          {[0, 1, 2, 3, 4].map(level => (
+            <button
+              key={level}
+              type="button"
+              className={['filter-chip', delayFilter.has(level) ? 'filter-chip--active' : ''].filter(Boolean).join(' ')}
+              onClick={() => toggleDelayFilter(level)}
+              style={
+                delayFilter.has(level)
+                  ? { background: colors.delayBg[level], borderColor: colors.delay[level], color: colors.delayText[level] }
+                  : undefined
+              }
+            >
+              D{level}
+            </button>
+          ))}
+        </div>
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Carrier</span>
+          <input
+            type="text"
+            className="filter-bar-input"
+            placeholder="contains..."
+            value={carrierFilter}
+            onChange={e => { setCarrierFilter(e.target.value); setCurrentPage(1) }}
+          />
+        </div>
+
+        <div className="filter-bar-group">
+          <span className="filter-bar-label">Shop</span>
+          <input
+            type="text"
+            className="filter-bar-input"
+            placeholder="contains..."
+            value={shopFilter}
+            onChange={e => { setShopFilter(e.target.value); setCurrentPage(1) }}
+          />
+        </div>
+
+        {activeFilterCount > 0 && (
+          <button type="button" className="filter-bar-reset" onClick={resetFilters}>
+            Reset filters ({activeFilterCount})
+          </button>
+        )}
+      </div>
 
       {/* Toolbar */}
       <div className="toolbar-card">
@@ -551,13 +735,13 @@ export default function PackerAdmin() {
                 <tr>
                   <th style={{ width: 40 }} />
                   <th style={{ width: 40 }}>#</th>
-                  <th>Tracking Number</th>
-                  <th>Platform</th>
-                  <th>Carrier</th>
-                  <th>Shop</th>
-                  <th>Delay</th>
-                  <th>Picked By</th>
-                  <th>Arrived At</th>
+                  <SortableTh<PackerSortKey> label="Tracking Number" sortKey="tracking" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Platform" sortKey="platform" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Carrier" sortKey="carrier" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Shop" sortKey="shop" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Delay" sortKey="delay" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Picked By" sortKey="pickedBy" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
+                  <SortableTh<PackerSortKey> label="Arrived At" sortKey="arrivedAt" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                   <th style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
@@ -907,6 +1091,129 @@ export default function PackerAdmin() {
           packer={packerModal.packer}
           onClose={() => setPackerModal(null)}
         />
+      )}
+
+      {/* Sticky bulk action bar */}
+      {someSelected && (
+        <div className="bulk-action-bar" role="region" aria-label="Bulk actions">
+          <span className="bulk-action-bar-count">
+            <span className="bulk-action-bar-count-pill">{selectedIds.size}</span>
+            order{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <span className="bulk-action-bar-spacer" />
+          <button
+            type="button"
+            className="bulk-action-bar-btn bulk-action-bar-btn--success"
+            onClick={() => setBulkConfirm('complete')}
+            disabled={isBusy}
+          >
+            Complete
+          </button>
+          <button
+            type="button"
+            className="bulk-action-bar-btn bulk-action-bar-btn--danger"
+            onClick={() => setBulkConfirm('remove')}
+            disabled={isBusy}
+          >
+            Remove
+          </button>
+          <button
+            type="button"
+            className="bulk-action-bar-btn bulk-action-bar-btn--ghost"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkBusy}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Bulk confirmation dialog */}
+      {bulkConfirm && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => { if (!bulkBusy) setBulkConfirm(null) }}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '460px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: bulkConfirm === 'complete'
+                ? 'linear-gradient(135deg, #f0fdf4, #f7fef9)'
+                : 'linear-gradient(135deg, #fef2f2, #fff5f5)',
+              padding: '24px 24px 20px',
+              borderBottom: `1px solid ${bulkConfirm === 'complete' ? '#bbf7d0' : colors.dangerBorder}`,
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px', flexShrink: 0,
+                background: bulkConfirm === 'complete' ? '#dcfce7' : '#fee2e2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {bulkConfirm === 'complete' ? (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  {bulkConfirm === 'complete' ? `Mark ${selectedIds.size} orders as packed?` : `Return ${selectedIds.size} orders to pickers?`}
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  {bulkConfirm === 'complete'
+                    ? 'Each order will be marked Packer Complete and sent to the outbound queue.'
+                    : 'Each order will be re-assigned to its original picker.'}
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setBulkConfirm(null)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: `1px solid ${colors.border}`,
+                  borderRadius: '8px', background: '#fff', color: colors.textSecondary,
+                  fontSize: '13px', fontWeight: 600, cursor: bulkBusy ? 'not-allowed' : 'pointer',
+                  opacity: bulkBusy ? 0.6 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => runBulk(bulkConfirm)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: 'none',
+                  borderRadius: '8px',
+                  background: bulkConfirm === 'complete' ? '#16a34a' : colors.danger,
+                  color: '#fff',
+                  fontSize: '13px', fontWeight: 600,
+                  cursor: bulkBusy ? 'not-allowed' : 'pointer',
+                  opacity: bulkBusy ? 0.7 : 1,
+                }}
+              >
+                {bulkBusy
+                  ? 'Working...'
+                  : (bulkConfirm === 'complete' ? `Yes, pack ${selectedIds.size}` : `Yes, remove ${selectedIds.size}`)}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </PageShell>
   )
