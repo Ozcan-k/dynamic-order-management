@@ -326,18 +326,15 @@ export default function Dashboard() {
         {/* Picker */}
         <Card style={{ padding: '20px 24px' }}>
           <SectionHeader title="Picker Summary" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
             <MetricCard
               label="Inbound Queue" value={dash(isLoading, stats.pickerSummary.inbound)}
               color={colors.primary} subtitle="Awaiting assignment"
             />
             <MetricCard
-              label="Assigned" value={dash(isLoading, stats.pickerSummary.assigned)}
-              color="#8b5cf6" subtitle="Picker assigned"
-            />
-            <MetricCard
-              label="In Progress" value={dash(isLoading, stats.pickerSummary.inProgress)}
-              color={colors.warning} subtitle="Currently picking"
+              label="In Progress"
+              value={dash(isLoading, (stats.pickerSummary.assigned ?? 0) + (stats.pickerSummary.inProgress ?? 0))}
+              color={colors.warning} subtitle="Assigned + currently picking"
             />
             <MetricCard
               label="Completed" value={dash(isLoading, stats.pickerSummary.complete)}
@@ -353,14 +350,6 @@ export default function Dashboard() {
             <MetricCard
               label="Unassigned" value={dash(isLoading, stats.packerSummary.unassigned)}
               color={colors.textSecondary} subtitle="No packer yet"
-            />
-            <MetricCard
-              label="Assigned" value={dash(isLoading, stats.packerSummary.assigned)}
-              color="#8b5cf6" subtitle="Packer assigned"
-            />
-            <MetricCard
-              label="In Progress" value={dash(isLoading, stats.packerSummary.inProgress)}
-              color={colors.warning} subtitle="Currently packing"
             />
             <MetricCard
               label="Completed" value={dash(isLoading, stats.packerSummary.complete)}
