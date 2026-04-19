@@ -5,6 +5,65 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-19] Archive Page Returns HTML Instead of JSON — Missing `/archive` in Vite proxyRoutes
+
+### Problem
+After v2.13.4 shipped, clicking **Archive OUTBOUND Now** still showed *"Archive failed"*. DevTools network tab:
+```
+POST https://domwarehouse.com/archive/trigger  →  404 Not Found
+GET  https://domwarehouse.com/archive/stats    →  200 text/html (SPA index.html)
+```
+No archived records were visible either — the stats/list GETs returned HTML, so React Query got `undefined` for `.total` and `.orders`.
+
+### Root Cause (correction — earlier diagnosis was wrong)
+Initial suspicion was **nginx** missing a `location /archive` block. **That was wrong.** This project's nginx config only has three locations: `/socket.io/`, `/api/`, and `/` (catch-all → Vite on port 5173). Per-prefix routing happens one layer deeper: **Vite's dev-server `server.proxy` config** (`frontend/vite.config.ts`) decides which prefixes get forwarded to Fastify on `:3000` and which get served the SPA.
+
+The real bug: `proxyRoutes` in `frontend/vite.config.ts:8` listed every other prefix but **`/archive` was missing**. So Vite did this:
+
+| Request | Vite behavior | Result |
+|---|---|---|
+| `GET /archive/stats` | No proxy match → SPA fallback → `index.html` | 200 `text/html`, React Query sees undefined fields → empty UI |
+| `GET /archive` (list) | Same SPA fallback | 200 `text/html`, empty table |
+| `POST /archive/trigger` | No proxy match, static HTML can't POST | 404 → frontend generic *"Archive failed"* toast |
+
+Archive feature (Phase 7) worked locally because `npm run dev` hits Fastify directly; the Vite proxy gap only bites when traffic actually flows `browser → nginx → Vite`.
+
+### Wasted detour
+I initially edited the nginx config on the Vultr host thinking it needed a `location /archive` block. nginx was already correct (the catch-all sends everything to Vite); I nearly broke the site by adding an unnecessary location outside the `server {}` block. Lesson: **before blaming nginx, read the nginx config** and identify whether per-prefix routing actually happens there.
+
+### Fix
+One line in `frontend/vite.config.ts:8`:
+```diff
+- const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound']
++ const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive']
+```
+Shipped as **v2.13.6**. Deploy via CD → frontend container rebuild → Vite picks up new proxy list.
+
+### Rules
+- **When you register a new route prefix in `backend/src/index.ts`, you MUST also add it to `frontend/vite.config.ts` `proxyRoutes`.** Otherwise Vite will SPA-fallback that prefix and every API call silently returns `index.html`.
+- **SPA-fallback + unproxied API = silent failure.** GETs return 200 HTML (React Query sees undefined → "no data"), POSTs return 404 (→ generic "failed" toast). Neither surfaces the real cause. When debugging a 404 on an API path, first check `Content-Type` of a GET on the same prefix — `text/html` means it never reached Fastify.
+- **Read the actual nginx config before theorising about nginx.** In this stack nginx is a thin shell (`/api/`, `/socket.io/`, `/ → :5173`); the real per-route allowlist lives in Vite.
+
+### Verification commands
+```bash
+# audit every backend prefix at once
+for p in /auth/me /users /orders /picker-admin/pickers /packer-admin/packers \
+         /picker/my-orders /packer/my-orders /outbound/stats /reports/dashboard \
+         /archive/stats; do
+  ct=$(curl -sS -o /dev/null -w "%{content_type}" "https://domwarehouse.com$p")
+  code=$(curl -sS -o /dev/null -w "%{http_code}" "https://domwarehouse.com$p")
+  echo "$code $ct $p"
+done
+```
+Every row should report `application/json`. Any `text/html` row = that prefix is not in `proxyRoutes`.
+
+### Files Affected
+- `frontend/vite.config.ts` — added `/archive` to `proxyRoutes`
+- `CLAUDE.md` — bumped to v2.13.6
+- `SOLUTIONS.md` — this (corrected) entry
+
+---
+
 ## [2026-04-18] Archive Now — Wrong Schedule Text in UI + Brittle Manual-Trigger Route
 
 ### Problem
