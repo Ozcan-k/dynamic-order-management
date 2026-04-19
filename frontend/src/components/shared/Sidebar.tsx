@@ -5,6 +5,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
 import { disconnectSocket } from '../../lib/socket'
 import { useMobileSidebar } from '../../lib/mobileSidebar'
+import { getLoginRedirect } from '../../lib/loginRedirect'
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ export default function Sidebar() {
   )
 
   async function handleLogout() {
-    navigate('/login', { replace: true })
+    navigate(getLoginRedirect(), { replace: true })
     try {
       await api.post('/auth/logout')
     } catch {

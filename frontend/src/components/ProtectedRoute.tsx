@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { UserRole } from '@dom/shared'
+import { getLoginRedirect } from '../lib/loginRedirect'
 
 interface Props {
   children: React.ReactNode
@@ -16,6 +17,11 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const location = useLocation()
 
   if (!user) {
+    const loginPath = getLoginRedirect()
+    // /scan handles its own redirect after login via role; only /login needs ?next=
+    if (loginPath === '/scan') {
+      return <Navigate to="/scan" replace />
+    }
     const next = location.pathname !== '/login' ? `?next=${encodeURIComponent(location.pathname)}` : ''
     return <Navigate to={`/login${next}`} replace />
   }

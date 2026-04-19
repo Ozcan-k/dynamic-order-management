@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMobileSidebar } from '../../lib/mobileSidebar'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
+import { getLoginRedirect } from '../../lib/loginRedirect'
 
 interface PageShellProps {
   icon: ReactNode
@@ -29,7 +30,7 @@ export default function PageShell({ icon, title, subtitle, stats, children }: Pa
       // ignore — still clear local state
     }
     setUser(null)
-    navigate('/login')
+    navigate(getLoginRedirect(), { replace: true })
   }
 
   return (

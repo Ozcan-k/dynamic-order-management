@@ -2,6 +2,7 @@ import { useState, FormEvent, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
+import { setLoginRedirect } from '../lib/loginRedirect'
 
 function getScanRoute(role: string): string {
   switch (role) {
@@ -50,6 +51,11 @@ export default function ScanLogin() {
   const [loading, setLoading] = useState(false)
   const [focusField, setFocusField] = useState<'username' | 'password' | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+
+  // Remember that this device entered via /scan so logout/401 returns here.
+  useEffect(() => {
+    setLoginRedirect('/scan')
+  }, [])
 
   // Already logged in → redirect immediately
   useEffect(() => {

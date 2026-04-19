@@ -1,8 +1,9 @@
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { UserRole } from '@dom/shared'
 import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
+import { setLoginRedirect } from '../lib/loginRedirect'
 
 const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
 
@@ -72,6 +73,10 @@ export default function Login() {
   const [focusField, setFocusField] = useState<'username' | 'password' | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [touched, setTouched] = useState<{ username: boolean; password: boolean }>({ username: false, password: false })
+
+  useEffect(() => {
+    setLoginRedirect('/login')
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
