@@ -5,6 +5,95 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-19] Password Visibility Toggle on Login Forms (v2.13.12)
+
+### Change
+Added an eye/eye-off icon button to the right of the password input on both desktop login (`Login.tsx`) and handheld scan login (`ScanLogin.tsx`). Clicking toggles `type` between `password` and `text` so the user can verify what they typed.
+
+### Implementation Notes
+- `button type="button"` is **mandatory** — default is `type="submit"`, which would trigger the login form on every click. Miss this and the form submits with whatever is currently typed.
+- `aria-label` swaps dynamically between `"Show password"` / `"Hide password"` — no extra `aria-pressed` needed.
+- Toggle defaults to hidden (`showPassword=false`) so the security posture at page load is unchanged from before.
+- `autoComplete="current-password"` preserved on the input → password managers keep autofilling regardless of the current `type`.
+- Settings.tsx admin password inputs intentionally left without a toggle (different UX context — admin setting someone else's password).
+
+### Rule
+Whenever adding a visual toggle next to a form input, set `type="button"` explicitly on the button element. Default-`submit` on a button inside a `<form>` is one of the most common "my toggle submits the form" bugs.
+
+### Files Affected
+- `frontend/src/pages/Login.tsx` — `showPassword` state + eye toggle button, input `paddingRight` 44px
+- `frontend/src/pages/ScanLogin.tsx` — same pattern, 18×18 SVG, `paddingRight` 46px
+
+---
+
+## [2026-04-19] Dashboard Looks Stale After Handheld Scans — Missing Socket Emit on `picker.ts` / `packer.ts` (v2.13.11)
+
+### Problem
+Dashboard's Picker Summary and Packer Summary cards felt "behind the times" — a picker or packer could complete an order on the handheld, but the admin's dashboard would not update for up to 10 seconds. Admin routes (`pickerAdmin.ts`, `packerAdmin.ts`, `orders.ts`) updated the dashboard immediately; only the handheld endpoints felt stale.
+
+### Root Cause
+Frontend `Dashboard.tsx` invalidates `['dashboard-stats']` on the socket event `order:stats_changed`. That event was emitted from the admin/crud routes but **not** from the handheld completion routes:
+
+| Route | Emits `order:stats_changed`? |
+|---|---|
+| `backend/src/routes/orders.ts` (create / bulk) | ✅ |
+| `backend/src/routes/pickerAdmin.ts` (assign / unassign / bulk-complete) | ✅ |
+| `backend/src/routes/packerAdmin.ts` (assign / unassign) | ✅ |
+| `backend/src/routes/picker.ts` `POST /complete` (handheld) | ❌ — bug |
+| `backend/src/routes/packer.ts` `POST /complete` (handheld) | ❌ — bug |
+
+So order-state mutations from the handheld did not reach the dashboard via socket; admins had to wait for the 10s react-query polling interval.
+
+### Fix
+Add the same emit pattern used in the admin routes, to both handheld completion handlers, after the successful DB update:
+```ts
+import { getIO } from '../lib/socket'
+// ...
+try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
+```
+`try/catch {}` is intentional — matches the existing pattern (socket down should never fail the request). `GET /packer/find` does not mutate order state (verified in `packerService.ts`: only `findFirst` / raw SELECT), so no emit is needed there.
+
+### Rule
+**Any route that mutates order status MUST emit `order:stats_changed` to the tenant room.** When adding a new mutation endpoint, grep existing mutation routes for `getIO().to(\`tenant:\`` to confirm the pattern, and replicate it. Missing the emit doesn't break anything loudly — the dashboard just feels "laggy" — which is why the bug survived review. If you only see socket emits from admin routes but have handheld routes that do the same state transition, that is a red flag.
+
+Secondary rule: when debugging "dashboard data looks stale", first check whether the mutation path is emitting the event. Polling-only updates (10s in this project) mask the missing emit long enough to be misdiagnosed as a cache bug.
+
+### Files Affected
+- `backend/src/routes/picker.ts` — emit on `POST /complete`
+- `backend/src/routes/packer.ts` — emit on `POST /complete`
+
+---
+
+## [2026-04-19] CARRY Badge Showed on Today's Orders — String-Slice Timezone Comparison (v2.13.9)
+
+### Problem
+Orders created **today** in Manila time were sometimes badged as "CARRY" (carryover from a previous day) on the PickerAdmin and PackerAdmin workload panels. The CARRY tag should only appear on orders whose `workDate` is strictly before today in Manila.
+
+### Root Cause
+Both admin pages compared work date against today using raw ISO slicing:
+```ts
+{order.workDate?.slice(0, 10) < todayStr && (
+```
+`order.workDate` comes from the backend as a UTC ISO string. `todayStr` was computed as today's date in **Manila** (via `getManilaDateString()`). Slicing the UTC ISO string skips the timezone conversion entirely. So an order created in Manila at, say, 01:30 on 2026-04-19 (Manila) — which is 17:30 on 2026-04-18 (UTC) — would have `workDate.slice(0, 10) === '2026-04-18'`, while `todayStr === '2026-04-19'`. Comparison says past → CARRY badge shown, even though the order is genuinely from today in the operating timezone.
+
+### Fix
+Use the shared `getManilaDateString()` helper for both sides of the comparison:
+```ts
+{order.workDate && getManilaDateString(new Date(order.workDate)) < todayStr && (
+```
+Both values now represent the same timezone's calendar date, so the comparison matches user-perceived reality.
+
+### Rule
+**Never compare a date string by slicing its first 10 characters unless you are certain the string is already in the target timezone.** In this project all comparisons of "was this on or before today?" must use `getManilaDateString()` on both sides. The raw `workDate` ISO is UTC; using `.slice(0, 10)` is a hidden timezone conversion and will silently lie whenever a user operates across the Manila/UTC midnight.
+
+When you spot a `slice(0, 10)` on any date field that will be compared to something timezone-aware, treat it as a bug by default — either remove the slice or convert to Manila first.
+
+### Files Affected
+- `frontend/src/pages/PackerAdmin.tsx` — CARRY badge conditional
+- `frontend/src/pages/PickerAdmin.tsx` — CARRY badge conditional
+
+---
+
 ## [2026-04-19] Archive Page Returns HTML Instead of JSON — Missing `/archive` in Vite proxyRoutes
 
 ### Problem
