@@ -21,7 +21,7 @@ export const nightlyReportQueue = new Queue('nightlyReport', {
   connection: redisConnection,
 })
 
-// Queue: archives OUTBOUND orders at 7pm daily
+// Queue: archives OUTBOUND orders nightly at 23:30 Manila (see index.ts cron)
 export const archiveOutboundQueue = new Queue('archiveOutbound', {
   connection: redisConnection,
 })
