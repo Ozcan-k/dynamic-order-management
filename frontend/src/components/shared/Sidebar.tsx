@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
+import { disconnectSocket } from '../../lib/socket'
 import { useMobileSidebar } from '../../lib/mobileSidebar'
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -187,13 +188,14 @@ export default function Sidebar() {
   )
 
   async function handleLogout() {
+    navigate('/login', { replace: true })
     try {
       await api.post('/auth/logout')
     } catch {
       // ignore — still clear local state
     }
+    disconnectSocket()
     setUser(null)
-    navigate('/login')
   }
 
   return (
