@@ -1,9 +1,31 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { UserRole } from '@dom/shared'
 import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
 
 const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
+
+// Mirrors the allowedRoles on each <ProtectedRoute> in App.tsx. Keep in sync.
+const ROUTE_ROLES: Record<string, UserRole[]> = {
+  '/':                  [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
+  '/dashboard':         [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
+  '/picker-admin':      [UserRole.ADMIN, UserRole.PICKER_ADMIN],
+  '/packer-admin':      [UserRole.ADMIN, UserRole.PACKER_ADMIN],
+  '/outbound':          [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
+  '/archive':           [UserRole.ADMIN],
+  '/reports':           [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
+  '/settings':          [UserRole.ADMIN],
+  '/inbound-scan':      [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
+  '/picker-admin-scan': [UserRole.ADMIN, UserRole.PICKER_ADMIN],
+  '/picker':            [UserRole.PICKER],
+  '/packer':            [UserRole.PACKER],
+}
+
+function canAccess(path: string, role: UserRole): boolean {
+  const allowed = ROUTE_ROLES[path]
+  return allowed ? allowed.includes(role) : true
+}
 
 function DomLogo({ size = 72 }: { size?: number }) {
   return (
@@ -108,7 +130,10 @@ export default function Login() {
       const deviceType = isHandheld ? 'handheld' : 'desktop'
       const { data } = await api.post<{ user: AuthUser }>('/auth/login', { username, password, deviceType })
       setUser(data.user)
-      navigate(nextRoute ?? getDefaultRoute(data.user.role))
+      const target = nextRoute && canAccess(nextRoute, data.user.role)
+        ? nextRoute
+        : getDefaultRoute(data.user.role)
+      navigate(target, { replace: true })
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
