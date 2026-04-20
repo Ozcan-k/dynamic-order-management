@@ -31,9 +31,28 @@ async function main() {
   })
   console.log('✅ Admin kullanıcı:', admin.username)
 
+  // Sales agents — Phase 1 of Sales Agent Module
+  const salesAgentHash = await bcrypt.hash('agent123', 10)
+  for (const username of ['agent1', 'agent2']) {
+    const agent = await prisma.user.upsert({
+      where: { tenantId_username: { tenantId: tenant.id, username } },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        username,
+        passwordHash: salesAgentHash,
+        role: 'SALES_AGENT',
+        isActive: true,
+        createdById: admin.id,
+      },
+    })
+    console.log('✅ Sales agent:', agent.username)
+  }
+
   console.log('\n🎉 Seed tamamlandı!')
-  console.log('   Kullanıcı adı : admin')
-  console.log('   Şifre         : admin123')
+  console.log('   Admin       : admin / admin123')
+  console.log('   Sales agent : agent1 / agent123')
+  console.log('   Sales agent : agent2 / agent123')
 }
 
 main()

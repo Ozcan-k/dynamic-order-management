@@ -5,7 +5,10 @@ export enum UserRole {
   PACKER_ADMIN = 'PACKER_ADMIN',
   PICKER = 'PICKER',
   PACKER = 'PACKER',
+  SALES_AGENT = 'SALES_AGENT',
 }
+
+export * from './sales'
 
 export enum OrderStatus {
   INBOUND = 'INBOUND',
