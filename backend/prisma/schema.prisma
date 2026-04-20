@@ -17,6 +17,28 @@ enum UserRole {
   PACKER_ADMIN
   PICKER
   PACKER
+  SALES_AGENT
+}
+
+enum SalesPlatform {
+  FACEBOOK
+  TIKTOK
+  INSTAGRAM
+  SHOPEE_VIDEO
+}
+
+enum ContentPostType {
+  POST
+  VIDEO
+  REEL
+}
+
+enum SaleChannel {
+  FACEBOOK
+  TIKTOK
+  INSTAGRAM
+  MARKETPLACE
+  OTHERS
 }
 
 enum OrderStatus {
@@ -74,6 +96,8 @@ model User {
   packerAssignments    PackerAssignment[] @relation("PackerUser")
   packerAssignedByMe   PackerAssignment[] @relation("PackerAssignedBy")
   statusHistoryChanges OrderStatusHistory[]
+  salesActivities      SalesDailyActivity[] @relation("SalesActivityAgent")
+  salesOrders          SalesDirectOrder[]   @relation("SalesOrderAgent")
 
   @@unique([tenantId, username])
   @@map("users")
@@ -176,4 +200,107 @@ model SlaEscalation {
   @@index([orderId])
   @@index([tenantId, triggeredAt(sort: Desc)])
   @@map("sla_escalations")
+}
+
+// ─── Sales Agent Module ──────────────────────────────────────────────────────
+// Fully isolated from the warehouse Order pipeline above.
+
+model SalesDailyActivity {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  agentId    String   @map("agent_id")
+  reportDate DateTime @db.Date @map("report_date")
+  storeName  String   @map("store_name")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  agent              User                     @relation("SalesActivityAgent", fields: [agentId], references: [id])
+  contentPosts       SalesContentPost[]
+  liveSellingMetrics SalesLiveSellingMetric[]
+  marketplaceReport  SalesMarketplaceReport?
+
+  @@unique([agentId, reportDate, storeName])
+  @@index([tenantId, reportDate])
+  @@index([agentId, reportDate])
+  @@map("sales_daily_activity")
+}
+
+model SalesContentPost {
+  id         String          @id @default(uuid())
+  activityId String          @map("activity_id")
+  platform   SalesPlatform
+  postType   ContentPostType @map("post_type")
+  completed  Boolean         @default(false)
+  note       String?
+
+  activity SalesDailyActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, platform, postType])
+  @@map("sales_content_post")
+}
+
+model SalesLiveSellingMetric {
+  id         String        @id @default(uuid())
+  activityId String        @map("activity_id")
+  platform   SalesPlatform
+  hours      Decimal       @default(0) @db.Decimal(6, 2)
+  followers  Int           @default(0)
+  likes      Int           @default(0)
+  views      Int           @default(0)
+  shares     Int           @default(0)
+  comments   Int           @default(0)
+  orders     Int           @default(0)
+
+  activity SalesDailyActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, platform])
+  @@map("sales_live_selling_metric")
+}
+
+model SalesMarketplaceReport {
+  id              String @id @default(uuid())
+  activityId      String @unique @map("activity_id")
+  inquiries       Int    @default(0)
+  listingsCreated Int    @default(0) @map("listings_created")
+
+  activity SalesDailyActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@map("sales_marketplace_report")
+}
+
+model SalesDirectOrder {
+  id           String      @id @default(uuid())
+  tenantId     String      @map("tenant_id")
+  agentId      String      @map("agent_id")
+  orderDate    DateTime    @db.Date @map("order_date")
+  storeName    String      @map("store_name")
+  saleChannel  SaleChannel @map("sale_channel")
+  companyName  String      @map("company_name")
+  customerName String      @map("customer_name")
+  deliveryCost Decimal     @default(0) @db.Decimal(12, 2) @map("delivery_cost")
+  totalAmount  Decimal     @default(0) @db.Decimal(12, 2) @map("total_amount")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  agent User                   @relation("SalesOrderAgent", fields: [agentId], references: [id])
+  items SalesDirectOrderItem[]
+
+  @@index([tenantId, orderDate])
+  @@index([agentId, orderDate])
+  @@index([tenantId, companyName])
+  @@index([tenantId, customerName])
+  @@map("sales_direct_order")
+}
+
+model SalesDirectOrderItem {
+  id            String  @id @default(uuid())
+  directOrderId String  @map("direct_order_id")
+  productName   String  @map("product_name")
+  price         Decimal @default(0) @db.Decimal(12, 2)
+  quantity      Int     @default(1)
+
+  directOrder SalesDirectOrder @relation(fields: [directOrderId], references: [id], onDelete: Cascade)
+
+  @@index([productName])
+  @@map("sales_direct_order_item")
 }

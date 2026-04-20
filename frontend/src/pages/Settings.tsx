@@ -78,6 +78,14 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     badgeText: '#115e59',
     hasEmail: false,
   },
+  [UserRole.SALES_AGENT]: {
+    label: 'Sales Agent',
+    pluralLabel: 'Sales Agents',
+    color: '#15803d',
+    badgeBg: '#dcfce7',
+    badgeText: '#166534',
+    hasEmail: false,
+  },
 }
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -741,9 +749,22 @@ export default function Settings() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
             gap: '14px',
+            marginBottom: '32px',
           }}>
             <UserRoleCard role={UserRole.PICKER} users={byRole(UserRole.PICKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
             <UserRoleCard role={UserRole.PACKER} users={byRole(UserRole.PACKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+          </div>
+
+          <SectionHeader
+            title="Sales Agents"
+            desc="Sales agents log daily marketing activities and direct orders from the web dashboard."
+          />
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '14px',
+          }}>
+            <UserRoleCard role={UserRole.SALES_AGENT} users={byRole(UserRole.SALES_AGENT)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
         </>
       )}

@@ -15,6 +15,10 @@ import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Archive from './pages/Archive'
 import Reports from './pages/Reports'
+import SalesDashboard from './pages/SalesDashboard'
+import SalesEntry from './pages/SalesEntry'
+import SalesOrders from './pages/SalesOrders'
+import MarketingReport from './pages/MarketingReport'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -153,6 +157,39 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.PACKER]}>
                 <PackerMobile />
+              </ProtectedRoute>
+            }
+          />
+          {/* Sales Agent module — independent of warehouse pipeline */}
+          <Route
+            path="/sales"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
+                <AppLayout><SalesDashboard /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sales/entry"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
+                <AppLayout><SalesEntry /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sales/orders"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
+                <AppLayout><SalesOrders /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/marketing-report"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><MarketingReport /></AppLayout>
               </ProtectedRoute>
             }
           />

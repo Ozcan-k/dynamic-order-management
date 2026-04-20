@@ -21,6 +21,10 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/picker-admin-scan': [UserRole.ADMIN, UserRole.PICKER_ADMIN],
   '/picker':            [UserRole.PICKER],
   '/packer':            [UserRole.PACKER],
+  '/sales':             [UserRole.SALES_AGENT],
+  '/sales/entry':       [UserRole.SALES_AGENT],
+  '/sales/orders':      [UserRole.SALES_AGENT],
+  '/marketing-report':  [UserRole.ADMIN],
 }
 
 function canAccess(path: string, role: UserRole): boolean {
@@ -278,6 +282,8 @@ function getDefaultRoute(role: string): string {
       return '/picker'
     case 'PACKER':
       return '/packer'
+    case 'SALES_AGENT':
+      return '/sales'
     default:
       return '/dashboard'
   }
