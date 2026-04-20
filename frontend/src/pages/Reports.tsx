@@ -730,7 +730,7 @@ function OrderTimelineSection() {
 
 export default function Reports() {
   const [days, setDays] = useState(30)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('performance')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('live')
   const [pickerSort, setPickerSort] = useState<SortKey>('today')
   const [packerSort, setPackerSort] = useState<SortKey>('today')
 
@@ -745,8 +745,8 @@ export default function Reports() {
   })
 
   const tabs: { key: ActiveTab; label: string }[] = [
-    { key: 'performance', label: 'Performance' },
     { key: 'live', label: 'Live Performance' },
+    { key: 'performance', label: 'Performance' },
     { key: 'sla', label: 'SLA Analytics' },
     { key: 'timeline', label: 'Order Timeline' },
   ]
