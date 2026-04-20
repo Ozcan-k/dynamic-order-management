@@ -57,9 +57,11 @@ export default function SalesEntry() {
     staleTime: 5_000,
   })
 
-  // Sync server data into local draft whenever the day/store changes
+  // Sync server data into local draft whenever the day/store changes.
+  // Validate shape — proxy/server misconfig can return non-JSON which axios
+  // forwards as `data` (e.g. an HTML SPA fallback). Guard prevents a crash.
   useEffect(() => {
-    if (data) {
+    if (data && Array.isArray(data.contentPosts) && Array.isArray(data.liveSelling) && data.marketplace) {
       setDraft(data)
       setSavedAt(null)
     }

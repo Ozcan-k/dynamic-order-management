@@ -5,7 +5,7 @@ import path from 'path'
 
 const backendUrl = process.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
 
-const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive']
+const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive', '/sales', '/marketing']
 const proxyConfig: Record<string, object> = Object.fromEntries(
   proxyRoutes.map((route) => [route, {
     target: backendUrl,
