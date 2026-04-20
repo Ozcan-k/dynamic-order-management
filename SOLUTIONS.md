@@ -5,6 +5,56 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-20] Post-Deploy Verification Gotchas — `dom_backend` never reports `(healthy)` + logs are empty (v2.23.1 merge)
+
+### Problem
+During the v2.23.1 sales-agent merge, after `docker restart dom_backend` on Vultr:
+- `docker ps` showed `Up 8 seconds` but **never** `(healthy)` — even 3+ minutes later.
+- `docker logs dom_backend --tail 30` returned **zero output**.
+- `docker exec dom_backend wget -qO- http://localhost:3000/health` returned `Connection refused` when tested 8 seconds post-restart.
+
+All three signals together made it look like the app had crashed silently. It had not — the app was fine.
+
+### Root Causes (three independent reasons, each harmless on its own)
+
+**1. Backend has no `healthcheck` stanza in `docker-compose.yml`.**
+Only `dom_postgres` and `dom_redis` define `healthcheck:`. Without one, Docker has no basis to report `(healthy)` — the status column will forever read `Up X seconds` / `Up X minutes`, never `(healthy)`. Do not wait for `(healthy)` on `dom_backend` — it will not come.
+
+**2. Fastify production log level is `warn` (or higher).**
+Startup "listening on :3000" emits at `info` level and is suppressed in prod. `docker logs dom_backend` stays empty until an actual warning/error occurs. **Empty logs ≠ dead app.**
+
+**3. Fastify takes 5–10 seconds to bind the port on cold start.**
+The container is `Up` (PID 1 alive) immediately, but the HTTP listener isn't ready yet. An in-container `wget localhost:3000` issued at ~8 s can legitimately get `Connection refused`. Host-side `ss -tlnp | grep 3000` proves whether `docker-proxy` has bound the host port — that's the real signal.
+
+### The Right Verification Checklist (use this, not `(healthy)` / logs / early `wget`)
+
+```bash
+# 1. Container is running, no restarts, no non-zero exit
+docker inspect dom_backend --format 'State={{.State.Status}} Restarts={{.RestartCount}} ExitCode={{.State.ExitCode}}'
+# Expect: State=running Restarts=0 ExitCode=0
+
+# 2. Host has bound port 3000 via docker-proxy (this means the container-side listener is live)
+ss -tlnp | grep 3000
+# Expect: LISTEN ... 0.0.0.0:3000 ... docker-proxy
+
+# 3. Real functional test — browser on https://domwarehouse.com
+#    Log in, hit one endpoint that exercises the new code path.
+```
+
+If 1 + 2 pass, the app is alive. Skip log-staring and `(healthy)`-watching — they're structurally absent by design, not broken.
+
+### Related Memory
+`feedback_verify_deploy.md` says "if a fix is ineffective 2+ turns, suspect the deploy pipeline not the code." The flip side is equally true: **if the deploy pipeline completed but the in-container signals look off, check whether those signals are even defined** before escalating. The absence of a signal ≠ a failed signal.
+
+### Files / Config References
+- `docker-compose.yml:38-59` — `backend` service block, no `healthcheck:` defined (intentional; adding one is future work)
+- `backend/src/index.ts` — Fastify `logger` config (prod level)
+
+### Rule
+When verifying a production deploy, rely on **inspect + port binding + real HTTP response**, not on status labels (`healthy`) or stdout logs that the service may not emit. If you expect a signal, first check whether it's configured to exist.
+
+---
+
 ## [2026-04-19] Password Visibility Toggle on Login Forms (v2.13.12)
 
 ### Change
