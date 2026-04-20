@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { SalesStore } from '@dom/shared'
 import PageShell from '../components/shared/PageShell'
@@ -43,7 +44,9 @@ export default function SalesEntry() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
 
-  const [date, setDate] = useState<string>(todayManila())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialDate = searchParams.get('date') ?? todayManila()
+  const [date, setDate] = useState<string>(initialDate)
   const [store, setStore] = useState<SalesStore | null>(null)
   const [draft, setDraft] = useState<ActivityResponse | null>(null)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
@@ -133,7 +136,12 @@ export default function SalesEntry() {
             type="date"
             value={date}
             max={todayManila()}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => {
+              setDate(e.target.value)
+              const next = new URLSearchParams(searchParams)
+              next.set('date', e.target.value)
+              setSearchParams(next, { replace: true })
+            }}
             style={{
               fontSize: '13px',
               padding: '7px 10px',

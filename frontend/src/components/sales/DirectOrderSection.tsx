@@ -325,6 +325,23 @@ function AddOrderModal({ date, store, onCancel, onSubmit, submitting }: AddOrder
               }}>+ Item</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 110px 90px 110px 36px',
+                gap: '8px',
+                fontSize: '10px',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                color: '#94a3b8',
+                paddingLeft: '2px',
+              }}>
+                <span>Product</span>
+                <span>Price (PHP)</span>
+                <span>Qty</span>
+                <span style={{ textAlign: 'right' }}>Subtotal</span>
+                <span />
+              </div>
               {items.map((it, idx) => (
                 <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 90px 110px 36px', gap: '8px', alignItems: 'center' }}>
                   <AutoSuggestInput
