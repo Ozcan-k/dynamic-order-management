@@ -8,6 +8,24 @@ import { getPickerCompleteOrders } from '../services/packerAdminService'
 
 const CompleteBody = z.object({ trackingNumber: z.string().min(1).max(100) })
 
+function friendlyPackerMessage(diag: { status: string; archivedAt: Date | null } | null): string {
+  if (!diag) return 'Order not found'
+  if (diag.archivedAt) return 'This order is archived and no longer active'
+  switch (diag.status) {
+    case 'INBOUND':
+    case 'PICKER_ASSIGNED':
+    case 'PICKING':
+      return 'This order is not ready for packing yet'
+    case 'PACKING':
+      return 'This order is already being packed'
+    case 'PACKER_COMPLETE':
+    case 'OUTBOUND':
+      return 'This order has already been packed'
+    default:
+      return 'This order is not available for packing'
+  }
+}
+
 export default async function packerRoutes(fastify: FastifyInstance) {
   const authHandler = [fastify.authenticate, requireRole(UserRole.PACKER)]
 
@@ -29,11 +47,12 @@ export default async function packerRoutes(fastify: FastifyInstance) {
     request.log.warn({ tn: tn.trim(), raw: rawTrimmed?.substring(0, 300), tenantId, userId }, 'packer find attempt')
     const order = await findOrderForPacking(tn.trim(), tenantId, rawTrimmed)
     if (!order) {
-      const any = await diagnoseTracking(tn.trim(), tenantId, rawTrimmed)
-      const msg = any
-        ? `Order status is ${any.status}${any.archivedAt ? ' (archived)' : ''}, not PICKER_COMPLETE`
-        : 'Order not found in this tenant'
-      return reply.code(404).send({ error: msg })
+      const diag = await diagnoseTracking(tn.trim(), tenantId, rawTrimmed)
+      request.log.warn(
+        { tn: tn.trim(), tenantId, userId, status: diag?.status ?? null, archived: !!diag?.archivedAt },
+        'packer find miss',
+      )
+      return reply.code(404).send({ error: friendlyPackerMessage(diag) })
     }
     return reply.send({ order })
   })

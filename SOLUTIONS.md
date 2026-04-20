@@ -5,6 +5,51 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-20] Packer Phone Scan — Debug Card Leak to Production + Unfriendly Error Messages (v2.23.3)
+
+### Problem
+On `domwarehouse.com/scan` as a Packer, scanning a waybill that is **not** in the packer queue (e.g. an `INBOUND` order) produced two user-facing symptoms:
+1. A short-but-jargon error toast: `Order status is INBOUND, not PICKER_COMPLETE`.
+2. A yellow "Scan Debug" card right below it listing **every tracking number in the packer's queue**, one per line. On a packer with a full queue this filled the phone screen.
+
+Reported as "long error message + entire list showing up."
+
+### Root Causes (two independent issues)
+
+**1. Backend jargon 404 message (`backend/src/routes/packer.ts`).**
+`/packer/find` handler, on miss, interpolated raw `OrderStatus` enum + the string `PICKER_COMPLETE` directly into the error body. The message was technically correct but used internal enum names a warehouse packer has no context for.
+
+**2. Scan Debug card left in production (`frontend/src/pages/PackerMobile.tsx`).**
+The debug card was added 2026-04-17 to diagnose the J&T URL-encoded barcode problem ("Scanned vs Queue visualization" — see earlier entry). It rendered `debugInfo.queue` — **the full tracking-number list of the packer's current queue** — whenever `/packer/find` returned 404. It was temporary but never removed. The "whole list on screen" the user saw was this card, not a long error string.
+
+There was also a small defensive gap: the error toast had no `wordBreak`/`maxHeight`/`overflowY`, so a future long message from the backend would again blow up the layout.
+
+### Fix
+
+**Backend — `backend/src/routes/packer.ts`:**
+- Added `friendlyPackerMessage(diag)` helper that maps `OrderStatus` groups to user-friendly strings:
+  - `INBOUND` / `PICKER_ASSIGNED` / `PICKING` → `"This order is not ready for packing yet"`
+  - `PACKING` → `"This order is already being packed"`
+  - `PACKER_COMPLETE` / `OUTBOUND` → `"This order has already been packed"`
+  - archived → `"This order is archived and no longer active"`
+  - no diag → `"Order not found"`
+- Technical detail (raw status + archived flag) is retained **in logs only** via a new `request.log.warn(..., 'packer find miss')` call so diagnosis is still possible server-side without leaking enums to the scanner UI.
+
+**Frontend — `frontend/src/pages/PackerMobile.tsx`:**
+- Removed the `debugInfo` state, both `setDebugInfo(...)` calls in `handleScan`, and the entire `{debugInfo && ...}` render block.
+- Added defensive style to the error toast: `wordBreak: 'break-word', maxHeight: '40vh', overflowY: 'auto'` so an unexpectedly long backend message can never again fill the screen.
+
+### Lesson
+A "temporary" debug UI that leaks internal state (queue contents, DB IDs, enums) to a scanner screen is a production leak, not an acceptable diagnostic. When adding a debug card to solve a specific incident, add a corresponding todo/task to remove it after the fix ships — don't let `import.meta.env.DEV` gates substitute for deletion when the feature's job is done. For on-going diagnostics use `request.log.warn` with structured fields, not on-screen UI.
+
+### Verification after deploy (v2.23.3)
+1. Packer phone → scan an INBOUND order's waybill → toast shows `"This order is not ready for packing yet"`, **no** yellow debug card.
+2. Scan a completely unknown waybill → toast shows `"Order not found"`, no debug card.
+3. Scan a real PICKER_COMPLETE order → normal confirm bottom sheet opens (regression check).
+4. `docker logs dom_backend | grep "packer find miss"` on Vultr → shows the structured warn with raw status + archived flag for the 404 scan above.
+
+---
+
 ## [2026-04-20] Post-Deploy Verification Gotchas — `dom_backend` never reports `(healthy)` + logs are empty (v2.23.1 merge)
 
 ### Problem
