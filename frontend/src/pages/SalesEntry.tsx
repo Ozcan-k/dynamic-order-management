@@ -6,6 +6,7 @@ import StoreSelector from '../components/sales/StoreSelector'
 import ContentPostingSection from '../components/sales/ContentPostingSection'
 import LiveSellingSection from '../components/sales/LiveSellingSection'
 import MarketplaceSection from '../components/sales/MarketplaceSection'
+import DirectOrderSection from '../components/sales/DirectOrderSection'
 import {
   fetchActivity,
   saveActivity,
@@ -34,6 +35,7 @@ function todayManila(): string {
 const SECTION_TITLES = {
   content: 'Content Posting',
   live: 'Live Selling',
+  direct: 'Direct Orders',
   marketplace: 'Marketplace Reporting',
 } as const
 
@@ -226,6 +228,18 @@ export default function SalesEntry() {
           </SectionCard>
 
           <SectionCard
+            title={SECTION_TITLES.direct}
+            badge="Optional"
+            badgeTone="info"
+            open={openSection === 'direct'}
+            onToggle={() => setOpenSection(openSection === 'direct' ? 'direct' : 'direct')}
+            forceOpen={() => setOpenSection('direct')}
+            isOpenSection={openSection === 'direct'}
+          >
+            <DirectOrderSection date={date} store={store} />
+          </SectionCard>
+
+          <SectionCard
             title={SECTION_TITLES.marketplace}
             open={openSection === 'marketplace'}
             onToggle={() => setOpenSection(openSection === 'marketplace' ? 'marketplace' : 'marketplace')}
@@ -234,18 +248,6 @@ export default function SalesEntry() {
           >
             <MarketplaceSection value={draft.marketplace} onChange={updateMarketplace} />
           </SectionCard>
-
-          <div style={{
-            background: '#fff',
-            border: '1px dashed #cbd5e1',
-            borderRadius: '12px',
-            padding: '14px',
-            color: '#64748b',
-            fontSize: '13px',
-            textAlign: 'center',
-          }}>
-            <strong style={{ color: '#0f172a' }}>Direct Orders</strong> — coming in Phase 3.
-          </div>
         </div>
       )}
     </PageShell>
