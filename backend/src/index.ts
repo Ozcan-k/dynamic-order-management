@@ -21,6 +21,7 @@ import packerRoutes from './routes/packer'
 import outboundRoutes from './routes/outbound'
 import reportsRoutes from './routes/reports'
 import archiveRoutes from './routes/archive'
+import salesRoutes from './routes/sales'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -49,6 +50,7 @@ async function start() {
   await fastify.register(outboundRoutes, { prefix: '/outbound' })
   await fastify.register(reportsRoutes, { prefix: '/reports' })
   await fastify.register(archiveRoutes, { prefix: '/archive' })
+  await fastify.register(salesRoutes, { prefix: '/sales' })
   if (process.env.NODE_ENV !== 'production') {
     await fastify.register(devTestRoutes)
   }
