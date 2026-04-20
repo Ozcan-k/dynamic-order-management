@@ -57,6 +57,24 @@ export async function fetchCalendar(month: string): Promise<CalendarResponse> {
   return data
 }
 
+export interface DayDetailStore {
+  store: string
+  contentPostsCount: number
+  liveSellingHours: number
+  marketplaceInquiries: number
+}
+
+export interface DayDetailResponse {
+  date: string
+  stores: DayDetailStore[]
+  directOrders: DirectOrder[]
+}
+
+export async function fetchDayDetail(date: string): Promise<DayDetailResponse> {
+  const { data } = await api.get<DayDetailResponse>('/sales/day-detail', { params: { date } })
+  return data
+}
+
 // ─── Direct Orders ───────────────────────────────────────────────────────────
 
 export interface DirectOrderItem {

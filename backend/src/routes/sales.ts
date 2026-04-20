@@ -3,10 +3,12 @@ import { JWTPayload, SALES_STORES, UserRole } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import {
   CalendarQuerySchema,
+  DayDetailQuerySchema,
   GetActivityQuerySchema,
   UpsertActivitySchema,
   getActivity,
   getCalendar,
+  getDayDetail,
   upsertActivity,
 } from '../services/salesActivityService'
 import {
@@ -48,6 +50,17 @@ export default async function salesRoutes(fastify: FastifyInstance) {
     const { tenantId, userId } = request.user as JWTPayload
     const activity = await getActivity(tenantId, userId, result.data.date, result.data.store)
     return reply.send(activity)
+  })
+
+  // GET /sales/day-detail?date=YYYY-MM-DD — populates the calendar popup
+  fastify.get('/day-detail', { preHandler: agentOnly }, async (request, reply) => {
+    const result = DayDetailQuerySchema.safeParse(request.query)
+    if (!result.success) {
+      return reply.code(400).send({ error: 'Invalid query', details: result.error.flatten() })
+    }
+    const { tenantId, userId } = request.user as JWTPayload
+    const detail = await getDayDetail(tenantId, userId, result.data.date)
+    return reply.send(detail)
   })
 
   // PUT /sales/activity — idempotent upsert (auto-save target)

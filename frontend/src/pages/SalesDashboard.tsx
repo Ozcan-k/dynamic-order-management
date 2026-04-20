@@ -5,6 +5,7 @@ import type { SalesDayMetrics } from '@dom/shared'
 import PageShell from '../components/shared/PageShell'
 import MonthCalendar from '../components/sales/MonthCalendar'
 import DaySummaryCell from '../components/sales/DaySummaryCell'
+import DayDetailModal from '../components/sales/DayDetailModal'
 import { fetchCalendar } from '../api/sales'
 import { useAuthStore } from '../stores/authStore'
 
@@ -30,6 +31,7 @@ export default function SalesDashboard() {
 
   const today = todayManila()
   const [month, setMonth] = useState<string>(today.slice(0, 7))
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['sales-calendar', month],
@@ -59,7 +61,7 @@ export default function SalesDashboard() {
   }, [data])
 
   function openDay(date: string) {
-    navigate(`/sales/entry?date=${date}`)
+    setSelectedDate(date)
   }
 
   return (
@@ -157,6 +159,14 @@ export default function SalesDashboard() {
           />
         )}
       />
+
+      {selectedDate && (
+        <DayDetailModal
+          date={selectedDate}
+          isToday={selectedDate === today}
+          onClose={() => setSelectedDate(null)}
+        />
+      )}
     </PageShell>
   )
 }

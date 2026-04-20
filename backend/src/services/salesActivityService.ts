@@ -56,6 +56,10 @@ export const CalendarQuerySchema = z.object({
   month: MonthString,
 })
 
+export const DayDetailQuerySchema = z.object({
+  date: DateString,
+})
+
 export type UpsertActivityInput = z.infer<typeof UpsertActivitySchema>
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -268,4 +272,60 @@ export async function getCalendar(tenantId: string, agentId: string, month: stri
   }
 
   return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/**
+ * Per-day breakdown for the calendar popup. Returns per-store rollups +
+ * full direct order list for the day. Used by the SalesDashboard modal.
+ */
+export async function getDayDetail(tenantId: string, agentId: string, date: string) {
+  const reportDate = toDateOnly(date)
+
+  const [activities, directOrders] = await Promise.all([
+    prisma.salesDailyActivity.findMany({
+      where: { tenantId, agentId, reportDate },
+      include: {
+        contentPosts: { where: { completed: true } },
+        liveSellingMetrics: true,
+        marketplaceReport: true,
+      },
+    }),
+    prisma.salesDirectOrder.findMany({
+      where: { tenantId, agentId, orderDate: reportDate },
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+
+  const stores = activities
+    .map((a) => ({
+      store: a.storeName,
+      contentPostsCount: a.contentPosts.length,
+      liveSellingHours: a.liveSellingMetrics.reduce((sum, m) => sum + Number(m.hours), 0),
+      marketplaceInquiries: a.marketplaceReport?.inquiries ?? 0,
+    }))
+    .filter((s) => s.contentPostsCount > 0 || s.liveSellingHours > 0 || s.marketplaceInquiries > 0)
+    .sort((a, b) => a.store.localeCompare(b.store))
+
+  return {
+    date,
+    stores,
+    directOrders: directOrders.map((o) => ({
+      id: o.id,
+      date: o.orderDate.toISOString().slice(0, 10),
+      store: o.storeName,
+      saleChannel: o.saleChannel,
+      companyName: o.companyName,
+      customerName: o.customerName,
+      deliveryCost: Number(o.deliveryCost),
+      totalAmount: Number(o.totalAmount),
+      createdAt: o.createdAt.toISOString(),
+      items: o.items.map((it) => ({
+        id: it.id,
+        productName: it.productName,
+        price: Number(it.price),
+        quantity: it.quantity,
+      })),
+    })),
+  }
 }
