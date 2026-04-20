@@ -636,6 +636,12 @@ button {
   to { transform: rotate(360deg); }
 }
 
+/* Modal backdrop fade-in — prevents abrupt dark flash when opening modals */
+@keyframes modalBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 .spinner {
   width: 20px;
   height: 20px;

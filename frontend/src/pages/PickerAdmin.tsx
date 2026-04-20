@@ -201,6 +201,7 @@ function PickerOrdersModal({
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
         zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '16px',
+        animation: 'modalBackdropIn 180ms ease-out',
       }}
       onClick={onClose}
     >
@@ -490,6 +491,7 @@ function PickerOrdersModal({
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => !bulkBusy && setBulkAction(null)}
         >
@@ -578,6 +580,7 @@ function PickerOrdersModal({
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => setCompleteTarget(null)}
         >
@@ -666,6 +669,7 @@ function PickerOrdersModal({
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => setRemoveTarget(null)}
         >
