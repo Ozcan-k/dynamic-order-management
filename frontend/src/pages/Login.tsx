@@ -21,9 +21,9 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/picker-admin-scan': [UserRole.ADMIN, UserRole.PICKER_ADMIN],
   '/picker':            [UserRole.PICKER],
   '/packer':            [UserRole.PACKER],
-  '/sales':             [UserRole.SALES_AGENT, UserRole.ADMIN],
-  '/sales/entry':       [UserRole.SALES_AGENT, UserRole.ADMIN],
-  '/sales/orders':      [UserRole.SALES_AGENT, UserRole.ADMIN],
+  '/sales':             [UserRole.SALES_AGENT],
+  '/sales/entry':       [UserRole.SALES_AGENT],
+  '/sales/orders':      [UserRole.SALES_AGENT],
   '/marketing-report':  [UserRole.ADMIN],
 }
 

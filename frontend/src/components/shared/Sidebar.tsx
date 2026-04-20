@@ -186,19 +186,19 @@ const NAV_ITEMS: NavItem[] = [
     path: '/sales',
     label: 'Sales Dashboard',
     icon: <SalesDashboardIcon />,
-    roles: [UserRole.SALES_AGENT, UserRole.ADMIN],
+    roles: [UserRole.SALES_AGENT],
   },
   {
     path: '/sales/entry',
     label: 'My Activity',
     icon: <SalesEntryIcon />,
-    roles: [UserRole.SALES_AGENT, UserRole.ADMIN],
+    roles: [UserRole.SALES_AGENT],
   },
   {
     path: '/sales/orders',
     label: 'My Orders',
     icon: <SalesOrdersIcon />,
-    roles: [UserRole.SALES_AGENT, UserRole.ADMIN],
+    roles: [UserRole.SALES_AGENT],
   },
   {
     path: '/marketing-report',

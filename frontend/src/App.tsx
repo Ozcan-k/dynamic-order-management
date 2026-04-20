@@ -164,7 +164,7 @@ export default function App() {
           <Route
             path="/sales"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT, UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
                 <AppLayout><SalesDashboard /></AppLayout>
               </ProtectedRoute>
             }
@@ -172,7 +172,7 @@ export default function App() {
           <Route
             path="/sales/entry"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT, UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
                 <AppLayout><SalesEntry /></AppLayout>
               </ProtectedRoute>
             }
@@ -180,7 +180,7 @@ export default function App() {
           <Route
             path="/sales/orders"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT, UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.SALES_AGENT]}>
                 <AppLayout><SalesOrders /></AppLayout>
               </ProtectedRoute>
             }
