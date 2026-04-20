@@ -298,6 +298,183 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
+  // GET /reports/live-performance — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
+  // Today-only, Manila TZ. Per-role totals, 24-hour buckets, per-worker rows (incl. idle).
+  fastify.get(
+    '/live-performance',
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+      ],
+    },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+
+      const from = getManilaStartOfToday()
+      const now = new Date()
+      const lastHourCutoff = new Date(now.getTime() - 60 * 60 * 1000)
+
+      // Manila hour (0–23) from a UTC Date
+      function manilaHour(ts: Date): number {
+        const hh = ts.toLocaleString('en-GB', {
+          timeZone: 'Asia/Manila',
+          hour: '2-digit',
+          hour12: false,
+        })
+        const n = Number(hh)
+        return Number.isNaN(n) ? 0 : n % 24
+      }
+
+      function emptyHours(): number[] {
+        return new Array(24).fill(0)
+      }
+
+      const [
+        pickerUsers,
+        packerUsers,
+        pickerDone,
+        packerDone,
+        pickerActive,
+        packerActive,
+      ] = await Promise.all([
+        prisma.user.findMany({
+          where: { tenantId, role: UserRole.PICKER, isActive: true },
+          select: { id: true, username: true },
+          orderBy: { username: 'asc' },
+        }),
+        prisma.user.findMany({
+          where: { tenantId, role: UserRole.PACKER, isActive: true },
+          select: { id: true, username: true },
+          orderBy: { username: 'asc' },
+        }),
+        prisma.pickerAssignment.findMany({
+          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          select: { pickerId: true, completedAt: true },
+        }),
+        prisma.packerAssignment.findMany({
+          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          select: { packerId: true, completedAt: true },
+        }),
+        prisma.pickerAssignment.groupBy({
+          by: ['pickerId'],
+          where: { completedAt: null, order: { tenantId, archivedAt: null } },
+          _count: { _all: true },
+        }),
+        prisma.packerAssignment.groupBy({
+          by: ['packerId'],
+          where: { completedAt: null, order: { tenantId, archivedAt: null } },
+          _count: { _all: true },
+        }),
+      ])
+
+      const pickerActiveMap = new Map<string, number>()
+      for (const row of pickerActive) pickerActiveMap.set(row.pickerId, row._count._all)
+      const packerActiveMap = new Map<string, number>()
+      for (const row of packerActive) packerActiveMap.set(row.packerId, row._count._all)
+
+      // Group today's completions per worker
+      const pickerByUser: Record<string, Date[]> = {}
+      for (const a of pickerDone) {
+        if (!a.completedAt) continue
+        if (!pickerByUser[a.pickerId]) pickerByUser[a.pickerId] = []
+        pickerByUser[a.pickerId].push(a.completedAt)
+      }
+      const packerByUser: Record<string, Date[]> = {}
+      for (const a of packerDone) {
+        if (!a.completedAt) continue
+        if (!packerByUser[a.packerId]) packerByUser[a.packerId] = []
+        packerByUser[a.packerId].push(a.completedAt)
+      }
+
+      // Aggregate hourly totals per role
+      const pickerHourly = emptyHours()
+      for (const a of pickerDone) {
+        if (!a.completedAt) continue
+        pickerHourly[manilaHour(a.completedAt)] += 1
+      }
+      const packerHourly = emptyHours()
+      for (const a of packerDone) {
+        if (!a.completedAt) continue
+        packerHourly[manilaHour(a.completedAt)] += 1
+      }
+
+      function buildRow(
+        user: { id: string; username: string },
+        timestamps: Date[] | undefined,
+        activeCount: number,
+      ) {
+        const ts = timestamps ?? []
+        const hourly = emptyHours()
+        let lastHour = 0
+        let firstMs = Number.POSITIVE_INFINITY
+        for (const t of ts) {
+          hourly[manilaHour(t)] += 1
+          const ms = t.getTime()
+          if (ms >= lastHourCutoff.getTime()) lastHour += 1
+          if (ms < firstMs) firstMs = ms
+        }
+        const completedToday = ts.length
+        let itemsPerHour = 0
+        if (completedToday > 0 && Number.isFinite(firstMs)) {
+          const elapsedHours = Math.max(1, (now.getTime() - firstMs) / (60 * 60 * 1000))
+          itemsPerHour = Math.round((completedToday / elapsedHours) * 10) / 10
+        }
+        return {
+          id: user.id,
+          username: user.username,
+          activeNow: activeCount,
+          completedToday,
+          completedLastHour: lastHour,
+          itemsPerHour,
+          hourly,
+        }
+      }
+
+      const pickers = pickerUsers
+        .map((u) => buildRow(u, pickerByUser[u.id], pickerActiveMap.get(u.id) ?? 0))
+        .sort((a, b) => b.completedToday - a.completedToday || a.username.localeCompare(b.username))
+      const packers = packerUsers
+        .map((u) => buildRow(u, packerByUser[u.id], packerActiveMap.get(u.id) ?? 0))
+        .sort((a, b) => b.completedToday - a.completedToday || a.username.localeCompare(b.username))
+
+      function roleSummary(rows: Array<ReturnType<typeof buildRow>>, hourly: number[]) {
+        const completedToday = rows.reduce((s, r) => s + r.completedToday, 0)
+        const activeNow = rows.reduce((s, r) => s + r.activeNow, 0)
+        // Role-level items/hour: hours elapsed since the earliest completion hour today
+        let itemsPerHour = 0
+        if (completedToday > 0) {
+          const firstHour = hourly.findIndex((c) => c > 0)
+          if (firstHour >= 0) {
+            const startMs = from.getTime() + firstHour * 60 * 60 * 1000
+            const elapsedHours = Math.max(1, (now.getTime() - startMs) / (60 * 60 * 1000))
+            itemsPerHour = Math.round((completedToday / elapsedHours) * 10) / 10
+          }
+        }
+        const leader = rows.length > 0 && rows[0].completedToday > 0
+          ? { id: rows[0].id, username: rows[0].username, completedToday: rows[0].completedToday }
+          : null
+        return { completedToday, activeNow, itemsPerHour, leader }
+      }
+
+      return reply.send({
+        manilaDate: getManilaDateString(),
+        generatedAt: now.toISOString(),
+        hours: Array.from({ length: 24 }, (_, i) => i),
+        totals: {
+          pickers: roleSummary(pickers, pickerHourly),
+          packers: roleSummary(packers, packerHourly),
+        },
+        hourly: {
+          picker: pickerHourly,
+          packer: packerHourly,
+        },
+        pickers,
+        packers,
+      })
+    },
+  )
+
   // GET /reports/performance/export — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN — CSV download
   fastify.get(
     '/performance/export',

@@ -5,6 +5,7 @@ import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
 import Sparkline from '../components/shared/Sparkline'
 import Donut from '../components/shared/Donut'
+import LivePerformanceTab from './reports/LivePerformanceTab'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ interface TimelineData {
 }
 
 type SortKey = 'today' | 'total' | 'name'
-type ActiveTab = 'performance' | 'sla' | 'timeline'
+type ActiveTab = 'performance' | 'live' | 'sla' | 'timeline'
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
@@ -745,6 +746,7 @@ export default function Reports() {
 
   const tabs: { key: ActiveTab; label: string }[] = [
     { key: 'performance', label: 'Performance' },
+    { key: 'live', label: 'Live Performance' },
     { key: 'sla', label: 'SLA Analytics' },
     { key: 'timeline', label: 'Order Timeline' },
   ]
@@ -756,7 +758,7 @@ export default function Reports() {
       icon={<ReportsIcon />}
       stats={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {activeTab !== 'timeline' && (
+          {activeTab !== 'timeline' && activeTab !== 'live' && (
             <DayRangeToggle value={days} onChange={setDays} />
           )}
           {data && activeTab === 'performance' && (
@@ -864,6 +866,9 @@ export default function Reports() {
           <SlaAnalyticsSection days={days} />
         </>
       )}
+
+      {/* Live Performance Tab */}
+      {activeTab === 'live' && <LivePerformanceTab />}
 
       {/* Order Timeline Tab */}
       {activeTab === 'timeline' && <OrderTimelineSection />}
