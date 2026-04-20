@@ -751,7 +751,7 @@ export default function Reports() {
 
   return (
     <PageShell
-      title="Reports"
+      title="Warehouse Report"
       subtitle="Performance analytics, SLA tracking, and order lifecycle"
       icon={<ReportsIcon />}
       stats={

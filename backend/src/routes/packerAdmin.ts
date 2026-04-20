@@ -4,6 +4,10 @@ import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 
 const OrderIdBody = z.object({ orderId: z.string().min(1) })
+const CompleteBody = z.object({
+  orderId: z.string().min(1),
+  packerId: z.string().uuid(),
+})
 import { getIO } from '../lib/socket'
 import { prisma } from '../lib/prisma'
 import {
@@ -49,17 +53,17 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
 
   // POST /packer-admin/complete — admin manually completes an order
   fastify.post('/complete', { preHandler }, async (request, reply) => {
-    const parsed = OrderIdBody.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'orderId is required' })
-    const { orderId } = parsed.data
+    const parsed = CompleteBody.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'orderId and packerId are required' })
+    const { orderId, packerId } = parsed.data
     const { userId, tenantId } = request.user as JWTPayload
     try {
-      const order = await completeOrder(orderId, userId, tenantId)
+      const order = await completeOrder(orderId, packerId, userId, tenantId)
       try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
       return reply.send({ order })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Complete failed'
-      const code = message.includes('not found') ? 404 : 409
+      const code = message.includes('not found') ? 404 : message.includes('Invalid packer') ? 400 : 409
       return reply.code(code).send({ error: message })
     }
   })

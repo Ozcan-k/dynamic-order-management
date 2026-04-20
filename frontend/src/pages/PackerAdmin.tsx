@@ -282,6 +282,8 @@ export default function PackerAdmin() {
   const [currentPage, setCurrentPage] = useState(1)
   const [packerModal, setPackerModal] = useState<PackerStat | null>(null)
   const [completeTarget, setCompleteTarget] = useState<{ id: string; tracking: string } | null>(null)
+  const [selectedPackerId, setSelectedPackerId] = useState<string>('')
+  const [bulkPackerId, setBulkPackerId] = useState<string>('')
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -318,6 +320,16 @@ export default function PackerAdmin() {
     refetchInterval: 10_000,
   })
 
+  const { data: packersData } = useQuery({
+    queryKey: ['packer-admin-packers'],
+    queryFn: async () => {
+      const res = await api.get<{ packers: { id: string; username: string }[] }>('/packer-admin/packers')
+      return res.data.packers
+    },
+    staleTime: 60_000,
+  })
+  const packers = packersData ?? []
+
   const todayStr = getManilaDateString()
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr).length
@@ -332,16 +344,19 @@ export default function PackerAdmin() {
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const completeMutation = useMutation({
-    mutationFn: (orderId: string) => api.post('/packer-admin/complete', { orderId }),
+    mutationFn: (vars: { orderId: string; packerId: string }) =>
+      api.post('/packer-admin/complete', vars),
     onSuccess: () => {
       invalidateAll()
       setCompleteTarget(null)
+      setSelectedPackerId('')
       setSearchQuery('')
       setCurrentPage(1)
       setActionFeedback({ type: 'success', message: 'Order marked as packed.' })
     },
     onError: (err: any) => {
       setCompleteTarget(null)
+      setSelectedPackerId('')
       setActionFeedback({ type: 'error', message: err?.response?.data?.error ?? 'Complete failed' })
     },
   })
@@ -456,13 +471,15 @@ export default function PackerAdmin() {
   async function runBulk(action: 'complete' | 'remove') {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
+    if (action === 'complete' && !bulkPackerId) return
     setBulkBusy(true)
     let ok = 0
     let fail = 0
     const endpoint = action === 'complete' ? '/packer-admin/complete' : '/packer-admin/remove'
     for (const orderId of ids) {
       try {
-        await api.post(endpoint, { orderId })
+        const body = action === 'complete' ? { orderId, packerId: bulkPackerId } : { orderId }
+        await api.post(endpoint, body)
         ok++
       } catch {
         fail++
@@ -470,6 +487,7 @@ export default function PackerAdmin() {
     }
     setBulkBusy(false)
     setBulkConfirm(null)
+    setBulkPackerId('')
     setSelectedIds(new Set())
     invalidateAll()
     setActionFeedback({
@@ -916,7 +934,7 @@ export default function PackerAdmin() {
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
           }}
-          onClick={() => setCompleteTarget(null)}
+          onClick={() => { setCompleteTarget(null); setSelectedPackerId('') }}
         >
           <div
             style={{
@@ -957,6 +975,7 @@ export default function PackerAdmin() {
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
                 background: '#fff', border: `1px solid ${colors.border}`,
                 borderRadius: '8px', padding: '8px 14px',
+                marginBottom: '16px',
               }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="1" y="3" width="15" height="13" rx="1" /><path d="M16 8h4l3 3v5h-7V8z" />
@@ -966,10 +985,28 @@ export default function PackerAdmin() {
                   {completeTarget.tracking}
                 </span>
               </div>
+              <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                Packed by
+              </div>
+              <select
+                value={selectedPackerId}
+                onChange={(e) => setSelectedPackerId(e.target.value)}
+                style={{
+                  width: '100%', padding: '9px 12px',
+                  border: `1px solid ${colors.border}`, borderRadius: '8px',
+                  background: '#fff', fontSize: '13px', color: colors.textPrimary,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="" disabled>Select packer…</option>
+                {packers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.username}</option>
+                ))}
+              </select>
             </div>
             <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setCompleteTarget(null)}
+                onClick={() => { setCompleteTarget(null); setSelectedPackerId('') }}
                 style={{
                   padding: '9px 20px', border: `1px solid ${colors.border}`,
                   borderRadius: '8px', background: '#fff', color: colors.textSecondary,
@@ -979,13 +1016,14 @@ export default function PackerAdmin() {
                 Cancel
               </button>
               <button
-                onClick={() => completeMutation.mutate(completeTarget.id)}
-                disabled={completeMutation.isPending}
+                onClick={() => completeMutation.mutate({ orderId: completeTarget.id, packerId: selectedPackerId })}
+                disabled={completeMutation.isPending || !selectedPackerId}
                 style={{
                   padding: '9px 20px', border: 'none',
                   borderRadius: '8px', background: '#16a34a', color: '#fff',
-                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                  opacity: completeMutation.isPending ? 0.7 : 1,
+                  fontSize: '13px', fontWeight: 600,
+                  cursor: (completeMutation.isPending || !selectedPackerId) ? 'not-allowed' : 'pointer',
+                  opacity: (completeMutation.isPending || !selectedPackerId) ? 0.5 : 1,
                   display: 'flex', alignItems: 'center', gap: '6px',
                 }}
               >
@@ -1136,7 +1174,7 @@ export default function PackerAdmin() {
             zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
           }}
-          onClick={() => { if (!bulkBusy) setBulkConfirm(null) }}
+          onClick={() => { if (!bulkBusy) { setBulkConfirm(null); setBulkPackerId('') } }}
         >
           <div
             style={{
@@ -1181,9 +1219,31 @@ export default function PackerAdmin() {
                 </div>
               </div>
             </div>
+            {bulkConfirm === 'complete' && (
+              <div style={{ padding: '16px 24px', background: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+                <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                  Packed by
+                </div>
+                <select
+                  value={bulkPackerId}
+                  onChange={(e) => setBulkPackerId(e.target.value)}
+                  style={{
+                    width: '100%', padding: '9px 12px',
+                    border: `1px solid ${colors.border}`, borderRadius: '8px',
+                    background: '#fff', fontSize: '13px', color: colors.textPrimary,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="" disabled>Select packer…</option>
+                  {packers.map((p) => (
+                    <option key={p.id} value={p.id}>{p.username}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setBulkConfirm(null)}
+                onClick={() => { setBulkConfirm(null); setBulkPackerId('') }}
                 disabled={bulkBusy}
                 style={{
                   padding: '9px 20px', border: `1px solid ${colors.border}`,
@@ -1196,15 +1256,15 @@ export default function PackerAdmin() {
               </button>
               <button
                 onClick={() => runBulk(bulkConfirm)}
-                disabled={bulkBusy}
+                disabled={bulkBusy || (bulkConfirm === 'complete' && !bulkPackerId)}
                 style={{
                   padding: '9px 20px', border: 'none',
                   borderRadius: '8px',
                   background: bulkConfirm === 'complete' ? '#16a34a' : colors.danger,
                   color: '#fff',
                   fontSize: '13px', fontWeight: 600,
-                  cursor: bulkBusy ? 'not-allowed' : 'pointer',
-                  opacity: bulkBusy ? 0.7 : 1,
+                  cursor: (bulkBusy || (bulkConfirm === 'complete' && !bulkPackerId)) ? 'not-allowed' : 'pointer',
+                  opacity: (bulkBusy || (bulkConfirm === 'complete' && !bulkPackerId)) ? 0.5 : 1,
                 }}
               >
                 {bulkBusy

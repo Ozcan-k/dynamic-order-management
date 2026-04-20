@@ -118,5 +118,5 @@ export async function completeByTracking(
 
   if (!order) throw new Error('Order not found')
 
-  return completeOrder(order.id, packerId, tenantId)
+  return completeOrder(order.id, packerId, packerId, tenantId)
 }
