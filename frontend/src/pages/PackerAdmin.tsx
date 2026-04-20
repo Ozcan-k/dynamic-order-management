@@ -81,6 +81,7 @@ function PackerOrdersModal({
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
         zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '16px',
+        animation: 'modalBackdropIn 180ms ease-out',
       }}
       onClick={onClose}
     >
@@ -326,7 +327,8 @@ export default function PackerAdmin() {
       const res = await api.get<{ packers: { id: string; username: string }[] }>('/packer-admin/packers')
       return res.data.packers
     },
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
   })
   const packers = packersData ?? []
 
@@ -933,6 +935,7 @@ export default function PackerAdmin() {
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => { setCompleteTarget(null); setSelectedPackerId('') }}
         >
@@ -1041,6 +1044,7 @@ export default function PackerAdmin() {
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => setRemoveTarget(null)}
         >
@@ -1173,6 +1177,7 @@ export default function PackerAdmin() {
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '16px',
+            animation: 'modalBackdropIn 180ms ease-out',
           }}
           onClick={() => { if (!bulkBusy) { setBulkConfirm(null); setBulkPackerId('') } }}
         >

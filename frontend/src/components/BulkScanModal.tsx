@@ -68,6 +68,8 @@ export default function BulkScanModal({ onClose, onSuccess, initialTrackingNumbe
   const { data: shopsData } = useQuery({
     queryKey: ['order-shops'],
     queryFn: () => api.get<{ shops: string[] }>('/orders/shops').then(r => r.data.shops),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
   })
   const existingShops = Array.from(new Set([...PRESET_SHOPS, ...(shopsData ?? [])]))
 
@@ -146,6 +148,7 @@ export default function BulkScanModal({ onClose, onSuccess, initialTrackingNumbe
         backgroundColor: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 16,
+        animation: 'modalBackdropIn 180ms ease-out',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >

@@ -31,6 +31,8 @@ export default function QuickScanModal({ trackingNumber, initialCarrier, initial
   const { data: shopsData } = useQuery({
     queryKey: ['order-shops'],
     queryFn: () => api.get<{ shops: string[] }>('/orders/shops').then(r => r.data.shops),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
   })
   const allShops = Array.from(new Set([...PRESET_SHOPS, ...(shopsData ?? [])]))
 
@@ -73,7 +75,7 @@ export default function QuickScanModal({ trackingNumber, initialCarrier, initial
       style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
     >
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(2px)' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(2px)', animation: 'modalBackdropIn 180ms ease-out' }} />
       <div style={{
         position: 'relative', background: '#fff', borderRadius: 14,
         width: '100%', maxWidth: 420, margin: '0 16px',

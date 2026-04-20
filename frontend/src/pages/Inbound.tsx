@@ -46,6 +46,15 @@ export default function Inbound() {
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
 
+  // Prefetch shop list so modal dropdowns open instantly (no 1-2s flash)
+  useEffect(() => {
+    queryClient.prefetchQuery({
+      queryKey: ['order-shops'],
+      queryFn: () => api.get<{ shops: string[] }>('/orders/shops').then(r => r.data.shops),
+      staleTime: 5 * 60_000,
+    })
+  }, [queryClient])
+
   // On mount: check Redis-backed pending handheld scans (catches events sent before page opened)
   useEffect(() => {
     api.get<{ single: string | null; bulk: string[] | null }>('/orders/pending-handheld')
