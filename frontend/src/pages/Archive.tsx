@@ -21,6 +21,8 @@ interface ArchivedOrder {
   slaCompletedAt?: string | null
   expiresAt: string
   daysUntilExpiry: number
+  pickedBy?: string | null
+  packedBy?: string | null
 }
 
 interface ArchiveListResponse {
@@ -398,6 +400,8 @@ export default function Archive() {
                 <th>Platform</th>
                 <th>Carrier</th>
                 <th>Shop</th>
+                <th>Picker</th>
+                <th>Packer</th>
                 <th>Work Date</th>
                 <th>Archived At</th>
                 <th>Expires In</th>
@@ -429,6 +433,12 @@ export default function Archive() {
                     </td>
                     <td style={{ fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: '13px', color: '#374151', whiteSpace: 'nowrap' }}>
+                      {order.pickedBy ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: '13px', color: '#374151', whiteSpace: 'nowrap' }}>
+                      {order.packedBy ?? <span style={{ color: '#d1d5db' }}>—</span>}
                     </td>
                     <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                       {new Date(order.workDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })}

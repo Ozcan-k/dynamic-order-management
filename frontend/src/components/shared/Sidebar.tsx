@@ -172,7 +172,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     path: '/reports',
-    label: 'Reports',
+    label: 'Warehouse Report',
     icon: <ReportsIcon />,
     roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
   },

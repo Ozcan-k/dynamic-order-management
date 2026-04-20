@@ -37,12 +37,21 @@ export async function getPackers(tenantId: string) {
 export async function completeOrder(
   orderId: string,
   packerId: string,
+  assignedById: string,
   tenantId: string,
 ) {
   const order = await prisma.order.findUnique({ where: { id: orderId } })
   if (!order || order.tenantId !== tenantId) throw new Error('Order not found')
   if (order.status !== OrderStatus.PICKER_COMPLETE) {
     throw new Error('Order is not ready for packing')
+  }
+
+  const packer = await prisma.user.findUnique({
+    where: { id: packerId },
+    select: { tenantId: true, role: true, isActive: true },
+  })
+  if (!packer || packer.tenantId !== tenantId || packer.role !== UserRole.PACKER || !packer.isActive) {
+    throw new Error('Invalid packer')
   }
 
   const now = new Date()
@@ -57,7 +66,7 @@ export async function completeOrder(
       data: {
         orderId,
         packerId,
-        assignedById: packerId,
+        assignedById,
         assignedAt: now,
         completedAt: now,
       },
@@ -68,7 +77,7 @@ export async function completeOrder(
         orderId,
         fromStatus: OrderStatus.PICKER_COMPLETE,
         toStatus: OrderStatus.PACKER_COMPLETE,
-        changedById: packerId,
+        changedById: assignedById,
       },
     })
 
@@ -83,7 +92,7 @@ export async function completeOrder(
         orderId,
         fromStatus: OrderStatus.PACKER_COMPLETE,
         toStatus: OrderStatus.OUTBOUND,
-        changedById: packerId,
+        changedById: assignedById,
       },
     })
 

@@ -89,6 +89,18 @@ export async function getArchivedOrders(tenantId: string, params: ArchiveQueryPa
         archivedAt: true,
         workDate: true,
         slaCompletedAt: true,
+        pickerAssignments: {
+          where: { completedAt: { not: null } },
+          orderBy: { completedAt: 'desc' },
+          take: 1,
+          select: { picker: { select: { username: true } } },
+        },
+        packerAssignments: {
+          where: { completedAt: { not: null } },
+          orderBy: { completedAt: 'desc' },
+          take: 1,
+          select: { packer: { select: { username: true } } },
+        },
       },
       orderBy: { archivedAt: 'desc' },
       skip,
@@ -102,7 +114,14 @@ export async function getArchivedOrders(tenantId: string, params: ArchiveQueryPa
     const expiresAt = new Date(o.archivedAt!)
     expiresAt.setDate(expiresAt.getDate() + RETENTION_DAYS)
     const daysUntilExpiry = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 86_400_000))
-    return { ...o, expiresAt, daysUntilExpiry }
+    const { pickerAssignments, packerAssignments, ...rest } = o
+    return {
+      ...rest,
+      pickedBy: pickerAssignments[0]?.picker.username ?? null,
+      packedBy: packerAssignments[0]?.packer.username ?? null,
+      expiresAt,
+      daysUntilExpiry,
+    }
   })
 
   return { orders: ordersWithExpiry, total, page, pageSize }
