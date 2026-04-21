@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.6.3  
-> **Date:** 2026-04-12  
-> **Status:** In development — Direct Inbound (DR tracking) + Outbound historical date view + Archive date presets + Schedule 11:00/11:10 PHT (v2.6.3)
+> **Version:** 2.25.1  
+> **Date:** 2026-04-20  
+> **Status:** In development — Live Performance tab added to Warehouse Report (intraday picker/packer throughput, hourly grouped bar chart, per-worker live tables with socket-driven refresh). Set as the default tab. (v2.25.1)
 
 ---
 
@@ -1102,11 +1102,25 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 |---|---|---|
 | Dashboard summary | Main Dashboard | Live (real-time) |
 | SLA summary (D0–D4 counts, D4 list, avg completion time) | Main Dashboard | Live (real-time) |
-| Picker performance | Picker Admin Panel | Daily / Weekly / Monthly |
-| Packer performance | Packer Admin Panel | Daily / Weekly / Monthly |
+| **Live Performance** (per-role KPI cards, grouped hourly bar chart, per-worker live tables with hourly sparklines) | Warehouse Report → Live Performance tab | Today only, Manila TZ — socket-pushed (`order:stats_changed`) + 30s polling fallback |
+| Picker / Packer daily performance (7/14/30 days, sparkline + CSV/PDF export) | Warehouse Report → Performance tab | Daily / Weekly / Monthly |
+| SLA analytics (D-level distribution donut, D4 unresolved list, PDF export) | Warehouse Report → SLA Analytics tab | Last 7/14/30 days |
+| Order Timeline (full per-order lifecycle audit — all status changes, picker/packer assignments, inter-event durations) | Warehouse Report → Order Timeline tab | Per tracking number (on-demand) |
 | Inbound vs Outbound | Outbound Panel | Live |
 | Stuck orders (with D-level) | Outbound Panel | Live |
 | SLA escalation history (per order) | Any panel with order detail | On-demand |
+
+**Warehouse Report access:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN` — all four admin roles see the same 4 tabs. Tab order: **Live Performance** (default) → Performance → SLA Analytics → Order Timeline.
+
+#### Live Performance tab — data model
+- Endpoint: `GET /reports/live-performance` (same RBAC tuple as `/reports/performance`)
+- Aggregates today's `PickerAssignment.completedAt` / `PackerAssignment.completedAt` into 24 hourly buckets (Manila TZ) via the existing `getManilaStartOfToday()` helper
+- **Active now** = assignments where `completedAt IS NULL AND order.archivedAt IS NULL`
+- **Items / hour** = `completedToday / max(1, hoursSinceFirstCompletionToday)` — per-worker elapsed so late starters aren't penalized
+- Includes every `isActive` picker/packer in the response (idle workers shown as zero rows — intentional signal)
+- No new DB migrations, no Redis caching — existing `[pickerId, completedAt]` / `[packerId, completedAt]` indexes cover the queries
+- Socket event reused: `order:stats_changed` (already emitted on every picker/packer state transition); frontend subscribes and invalidates the query — no new event needed
+- Files: `backend/src/routes/reports.ts` (endpoint), `frontend/src/pages/reports/LivePerformanceTab.tsx` (tab body)
 
 ---
 
@@ -1206,7 +1220,7 @@ On push to main branch:
 | **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 7 PM PHT; CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
 | **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | ✅ Done | Live stats update via Socket.io (`sla:escalated`, `order:stats_changed`); nightly HTML email with SLA breakdown sent at 11:10 AM PHT; Dashboard shows pipeline, picker/packer summary, outbound summary, SLA D0–D4 |
 | **SALES** | **Sales Agent Module (v2.23.1)** — new `SALES_AGENT` role (`UserRole` enum); 6 new Prisma models (`SalesDailyActivity`, `SalesContentPost`, `SalesLiveSellingMetric`, `SalesMarketplaceReport`, `SalesDirectOrder`, `SalesDirectOrderItem`) + 3 enums (`SalesPlatform`, `ContentPostType`, `SaleChannel`); backend routes `/sales` + `/marketing`; services `salesActivityService`, `salesDirectOrderService`, `marketingReportService`; agent-facing UI: `/sales` month calendar dashboard, day-entry form (content posts + live selling + marketplace + direct orders), day-detail modal, own history; admin-facing UI: `/marketing-report` leaderboard + 4 comparison charts + `AgentDetailPanel` (per-agent calendar drill-down); admin-only `Settings → Sales Agents` creation; Vite proxy extended for `/sales` + `/marketing` | ✅ Done (v2.23.1) | Agent logs in → `/sales` opens, calendar renders, daily entry saves + persists across refresh; admin `/marketing-report` shows leaderboard + charts + per-agent drill-down; existing picker/packer/inbound/outbound flows unaffected; **deploy note:** requires manual `prisma db push` on Vultr after CD (workflow runs `migrate deploy || true` — no migrations in repo yet, see SOLUTIONS.md 2026-04-20) |
-| **12** | Reporting & Analytics + CSV/PDF export | 🔜 | Reports match known test data; SLA history queryable per order |
+| **12** | Reporting & Analytics + CSV/PDF export | 🟡 Partial | CSV/PDF exports for Performance + SLA (done). **Live Performance tab added (v2.25.0 + v2.25.1)**: intraday per-role KPIs, grouped hourly bar chart (Recharts `BarChart`, Pickers/Packers side-by-side), per-worker live tables with hourly sparklines; socket-driven updates via `order:stats_changed` + 30s polling fallback; Live/Polling status pill. Order Timeline tab (per-order lifecycle audit) also shipped. **Remaining:** CSV/PDF export for Live Performance (deferred), additional cross-period comparative analytics |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |
 | **14** | Multi-tenant, Docker, CI/CD, versioned deploy | 🔜 | Full regression on test branch; clean deploy to main |
 
