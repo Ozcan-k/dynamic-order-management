@@ -188,7 +188,7 @@ export default function App() {
           <Route
             path="/marketing-report"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
                 <AppLayout><MarketingReport /></AppLayout>
               </ProtectedRoute>
             }
