@@ -204,7 +204,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/marketing-report',
     label: 'Marketing Report',
     icon: <MarketingIcon />,
-    roles: [UserRole.ADMIN],
+    roles: [UserRole.ADMIN, UserRole.SALES_AGENT],
   },
   {
     path: '/settings',
