@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.25.1  
-> **Date:** 2026-04-20  
-> **Status:** In development — Live Performance tab added to Warehouse Report (intraday picker/packer throughput, hourly grouped bar chart, per-worker live tables with socket-driven refresh). Set as the default tab. (v2.25.1)
+> **Version:** 2.26.0  
+> **Date:** 2026-04-21  
+> **Status:** In development — Sales agents now have full access to `/marketing-report` (leaderboard, comparison, agent drill-down). Audit log (`auditMarketingAccess`) records every marketing endpoint call. (v2.26.0)
 
 ---
 
@@ -441,11 +441,11 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **`/sales` — month calendar dashboard** | ❌ | ✅ Own only |
 | **`/sales` — Enter Today's Report** (daily activity form) | ❌ | ✅ Own only |
 | **`/sales` — day-detail modal** (historical drill-down) | ❌ | ✅ Own only |
-| **`/marketing-report` — leaderboard + charts** | ✅ | ❌ |
-| **`/marketing-report` — `AgentDetailPanel`** (per-agent drill-down) | ✅ | ❌ |
+| **`/marketing-report` — leaderboard + charts** | ✅ | ✅ (v2.26.0) |
+| **`/marketing-report` — `AgentDetailPanel`** (per-agent drill-down) | ✅ | ✅ (v2.26.0) |
 | **Any order/inbound/picker/packer panel** | (unchanged) | ❌ |
 
-**Key isolation:** sales agents have zero read/write access to orders, users, or any warehouse data. The role only touches the `sales_*` tables.
+**Key isolation:** sales agents have zero read/write access to orders, users, or any warehouse data. The role only touches the `sales_*` tables. Marketing report read access (v2.26.0+) exposes other agents' `sales_*` aggregates — every call is logged by `backend/src/middleware/auditLog.ts` (userId, role, tenantId, method, url, ts) via fastify logger.
 
 ---
 
