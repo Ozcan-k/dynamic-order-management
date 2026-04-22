@@ -298,8 +298,9 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /reports/live-performance — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
-  // Today-only, Manila TZ. Per-role totals, 24-hour buckets, per-worker rows (incl. idle).
+  // GET /reports/live-performance?date=YYYY-MM-DD — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN
+  // Default: today (live). With date param: historical day, max 90 days back.
+  // Per-role totals, 24-hour buckets, per-worker rows (incl. idle for today, incl. inactive for historical).
   fastify.get(
     '/live-performance',
     {
@@ -310,9 +311,33 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
+      const query = request.query as { date?: string }
 
-      const from = getManilaStartOfToday()
+      const todayStart = getManilaStartOfToday()
+      const todayStr = getManilaDateString()
       const now = new Date()
+
+      const dateStr = query.date?.trim()
+      const isHistorical = !!dateStr && dateStr !== todayStr
+
+      let from: Date
+      if (isHistorical) {
+        const minAllowed = new Date(todayStart.getTime() - 89 * 86_400_000)
+        const requested = getManilaStartOf(dateStr!)
+        if (Number.isNaN(requested.getTime())) {
+          return reply.code(400).send({ error: 'Invalid date format (expected YYYY-MM-DD)' })
+        }
+        if (requested < minAllowed) {
+          return reply.code(400).send({ error: 'Date out of range (max 90 days back)' })
+        }
+        if (requested > todayStart) {
+          return reply.code(400).send({ error: 'Future dates are not allowed' })
+        }
+        from = requested
+      } else {
+        from = todayStart
+      }
+      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000)
       const lastHourCutoff = new Date(now.getTime() - 60 * 60 * 1000)
 
       // Manila hour (0–23) from a UTC Date
@@ -330,6 +355,15 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
         return new Array(24).fill(0)
       }
 
+      // Historical mode includes inactive users (who may have worked that day);
+      // live mode only shows currently-active users.
+      const pickerUserWhere = isHistorical
+        ? { tenantId, role: UserRole.PICKER }
+        : { tenantId, role: UserRole.PICKER, isActive: true }
+      const packerUserWhere = isHistorical
+        ? { tenantId, role: UserRole.PACKER }
+        : { tenantId, role: UserRole.PACKER, isActive: true }
+
       const [
         pickerUsers,
         packerUsers,
@@ -339,33 +373,38 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
         packerActive,
       ] = await Promise.all([
         prisma.user.findMany({
-          where: { tenantId, role: UserRole.PICKER, isActive: true },
-          select: { id: true, username: true },
+          where: pickerUserWhere,
+          select: { id: true, username: true, isActive: true },
           orderBy: { username: 'asc' },
         }),
         prisma.user.findMany({
-          where: { tenantId, role: UserRole.PACKER, isActive: true },
-          select: { id: true, username: true },
+          where: packerUserWhere,
+          select: { id: true, username: true, isActive: true },
           orderBy: { username: 'asc' },
         }),
         prisma.pickerAssignment.findMany({
-          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          where: { order: { tenantId }, completedAt: { gte: from, lt: to, not: null } },
           select: { pickerId: true, completedAt: true },
         }),
         prisma.packerAssignment.findMany({
-          where: { order: { tenantId }, completedAt: { gte: from, not: null } },
+          where: { order: { tenantId }, completedAt: { gte: from, lt: to, not: null } },
           select: { packerId: true, completedAt: true },
         }),
-        prisma.pickerAssignment.groupBy({
-          by: ['pickerId'],
-          where: { completedAt: null, order: { tenantId, archivedAt: null } },
-          _count: { _all: true },
-        }),
-        prisma.packerAssignment.groupBy({
-          by: ['packerId'],
-          where: { completedAt: null, order: { tenantId, archivedAt: null } },
-          _count: { _all: true },
-        }),
+        // Active-now only meaningful for live mode
+        isHistorical
+          ? Promise.resolve([] as Array<{ pickerId: string; _count: { _all: number } }>)
+          : prisma.pickerAssignment.groupBy({
+              by: ['pickerId'],
+              where: { completedAt: null, order: { tenantId, archivedAt: null } },
+              _count: { _all: true },
+            }),
+        isHistorical
+          ? Promise.resolve([] as Array<{ packerId: string; _count: { _all: number } }>)
+          : prisma.packerAssignment.groupBy({
+              by: ['packerId'],
+              where: { completedAt: null, order: { tenantId, archivedAt: null } },
+              _count: { _all: true },
+            }),
       ])
 
       const pickerActiveMap = new Map<string, number>()
@@ -373,7 +412,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
       const packerActiveMap = new Map<string, number>()
       for (const row of packerActive) packerActiveMap.set(row.packerId, row._count._all)
 
-      // Group today's completions per worker
+      // Group completions per worker for the selected day
       const pickerByUser: Record<string, Date[]> = {}
       for (const a of pickerDone) {
         if (!a.completedAt) continue
@@ -400,7 +439,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
       }
 
       function buildRow(
-        user: { id: string; username: string },
+        user: { id: string; username: string; isActive: boolean },
         timestamps: Date[] | undefined,
         activeCount: number,
       ) {
@@ -416,49 +455,77 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
         }
         const completedToday = ts.length
         let itemsPerHour = 0
-        if (completedToday > 0 && Number.isFinite(firstMs)) {
+        if (isHistorical) {
+          // Closed day: items per active work-hour
+          const hoursWithWork = hourly.filter((h) => h > 0).length
+          if (hoursWithWork > 0) {
+            itemsPerHour = Math.round((completedToday / hoursWithWork) * 10) / 10
+          }
+        } else if (completedToday > 0 && Number.isFinite(firstMs)) {
           const elapsedHours = Math.max(1, (now.getTime() - firstMs) / (60 * 60 * 1000))
           itemsPerHour = Math.round((completedToday / elapsedHours) * 10) / 10
         }
         return {
           id: user.id,
           username: user.username,
-          activeNow: activeCount,
+          isActive: user.isActive,
+          activeNow: isHistorical ? 0 : activeCount,
           completedToday,
-          completedLastHour: lastHour,
+          completedLastHour: isHistorical ? 0 : lastHour,
           itemsPerHour,
           hourly,
         }
       }
 
+      // Sort: active users first, then by completedToday desc, then username asc
+      function sortWorkers(a: ReturnType<typeof buildRow>, b: ReturnType<typeof buildRow>) {
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1
+        return b.completedToday - a.completedToday || a.username.localeCompare(b.username)
+      }
+
       const pickers = pickerUsers
         .map((u) => buildRow(u, pickerByUser[u.id], pickerActiveMap.get(u.id) ?? 0))
-        .sort((a, b) => b.completedToday - a.completedToday || a.username.localeCompare(b.username))
+        .sort(sortWorkers)
       const packers = packerUsers
         .map((u) => buildRow(u, packerByUser[u.id], packerActiveMap.get(u.id) ?? 0))
-        .sort((a, b) => b.completedToday - a.completedToday || a.username.localeCompare(b.username))
+        .sort(sortWorkers)
 
       function roleSummary(rows: Array<ReturnType<typeof buildRow>>, hourly: number[]) {
         const completedToday = rows.reduce((s, r) => s + r.completedToday, 0)
         const activeNow = rows.reduce((s, r) => s + r.activeNow, 0)
-        // Role-level items/hour: hours elapsed since the earliest completion hour today
         let itemsPerHour = 0
         if (completedToday > 0) {
-          const firstHour = hourly.findIndex((c) => c > 0)
-          if (firstHour >= 0) {
-            const startMs = from.getTime() + firstHour * 60 * 60 * 1000
-            const elapsedHours = Math.max(1, (now.getTime() - startMs) / (60 * 60 * 1000))
-            itemsPerHour = Math.round((completedToday / elapsedHours) * 10) / 10
+          if (isHistorical) {
+            const hoursWithWork = hourly.filter((h) => h > 0).length
+            if (hoursWithWork > 0) {
+              itemsPerHour = Math.round((completedToday / hoursWithWork) * 10) / 10
+            }
+          } else {
+            // Role-level items/hour: hours elapsed since the earliest completion hour today
+            const firstHour = hourly.findIndex((c) => c > 0)
+            if (firstHour >= 0) {
+              const startMs = from.getTime() + firstHour * 60 * 60 * 1000
+              const elapsedHours = Math.max(1, (now.getTime() - startMs) / (60 * 60 * 1000))
+              itemsPerHour = Math.round((completedToday / elapsedHours) * 10) / 10
+            }
           }
         }
-        const leader = rows.length > 0 && rows[0].completedToday > 0
-          ? { id: rows[0].id, username: rows[0].username, completedToday: rows[0].completedToday }
-          : null
-        return { completedToday, activeNow, itemsPerHour, leader }
+        // Leader: the top-ranked worker with completions (after sort, actives rank first,
+        // so leader is the active top unless no active worked, then the top inactive).
+        const leader = rows.find((r) => r.completedToday > 0) ?? null
+        return {
+          completedToday,
+          activeNow,
+          itemsPerHour,
+          leader: leader
+            ? { id: leader.id, username: leader.username, completedToday: leader.completedToday }
+            : null,
+        }
       }
 
       return reply.send({
-        manilaDate: getManilaDateString(),
+        manilaDate: isHistorical ? dateStr : todayStr,
+        isHistorical,
         generatedAt: now.toISOString(),
         hours: Array.from({ length: 24 }, (_, i) => i),
         totals: {
