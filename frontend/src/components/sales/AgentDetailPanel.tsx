@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import type { SalesDayMetrics } from '@dom/shared'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { SalesDayMetrics, SalesStore } from '@dom/shared'
 import PageShell from '../shared/PageShell'
 import MonthCalendar from './MonthCalendar'
 import DaySummaryCell from './DaySummaryCell'
+import DirectOrderFormModal from './DirectOrderFormModal'
 import {
+  deleteAgentDirectOrder,
   fetchAgentCalendar,
   fetchAgentDayDetail,
+  updateAgentDirectOrder,
   type MarketingAgent,
 } from '../../api/marketing'
+import type { DirectOrder } from '../../api/sales'
 import { useAuthStore } from '../../stores/authStore'
 
 interface AgentDetailPanelProps {
@@ -137,7 +141,7 @@ export default function AgentDetailPanel({ agent, onBack }: AgentDetailPanelProp
           borderRadius: '9999px',
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
-        }}>Read only</span>
+        }}>Admin access</span>
       </div>
 
       {/* Month stat cards */}
@@ -193,11 +197,41 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
   isToday: boolean
   onClose: () => void
 }) {
+  const queryClient = useQueryClient()
+  const [editingOrder, setEditingOrder] = useState<DirectOrder | null>(null)
+
   const { data, isLoading } = useQuery({
     queryKey: ['marketing-agent-day', agentId, date],
     queryFn: () => fetchAgentDayDetail(agentId, date),
     staleTime: 30_000,
   })
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ['marketing-agent-day', agentId] })
+    queryClient.invalidateQueries({ queryKey: ['marketing-agent-calendar', agentId] })
+    queryClient.invalidateQueries({ queryKey: ['marketing-leaderboard'] })
+    queryClient.invalidateQueries({ queryKey: ['marketing-comparison'] })
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateAgentDirectOrder>[1] }) =>
+      updateAgentDirectOrder(id, payload),
+    onSuccess: () => { invalidateAll(); setEditingOrder(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteAgentDirectOrder,
+    onSuccess: () => invalidateAll(),
+  })
+
+  function handleDelete(order: DirectOrder) {
+    if (deleteMutation.isPending) return
+    const ok = window.confirm(
+      `Delete ${agentName}'s order?\n\n${order.date} · ${order.companyName} · ${order.customerName}\n${formatPHP(Number(order.totalAmount))}`,
+    )
+    if (!ok) return
+    deleteMutation.mutate(order.id)
+  }
 
   // Body scroll lock + Esc close
   useEffect(() => {
@@ -342,6 +376,7 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
                         <th style={th}>Company</th>
                         <th style={th}>Customer</th>
                         <th style={{ ...th, textAlign: 'right' }}>Total</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -352,6 +387,25 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
                           <td style={td}>{o.companyName}</td>
                           <td style={td}>{o.customerName}</td>
                           <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: '#15803d' }}>{formatPHP(Number(o.totalAmount))}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => setEditingOrder(o)}
+                                title="Edit order"
+                                style={adminActionBtn('#1d4ed8')}
+                              >Edit</button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(o)}
+                                disabled={deleteMutation.isPending && deleteMutation.variables === o.id}
+                                title="Delete order"
+                                style={adminActionBtn('#dc2626', deleteMutation.isPending && deleteMutation.variables === o.id)}
+                              >
+                                {deleteMutation.isPending && deleteMutation.variables === o.id ? '…' : 'Delete'}
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -367,8 +421,32 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
           )}
         </div>
       </div>
+
+      {editingOrder && (
+        <DirectOrderFormModal
+          mode="edit"
+          lockDateStore={false}
+          date={editingOrder.date}
+          store={editingOrder.store as SalesStore}
+          initialOrder={editingOrder}
+          submitting={updateMutation.isPending}
+          onSubmit={(payload) => updateMutation.mutate({ id: editingOrder.id, payload })}
+          onCancel={() => setEditingOrder(null)}
+        />
+      )}
     </div>
   )
+}
+
+function adminActionBtn(color: string, disabled = false): React.CSSProperties {
+  return {
+    fontSize: '11px', fontWeight: 600,
+    padding: '3px 8px',
+    border: `1px solid ${color}`, borderRadius: '5px',
+    background: '#fff', color,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  }
 }
 
 function Tile({ icon, label, value, highlight }: { icon: string; label: string; value: string; highlight?: boolean }) {

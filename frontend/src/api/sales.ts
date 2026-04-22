@@ -125,6 +125,20 @@ export async function fetchOwnDirectOrders(query: ListOrdersQuery): Promise<Dire
   return data.orders
 }
 
+export async function fetchOwnDirectOrder(id: string): Promise<DirectOrder> {
+  const { data } = await api.get<{ order: DirectOrder }>(`/sales/orders/${id}`)
+  return data.order
+}
+
+export async function updateDirectOrder(id: string, payload: CreateDirectOrderPayload): Promise<DirectOrder> {
+  const { data } = await api.put<{ order: DirectOrder }>(`/sales/orders/${id}`, payload)
+  return data.order
+}
+
+export async function deleteDirectOrder(id: string): Promise<void> {
+  await api.delete(`/sales/orders/${id}`)
+}
+
 export type SuggestField = 'companies' | 'customers' | 'products'
 
 export async function fetchSuggestions(field: SuggestField, q: string): Promise<string[]> {

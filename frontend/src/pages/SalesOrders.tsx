@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   SaleChannel,
   SALE_CHANNEL_LABELS,
@@ -7,8 +7,14 @@ import {
   type SalesStore,
 } from '@dom/shared'
 import PageShell from '../components/shared/PageShell'
+import DirectOrderFormModal from '../components/sales/DirectOrderFormModal'
 import { useAuthStore } from '../stores/authStore'
-import { fetchOwnDirectOrders, type DirectOrder } from '../api/sales'
+import {
+  deleteDirectOrder,
+  fetchOwnDirectOrders,
+  updateDirectOrder,
+  type DirectOrder,
+} from '../api/sales'
 
 function CartIcon() {
   return (
@@ -32,11 +38,13 @@ function daysAgoManila(n: number): string {
 
 export default function SalesOrders() {
   const user = useAuthStore((s) => s.user)
+  const queryClient = useQueryClient()
 
   const [from, setFrom] = useState<string>(daysAgoManila(30))
   const [to, setTo] = useState<string>(todayManila())
   const [store, setStore] = useState<SalesStore | ''>('')
   const [channel, setChannel] = useState<SaleChannel | ''>('')
+  const [editingOrder, setEditingOrder] = useState<DirectOrder | null>(null)
 
   const queryKey = ['sales-own-orders', from, to, store, channel] as const
   const { data: orders = [], isLoading } = useQuery({
@@ -49,6 +57,33 @@ export default function SalesOrders() {
     }),
     staleTime: 5_000,
   })
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ['sales-own-orders'] })
+    queryClient.invalidateQueries({ queryKey: ['sales-orders'] })
+    queryClient.invalidateQueries({ queryKey: ['sales-calendar'] })
+    queryClient.invalidateQueries({ queryKey: ['sales-day-detail'] })
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateDirectOrder>[1] }) =>
+      updateDirectOrder(id, payload),
+    onSuccess: () => { invalidateAll(); setEditingOrder(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteDirectOrder,
+    onSuccess: () => invalidateAll(),
+  })
+
+  function handleDelete(order: DirectOrder) {
+    if (deleteMutation.isPending) return
+    const ok = window.confirm(
+      `Delete this order?\n\n${order.date} · ${order.companyName} · ${order.customerName}\n${formatPHP(order.totalAmount)}`,
+    )
+    if (!ok) return
+    deleteMutation.mutate(order.id)
+  }
 
   const totals = useMemo(() => {
     const amount = orders.reduce((acc, o) => acc + o.totalAmount, 0)
@@ -124,13 +159,41 @@ export default function SalesOrders() {
           <span style={{ fontSize: '13px' }}>Try widening the date range or clearing the filters.</span>
         </div>
       ) : (
-        <OrdersTable orders={orders} />
+        <OrdersTable
+          orders={orders}
+          onEdit={setEditingOrder}
+          onDelete={handleDelete}
+          deletingId={deleteMutation.isPending ? deleteMutation.variables ?? null : null}
+        />
+      )}
+
+      {editingOrder && (
+        <DirectOrderFormModal
+          mode="edit"
+          lockDateStore={false}
+          date={editingOrder.date}
+          store={editingOrder.store as SalesStore}
+          initialOrder={editingOrder}
+          submitting={updateMutation.isPending}
+          onSubmit={(payload) => updateMutation.mutate({ id: editingOrder.id, payload })}
+          onCancel={() => setEditingOrder(null)}
+        />
       )}
     </PageShell>
   )
 }
 
-function OrdersTable({ orders }: { orders: DirectOrder[] }) {
+function OrdersTable({
+  orders,
+  onEdit,
+  onDelete,
+  deletingId,
+}: {
+  orders: DirectOrder[]
+  onEdit: (order: DirectOrder) => void
+  onDelete: (order: DirectOrder) => void
+  deletingId: string | null
+}) {
   return (
     <div style={{
       background: '#fff',
@@ -149,6 +212,7 @@ function OrdersTable({ orders }: { orders: DirectOrder[] }) {
             <Th>Items</Th>
             <Th align="right">Delivery</Th>
             <Th align="right">Total</Th>
+            <Th align="right">Actions</Th>
           </tr>
         </thead>
         <tbody>
@@ -182,12 +246,42 @@ function OrdersTable({ orders }: { orders: DirectOrder[] }) {
               </Td>
               <Td align="right">{formatPHP(o.deliveryCost)}</Td>
               <Td align="right"><strong style={{ color: '#0f172a' }}>{formatPHP(o.totalAmount)}</strong></Td>
+              <Td align="right">
+                <div style={{ display: 'inline-flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => onEdit(o)}
+                    title="Edit order"
+                    style={actionBtnStyle('#1d4ed8')}
+                  >Edit</button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(o)}
+                    disabled={deletingId === o.id}
+                    title="Delete order"
+                    style={actionBtnStyle('#dc2626', deletingId === o.id)}
+                  >
+                    {deletingId === o.id ? '…' : 'Delete'}
+                  </button>
+                </div>
+              </Td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   )
+}
+
+function actionBtnStyle(color: string, disabled = false): React.CSSProperties {
+  return {
+    fontSize: '12px', fontWeight: 600,
+    padding: '5px 10px',
+    border: `1px solid ${color}`, borderRadius: '6px',
+    background: '#fff', color,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  }
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

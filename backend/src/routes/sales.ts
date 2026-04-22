@@ -11,16 +11,23 @@ import {
   getDayDetail,
   upsertActivity,
 } from '../services/salesActivityService'
+import { z } from 'zod'
 import {
   CreateDirectOrderSchema,
   ListDirectOrderQuerySchema,
   SuggestQuerySchema,
+  UpdateDirectOrderSchema,
   createDirectOrder,
+  deleteDirectOrder,
+  getDirectOrderById,
   listOwnDirectOrders,
   suggestCompanies,
   suggestCustomers,
   suggestProducts,
+  updateDirectOrder,
 } from '../services/salesDirectOrderService'
+
+const OrderIdParam = z.object({ id: z.string().min(1).max(80) })
 
 export default async function salesRoutes(fastify: FastifyInstance) {
   const agentOnly = [fastify.authenticate, requireRole(UserRole.SALES_AGENT)]
@@ -94,6 +101,40 @@ export default async function salesRoutes(fastify: FastifyInstance) {
     const { tenantId, userId } = request.user as JWTPayload
     const order = await createDirectOrder(tenantId, userId, result.data)
     return reply.code(201).send({ order })
+  })
+
+  // GET /sales/orders/:id — own order (used to prefill edit form)
+  fastify.get('/orders/:id', { preHandler: agentOnly }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const { tenantId, userId } = request.user as JWTPayload
+    const order = await getDirectOrderById(params.data.id, tenantId, userId)
+    if (!order) return reply.code(404).send({ error: 'Order not found' })
+    return reply.send({ order })
+  })
+
+  // PUT /sales/orders/:id — full-replace update (own order only)
+  fastify.put('/orders/:id', { preHandler: agentOnly }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const body = UpdateDirectOrderSchema.safeParse(request.body)
+    if (!body.success) {
+      return reply.code(400).send({ error: 'Invalid request body', details: body.error.flatten() })
+    }
+    const { tenantId, userId } = request.user as JWTPayload
+    const order = await updateDirectOrder(params.data.id, tenantId, userId, body.data)
+    if (!order) return reply.code(404).send({ error: 'Order not found' })
+    return reply.send({ order })
+  })
+
+  // DELETE /sales/orders/:id — own order only (items cascade)
+  fastify.delete('/orders/:id', { preHandler: agentOnly }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const { tenantId, userId } = request.user as JWTPayload
+    const ok = await deleteDirectOrder(params.data.id, tenantId, userId)
+    if (!ok) return reply.code(404).send({ error: 'Order not found' })
+    return reply.code(204).send()
   })
 
   // GET /sales/suggest/companies?q=

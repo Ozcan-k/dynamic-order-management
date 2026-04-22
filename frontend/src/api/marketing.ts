@@ -1,5 +1,11 @@
 import { api } from './client'
-import type { ActivityResponse, CalendarResponse, DayDetailResponse } from './sales'
+import type {
+  ActivityResponse,
+  CalendarResponse,
+  CreateDirectOrderPayload,
+  DayDetailResponse,
+  DirectOrder,
+} from './sales'
 
 export interface MarketingAgent {
   id: string
@@ -59,4 +65,20 @@ export async function fetchAgentDayDetail(agentId: string, date: string): Promis
 export async function fetchAgentActivity(agentId: string, date: string, store: string): Promise<ActivityResponse> {
   const { data } = await api.get<ActivityResponse>(`/marketing/agents/${agentId}/activity`, { params: { date, store } })
   return data
+}
+
+// ─── Admin: direct order edit / delete (any agent in tenant, audit-logged) ──
+
+export async function fetchAgentDirectOrder(id: string): Promise<DirectOrder> {
+  const { data } = await api.get<{ order: DirectOrder }>(`/marketing/direct-orders/${id}`)
+  return data.order
+}
+
+export async function updateAgentDirectOrder(id: string, payload: CreateDirectOrderPayload): Promise<DirectOrder> {
+  const { data } = await api.put<{ order: DirectOrder }>(`/marketing/direct-orders/${id}`, payload)
+  return data.order
+}
+
+export async function deleteAgentDirectOrder(id: string): Promise<void> {
+  await api.delete(`/marketing/direct-orders/${id}`)
 }

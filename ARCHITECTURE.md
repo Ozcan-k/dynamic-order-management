@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.27.1  
+> **Version:** 2.28.0  
 > **Date:** 2026-04-22  
-> **Status:** In development — Marketing Report now has a **Today** preset (default on page load) with 30s auto-refresh + LIVE pill, so admins and sales agents can track intraday activity without manual refresh. (v2.27.1)
+> **Status:** In development — Sales agents can now **edit and delete** their own direct orders from both the daily entry screen and the My Orders list; admins get the same edit/delete rights on any agent's orders via `/marketing-report` agent drill-down (audit-logged). (v2.28.0)
 
 ---
 
@@ -443,6 +443,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **`/sales` — day-detail modal** (historical drill-down) | ❌ | ✅ Own only |
 | **`/marketing-report` — leaderboard + charts** (Today preset w/ LIVE auto-refresh v2.27.1) | ✅ | ✅ (v2.26.0) |
 | **`/marketing-report` — `AgentDetailPanel`** (per-agent drill-down) | ✅ | ✅ (v2.26.0) |
+| **Direct order edit + delete** (own orders from My Activity + My Orders; admin edits any via agent day modal — audit-logged, v2.28.0) | ✅ Any agent | ✅ Own only |
 | **Any order/inbound/picker/packer panel** | (unchanged) | ❌ |
 
 **Key isolation:** sales agents have zero read/write access to orders, users, or any warehouse data. The role only touches the `sales_*` tables. Marketing report read access (v2.26.0+) exposes other agents' `sales_*` aggregates — every call is logged by `backend/src/middleware/auditLog.ts` (userId, role, tenantId, method, url, ts) via fastify logger.
