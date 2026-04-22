@@ -18,13 +18,26 @@ import {
   getCalendar,
   getDayDetail,
 } from '../services/salesActivityService'
+import {
+  UpdateDirectOrderSchema,
+  deleteDirectOrder,
+  getDirectOrderById,
+  updateDirectOrder,
+} from '../services/salesDirectOrderService'
 
 const AgentIdParam = z.object({ id: z.string().min(1) })
+const OrderIdParam = z.object({ id: z.string().min(1).max(80) })
 
 export default async function marketingRoutes(fastify: FastifyInstance) {
   const marketingViewers = [
     fastify.authenticate,
     requireRole(UserRole.ADMIN, UserRole.SALES_AGENT),
+    auditMarketingAccess,
+  ]
+  // Mutating any agent's direct orders — ADMIN only (audited)
+  const marketingAdmin = [
+    fastify.authenticate,
+    requireRole(UserRole.ADMIN),
     auditMarketingAccess,
   ]
 
@@ -94,5 +107,39 @@ export default async function marketingRoutes(fastify: FastifyInstance) {
     await assertAgentInTenant(tenantId, params.data.id)
     const activity = await getActivity(tenantId, params.data.id, query.data.date, query.data.store)
     return reply.send(activity)
+  })
+
+  // GET /marketing/direct-orders/:id — ADMIN, any agent in tenant (prefill edit form)
+  fastify.get('/direct-orders/:id', { preHandler: marketingAdmin }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const { tenantId } = request.user as JWTPayload
+    const order = await getDirectOrderById(params.data.id, tenantId, null)
+    if (!order) return reply.code(404).send({ error: 'Order not found' })
+    return reply.send({ order })
+  })
+
+  // PUT /marketing/direct-orders/:id — ADMIN, any agent in tenant
+  fastify.put('/direct-orders/:id', { preHandler: marketingAdmin }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const body = UpdateDirectOrderSchema.safeParse(request.body)
+    if (!body.success) {
+      return reply.code(400).send({ error: 'Invalid request body', details: body.error.flatten() })
+    }
+    const { tenantId } = request.user as JWTPayload
+    const order = await updateDirectOrder(params.data.id, tenantId, null, body.data)
+    if (!order) return reply.code(404).send({ error: 'Order not found' })
+    return reply.send({ order })
+  })
+
+  // DELETE /marketing/direct-orders/:id — ADMIN, any agent in tenant
+  fastify.delete('/direct-orders/:id', { preHandler: marketingAdmin }, async (request, reply) => {
+    const params = OrderIdParam.safeParse(request.params)
+    if (!params.success) return reply.code(400).send({ error: 'Invalid order id' })
+    const { tenantId } = request.user as JWTPayload
+    const ok = await deleteDirectOrder(params.data.id, tenantId, null)
+    if (!ok) return reply.code(404).send({ error: 'Order not found' })
+    return reply.code(204).send()
   })
 }

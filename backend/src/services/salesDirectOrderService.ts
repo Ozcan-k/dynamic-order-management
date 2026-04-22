@@ -24,6 +24,9 @@ export const CreateDirectOrderSchema = z.object({
   items: z.array(DirectOrderItemInput).min(1, 'At least one item required'),
 })
 
+// Full-replace update (same shape as create — simplest semantics for a small form)
+export const UpdateDirectOrderSchema = CreateDirectOrderSchema
+
 export const ListDirectOrderQuerySchema = z.object({
   date: DateString.optional(),
   from: DateString.optional(),
@@ -80,6 +83,78 @@ export async function createDirectOrder(tenantId: string, agentId: string, input
   })
 
   return serializeOrder(created)
+}
+
+/**
+ * Fetch a single order by id. If `agentId` is provided, it must match — used
+ * for agent-scoped access. Pass `null` for admin access (tenant-scoped only).
+ */
+export async function getDirectOrderById(id: string, tenantId: string, agentId: string | null) {
+  const where: Prisma.SalesDirectOrderWhereInput = { id, tenantId }
+  if (agentId) where.agentId = agentId
+  const order = await prisma.salesDirectOrder.findFirst({ where, include: { items: true } })
+  return order ? serializeOrder(order) : null
+}
+
+/**
+ * Full-replace update: deletes existing items and recreates from the input,
+ * all in one transaction. Ownership scope mirrors getDirectOrderById.
+ * Returns the serialized updated order, or null if not found / not owned.
+ */
+export async function updateDirectOrder(
+  id: string,
+  tenantId: string,
+  agentId: string | null,
+  input: CreateDirectOrderInput,
+) {
+  const where: Prisma.SalesDirectOrderWhereInput = { id, tenantId }
+  if (agentId) where.agentId = agentId
+
+  const existing = await prisma.salesDirectOrder.findFirst({ where, select: { id: true } })
+  if (!existing) return null
+
+  const orderDate = toDateOnly(input.date)
+  const totalAmount = itemsTotal(input.items, input.deliveryCost)
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.salesDirectOrderItem.deleteMany({ where: { directOrderId: id } })
+    return tx.salesDirectOrder.update({
+      where: { id },
+      data: {
+        orderDate,
+        storeName: input.store,
+        saleChannel: input.saleChannel,
+        companyName: input.companyName,
+        customerName: input.customerName,
+        deliveryCost: new Prisma.Decimal(input.deliveryCost),
+        totalAmount: new Prisma.Decimal(totalAmount),
+        items: {
+          create: input.items.map((it) => ({
+            productName: it.productName,
+            price: new Prisma.Decimal(it.price),
+            quantity: it.quantity,
+          })),
+        },
+      },
+      include: { items: true },
+    })
+  })
+
+  return serializeOrder(updated)
+}
+
+/**
+ * Deletes an order (items cascade). Returns true if deleted, false if not
+ * found / not owned.
+ */
+export async function deleteDirectOrder(id: string, tenantId: string, agentId: string | null): Promise<boolean> {
+  const where: Prisma.SalesDirectOrderWhereInput = { id, tenantId }
+  if (agentId) where.agentId = agentId
+
+  const existing = await prisma.salesDirectOrder.findFirst({ where, select: { id: true } })
+  if (!existing) return false
+  await prisma.salesDirectOrder.delete({ where: { id } })
+  return true
 }
 
 export async function listOwnDirectOrders(tenantId: string, agentId: string, query: ListDirectOrderQuery) {
