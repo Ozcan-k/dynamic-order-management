@@ -48,6 +48,7 @@ function shiftDate(dateStr: string, days: number): string {
 const CHART_PALETTE = ['#1d4ed8', '#15803d', '#b45309', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#ca8a04']
 
 const PRESET_RANGES = [
+  { id: 'today', label: 'Today', days: 1 },
   { id: '7', label: 'Last 7 days', days: 7 },
   { id: '30', label: 'Last 30 days', days: 30 },
   { id: '90', label: 'Last 90 days', days: 90 },
@@ -63,10 +64,12 @@ export default function MarketingReport() {
   const user = useAuthStore((s) => s.user)
   const today = todayManila()
 
-  const [presetId, setPresetId] = useState<string>('30')
+  const [presetId, setPresetId] = useState<string>('today')
   const [customFrom, setCustomFrom] = useState<string>(shiftDate(today, -29))
   const [customTo, setCustomTo] = useState<string>(today)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+
+  const isToday = presetId === 'today'
 
   const { from, to } = useMemo(() => {
     if (presetId === 'custom') return { from: customFrom, to: customTo }
@@ -78,12 +81,14 @@ export default function MarketingReport() {
   const leaderboardQuery = useQuery({
     queryKey: ['marketing-leaderboard', from, to],
     queryFn: () => fetchLeaderboard(from, to),
-    staleTime: 30_000,
+    staleTime: isToday ? 10_000 : 30_000,
+    refetchInterval: isToday ? 30_000 : false,
   })
   const comparisonQuery = useQuery({
     queryKey: ['marketing-comparison', from, to],
     queryFn: () => fetchComparison(from, to),
-    staleTime: 30_000,
+    staleTime: isToday ? 10_000 : 30_000,
+    refetchInterval: isToday ? 30_000 : false,
   })
 
   const selectedAgent = selectedAgentId ? agentsQuery.data?.find((a) => a.id === selectedAgentId) ?? null : null
@@ -117,8 +122,29 @@ export default function MarketingReport() {
         boxShadow: '0 4px 12px rgba(29,78,216,0.18)',
       }}>
         <div style={{ flex: '1 1 auto', minWidth: '200px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', marginBottom: '4px' }}>Date Range</div>
-          <div style={{ fontSize: '18px', fontWeight: 700 }}>{from} → {to}</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Date Range</span>
+            {isToday && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+                background: 'rgba(34,197,94,0.22)', color: '#86efac',
+                border: '1px solid rgba(134,239,172,0.35)',
+                padding: '2px 8px', borderRadius: 9999,
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', background: '#4ade80',
+                  boxShadow: '0 0 0 2px rgba(74,222,128,0.3)',
+                  animation: 'mktPulse 1.4s ease-in-out infinite',
+                }} />
+                LIVE
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: '18px', fontWeight: 700 }}>
+            {isToday ? `Today · ${today}` : `${from} → ${to}`}
+          </div>
+          <style>{`@keyframes mktPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }`}</style>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
           {PRESET_RANGES.map((p) => (

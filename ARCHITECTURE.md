@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.27.0  
+> **Version:** 2.27.1  
 > **Date:** 2026-04-22  
-> **Status:** In development — Live Performance tab now supports historical dates (up to 90 days back) with a shared `DateNavigator` and adds per-worker stacked hourly bar charts for pickers and packers. Inactive users who worked on the selected date are included in historical view (ranked after active workers). (v2.27.0)
+> **Status:** In development — Marketing Report now has a **Today** preset (default on page load) with 30s auto-refresh + LIVE pill, so admins and sales agents can track intraday activity without manual refresh. (v2.27.1)
 
 ---
 
@@ -441,7 +441,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **`/sales` — month calendar dashboard** | ❌ | ✅ Own only |
 | **`/sales` — Enter Today's Report** (daily activity form) | ❌ | ✅ Own only |
 | **`/sales` — day-detail modal** (historical drill-down) | ❌ | ✅ Own only |
-| **`/marketing-report` — leaderboard + charts** | ✅ | ✅ (v2.26.0) |
+| **`/marketing-report` — leaderboard + charts** (Today preset w/ LIVE auto-refresh v2.27.1) | ✅ | ✅ (v2.26.0) |
 | **`/marketing-report` — `AgentDetailPanel`** (per-agent drill-down) | ✅ | ✅ (v2.26.0) |
 | **Any order/inbound/picker/packer panel** | (unchanged) | ❌ |
 
