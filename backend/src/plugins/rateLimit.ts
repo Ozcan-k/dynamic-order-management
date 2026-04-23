@@ -4,7 +4,7 @@ import { FastifyInstance } from 'fastify'
 
 export default fp(async (fastify: FastifyInstance) => {
   await fastify.register(fastifyRateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: '1 minute',
     errorResponseBuilder: () => ({
       error: 'Too many requests. Please slow down.',

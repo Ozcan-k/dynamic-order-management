@@ -5,6 +5,36 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-04-23] Intermittent 500 on `/reports/performance` + `/reports/live-performance` (v2.28.1)
+
+### Problem
+Warehouse Report page intermittently showed `Failed to load performance data. Retrying...` with 500 responses from both `/reports/performance?days=30` and `/reports/live-performance`. Frontend polls live-performance every 30s, so the banner flickered.
+
+### Root cause hypotheses (unconfirmed — prod backend logs returned no error body before this fix)
+- Prisma connection pool exhaustion under concurrent report polling + sales + picker/packer traffic. Default pool is `num_physical_cpus * 2 + 1` = **5** on the 2-vCPU Vultr box.
+- Heavy `findMany` in `/performance` loading up to 30 days of picker+packer assignments into memory (no date upper bound, no limit).
+- No global `setErrorHandler` → every unhandled throw returned body-less 500, making root-causing impossible from the outside.
+
+### Applied in v2.28.1 (safe batch — no rapor/output değişmedi)
+- `backend/src/plugins/rateLimit.ts` — `max: 100 → 500` (regression from v2.X; previously documented as fixed but file had reverted).
+- `backend/src/index.ts` — global `setErrorHandler` that recognises:
+  - Prisma known errors (`PrismaClientKnownRequestError`) → logs `prisma_known_error code=…` + returns `{error, code, reqId}`.
+  - Prisma init errors → `503 Database unavailable`.
+  - Pool timeouts (`Timed out fetching a new connection`) → `503 Database pool exhausted`.
+  - Everything else → `500 Internal server error` with `reqId` for log correlation.
+  - Respects lower statusCodes (validation, rate-limit) and does not mask them.
+
+### Manual ops step required on prod (not in repo)
+Add `?connection_limit=15&pool_timeout=10` to `DATABASE_URL` in `/opt/dom/.env`, then `docker compose up -d backend`. Raises pool from 5 → 15 which is what the current query pattern needs.
+
+### Still deferred (v2.29.0 candidate)
+- `/performance` — convert `findMany` → DB-side `GROUP BY` to stop pulling 100k+ rows into Node.
+- `/live-performance` — add tenant+day scope to the `groupBy({ completedAt: null })` queries so they don't scan every historical open assignment.
+
+Both change report output shape, so they will ship as a MINOR bump after manual before/after number verification.
+
+---
+
 ## [2026-04-20] Packer Phone Scan — Debug Card Leak to Production + Unfriendly Error Messages (v2.23.3)
 
 ### Problem
