@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
+import { Prisma } from '@prisma/client'
 import helmetPlugin from './plugins/helmet'
 import corsPlugin from './plugins/cors'
 import rateLimitPlugin from './plugins/rateLimit'
@@ -61,6 +62,35 @@ async function start() {
 
   fastify.setNotFoundHandler((request, reply) => {
     return reply.code(404).send({ error: `Route not found: ${request.method} ${request.url}` })
+  })
+
+  // Global error handler — logs full detail server-side, returns a structured body so
+  // the frontend can distinguish DB/connection issues from generic failures.
+  fastify.setErrorHandler((err, request, reply) => {
+    // Let @fastify/rate-limit and validation errors keep their intended status
+    const status = err.statusCode ?? 500
+    if (status < 500) {
+      return reply.code(status).send({ error: err.message })
+    }
+
+    const reqId = request.id
+    const context = { reqId, route: `${request.method} ${request.url}`, err }
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      request.log.error(context, `prisma_known_error code=${err.code}`)
+      return reply.code(500).send({ error: 'Database error', code: err.code, reqId })
+    }
+    if (err instanceof Prisma.PrismaClientInitializationError) {
+      request.log.error(context, 'prisma_init_error')
+      return reply.code(503).send({ error: 'Database unavailable', reqId })
+    }
+    if (err.message?.includes('Timed out fetching a new connection')) {
+      request.log.error(context, 'prisma_pool_timeout')
+      return reply.code(503).send({ error: 'Database pool exhausted', reqId })
+    }
+
+    request.log.error(context, 'unhandled_error')
+    return reply.code(500).send({ error: 'Internal server error', reqId })
   })
 
   // BullMQ workers — declared here so onClose hook can reference them
