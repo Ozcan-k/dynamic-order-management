@@ -27,11 +27,115 @@ Warehouse Report page intermittently showed `Failed to load performance data. Re
 ### Manual ops step required on prod (not in repo)
 Add `?connection_limit=15&pool_timeout=10` to `DATABASE_URL` in `/opt/dom/.env`, then `docker compose up -d backend`. Raises pool from 5 → 15 which is what the current query pattern needs.
 
-### Still deferred (v2.29.0 candidate)
-- `/performance` — convert `findMany` → DB-side `GROUP BY` to stop pulling 100k+ rows into Node.
-- `/live-performance` — add tenant+day scope to the `groupBy({ completedAt: null })` queries so they don't scan every historical open assignment.
+### Deployed + verified live
+- `main` at `eeedec9`, tag `v2.28.1` pushed via CD. `dom_backend` restarted cleanly, `/health` returned ok at 08:31 UTC on 2026-04-23.
+- `.env` on prod (`/opt/dom/.env`) updated manually — `DATABASE_URL` now ends in `?schema=public&connection_limit=15&pool_timeout=10`. Verified via `grep DATABASE_URL /opt/dom/.env`.
+- User was left observing the `/reports` page for 5–10 min to confirm the `Failed to load performance data. Retrying...` banner stops. If it returns, the new error handler now emits a structured body (`{error, code, reqId}`) so next-session can grep prod logs by `reqId`.
 
-Both change report output shape, so they will ship as a MINOR bump after manual before/after number verification.
+---
+
+## ⏳ PENDING — v2.29.0 Reports heavy-query refactor (scheduled ~8h after 2026-04-23 08:31 UTC = ~16:30 UTC, i.e. ~00:30 Manila → low-traffic window)
+
+**Do not re-investigate from scratch — all context below is complete.**
+
+### Why deferred
+v2.28.1 might already solve the 500s (pool was 5, now 15; query patterns unchanged). If the banner stopped appearing after v2.28.1, v2.29.0 becomes a nice-to-have refactor, not urgent. Start v2.29.0 only if:
+- User confirms the banner is still appearing, OR
+- User explicitly wants the refactor for cleanliness.
+
+### What to change — file + exact lines
+
+**File:** `backend/src/routes/reports.ts`
+
+#### Change A — `/live-performance` groupBy scope (lines ~394-407)
+
+**Current code (roughly):**
+```ts
+prisma.pickerAssignment.groupBy({
+  by: ['pickerId'],
+  where: { completedAt: null, order: { tenantId, archivedAt: null } },
+  _count: { _all: true },
+}),
+```
+Same block exists for `packerAssignment`.
+
+**Problem:** Scans every historical open assignment across all time. Stale never-completed rows make this slower over time.
+
+**Fix:** Add a 30-day lower bound on `order.createdAt`:
+```ts
+where: {
+  completedAt: null,
+  order: {
+    tenantId,
+    archivedAt: null,
+    createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) },
+  },
+},
+```
+
+**Business-logic check:** Orders older than 30 days that are still open are stuck/abandoned — excluding them from `activeNow` is actually *more correct*, not a regression. But call it out in the commit message.
+
+**Verification:** Before deploy, open Live Performance tab and screenshot `activeNow` per worker. After deploy, compare — some may drop to 0 if they had stale phantom assignments. That's the intended outcome.
+
+#### Change B — `/performance` DB-side aggregation (lines ~194-299)
+
+**Current code:** `prisma.pickerAssignment.findMany({ where: { order: { tenantId }, completedAt: { gte: from, not: null } }, select: { pickerId, completedAt } })` — same for packer. Then JS loops group by pickerId + Manila date.
+
+**Problem:** 30 days × ~10k orders/day × 2 roles = up to ~600k rows pulled into Node memory. One of the likely 500 culprits on a 4GB box.
+
+**Fix:** Use `prisma.$queryRaw` with Postgres `date_trunc` / timezone conversion to aggregate in the DB. Example shape (picker; mirror for packer):
+
+```ts
+const pickerRows = await prisma.$queryRaw<{ pickerId: string; date: string; completed: bigint }[]>`
+  SELECT pa."pickerId" as "pickerId",
+         to_char((pa."completedAt" AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') as date,
+         COUNT(*)::int as completed
+  FROM "PickerAssignment" pa
+  JOIN "Order" o ON o.id = pa."orderId"
+  WHERE o."tenantId" = ${tenantId}
+    AND pa."completedAt" >= ${from}
+    AND pa."completedAt" IS NOT NULL
+  GROUP BY pa."pickerId", (pa."completedAt" AT TIME ZONE 'Asia/Manila')::date
+`
+```
+
+⚠️ **Before writing the SQL, verify table + column names with**:
+```bash
+docker exec dom_postgres psql -U dom_user -d dom_db -c "\d+ \"PickerAssignment\""
+docker exec dom_postgres psql -U dom_user -d dom_db -c "\d+ \"PackerAssignment\""
+```
+Prisma sometimes uses snake_case `@map`, sometimes not — confirm before coding.
+
+Then merge with user list (kept as-is: `prisma.user.findMany` for PICKER / PACKER). Zero-fill the `daily` array using `dateList` the same way the current JS does. Only the aggregation source changes; the response shape must stay identical.
+
+**Same for packers** — parallel $queryRaw for `PackerAssignment`.
+
+**Verification (mandatory — mismatch = hidden wrong numbers in reports):**
+1. BEFORE deploy: open `/reports` Performance tab, days=30. Screenshot. Record each picker's + packer's **total** and the daily bars for 2–3 recognisable days.
+2. Deploy v2.29.0.
+3. AFTER deploy: reload same page, compare totals + daily values.
+4. If any picker/packer differs by even 1 — revert immediately (`git revert <merge-commit>` on main, push). Do not "fix forward" under live traffic.
+
+### Risks recap (from prior session chat)
+- **Risk 1 — silent wrong numbers:** SQL vs JS aggregation discrepancy on timezone edges. Mitigation = manual screenshot diff above.
+- **Risk 2 — `activeNow` drops:** Expected if stale uncompleted assignments exist. Not a bug, but tell user ahead.
+- **Timing:** ~00:30 Manila = minimal user impact from the ~20s backend restart.
+
+### Step-by-step resume plan for next session
+1. Ask user: "Did the Retrying banner keep appearing after v2.28.1?" — determines urgency.
+2. `git checkout test && git pull origin test --rebase`.
+3. Edit `backend/src/routes/reports.ts` as above (Change A + Change B).
+4. `cd backend && npx tsc --noEmit` — must pass.
+5. Manual SQL sanity: run the raw query on prod DB once via `docker exec dom_postgres psql` and eyeball a few rows vs known-good picker/day counts.
+6. Ask user for BEFORE screenshots (Performance + Live Performance tabs).
+7. Commit: `fix: v2.29.0 — reports DB-side aggregation + open-assignment scope`. Tag `v2.29.0-test`. Push test.
+8. Ask merge approval. If yes → merge to main with tag `v2.29.0`, push. CD deploys.
+9. Wait for `dom_backend` healthy, then ask user for AFTER screenshots. Diff.
+10. If numbers match → update CLAUDE.md to `v2.29.0`, ARCHITECTURE.md reports section if affected, commit as doc-sync.
+11. If numbers differ → `git revert` the merge commit on main and push; keep error handler + pool fix intact.
+
+### Optional — docker-compose warning
+During deploy the user saw `WARN[0000] ... the attribute 'version' is obsolete`. Can remove the `version: "3.9"` line from `docker-compose.yml` at any time — cosmetic only, unrelated to the reports bug.
 
 ---
 
