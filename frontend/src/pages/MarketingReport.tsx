@@ -246,6 +246,10 @@ function ChartsGrid({ rows, trends, loading }: {
     () => [...rows].sort((a, b) => b.liveHours - a.liveHours).map((r) => ({ name: r.username, value: Number(r.liveHours.toFixed(1)) })),
     [rows],
   )
+  const liveOrdersData = useMemo(
+    () => [...rows].sort((a, b) => b.liveSellingOrders - a.liveSellingOrders).map((r) => ({ name: r.username, value: r.liveSellingOrders })),
+    [rows],
+  )
 
   // Trend reshape: [{ date, agentName: posts, ... }]
   const { trendData, agentNames } = useMemo(() => {
@@ -304,6 +308,18 @@ function ChartsGrid({ rows, trends, loading }: {
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₱${(Number(v) / 1000).toFixed(0)}k`} />
             <Tooltip formatter={(v: number) => formatPHP(v)} />
             <Bar dataKey="value" fill="#15803d" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <ChartCard title="Live Orders by Agent" loading={loading}>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={liveOrdersData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip formatter={(v: number) => `${v} order${v !== 1 ? 's' : ''}`} />
+            <Bar dataKey="value" fill="#7c3aed" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
