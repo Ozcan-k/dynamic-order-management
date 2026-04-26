@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.28.0  
-> **Date:** 2026-04-22  
-> **Status:** In development — Sales agents can now **edit and delete** their own direct orders from both the daily entry screen and the My Orders list; admins get the same edit/delete rights on any agent's orders via `/marketing-report` agent drill-down (audit-logged). (v2.28.0)
+> **Version:** 2.28.3  
+> **Date:** 2026-04-25  
+> **Status:** In development — Picker Admin handheld scan now names the active picker in the 409 error toast (`Already assigned to <picker>: <tn>`) so warehouse admins can follow up directly without crosschecking the desktop. (v2.28.3)
 
 ---
 
@@ -558,7 +558,8 @@ The top section of the panel is designed for the real-world scenario where a Pic
 - Success: green message `Staged: <tracking number>`
 - Duplicate scan: yellow warning `Already staged: <tracking number>` (not re-added)
 - Not found: red error `Order not found`
-- Not INBOUND: red error `Order is not available (status: PICKER ASSIGNED)` etc.
+- Already assigned: yellow warning `Already assigned to <picker username>` — names the active picker so the admin can follow up directly
+- Other non-INBOUND status (no active picker): red error `Not available (<status>)`
 
 **Staged orders list:**
 - Rows: # | Tracking Number | Platform badge | Delay badge | Priority | × remove button
@@ -570,7 +571,7 @@ The top section of the panel is designed for the real-world scenario where a Pic
 POST /picker-admin/scan   { trackingNumber }
   → 200: order data (id, trackingNumber, platform, delayLevel, priority, status, createdAt)
   → 404: Order not found
-  → 409: Order is not available (status: ...)
+  → 409: Already assigned to <picker> | Not available (<status>)
 ```
 
 **Handheld Scan Flow — Picker Admin Phone (`/picker-admin-scan`):**
