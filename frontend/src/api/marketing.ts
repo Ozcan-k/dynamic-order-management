@@ -18,6 +18,7 @@ export interface LeaderboardRow {
   username: string
   posts: number
   liveHours: number
+  liveSellingOrders: number
   directSales: number
   inquiries: number
   ordersCount: number

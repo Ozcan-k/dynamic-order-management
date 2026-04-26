@@ -45,6 +45,7 @@ export interface AgentMetrics {
   username: string
   posts: number          // completed content posts
   liveHours: number
+  liveSellingOrders: number   // sum of SalesLiveSellingMetric.orders for the agent in the range
   directSales: number    // PHP
   inquiries: number
   ordersCount: number
@@ -68,7 +69,7 @@ export async function getLeaderboard(tenantId: string, from: string, to: string)
       where: { tenantId, reportDate: { gte: start, lt: end } },
       include: {
         contentPosts: { where: { completed: true }, select: { id: true } },
-        liveSellingMetrics: { select: { hours: true } },
+        liveSellingMetrics: { select: { hours: true, orders: true } },
         marketplaceReport: { select: { inquiries: true } },
       },
     }),
@@ -86,6 +87,7 @@ export async function getLeaderboard(tenantId: string, from: string, to: string)
       username: a.username,
       posts: 0,
       liveHours: 0,
+      liveSellingOrders: 0,
       directSales: 0,
       inquiries: 0,
       ordersCount: 0,
@@ -97,6 +99,7 @@ export async function getLeaderboard(tenantId: string, from: string, to: string)
     if (!row) continue
     row.posts += act.contentPosts.length
     row.liveHours += act.liveSellingMetrics.reduce((s, m) => s + Number(m.hours), 0)
+    row.liveSellingOrders += act.liveSellingMetrics.reduce((s, m) => s + m.orders, 0)
     if (act.marketplaceReport) row.inquiries += act.marketplaceReport.inquiries
   }
 

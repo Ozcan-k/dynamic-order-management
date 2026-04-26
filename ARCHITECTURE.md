@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.28.4  
+> **Version:** 2.28.5  
 > **Date:** 2026-04-25  
-> **Status:** In development — Sales calendar (`/sales` agent + admin `/marketing-report` drill-down) now surfaces the daily Live Selling order count: a new `🛍️ N live orders` line on the calendar tile, a 5th "Live Orders" metric tile in the day-popup, and a "Live Sales Orders" per-store breakdown section between "Stores reported" and "Direct Orders". (v2.28.4)
+> **Status:** In development — `/marketing-report` ChartsGrid now has a 5th chart **"Live Orders by Agent"** (purple `BarChart`, alongside Direct Sales / Live Hours / Daily Posts / Multi-Metric Radar). Backend `marketingReportService.getLeaderboard` aggregates `SalesLiveSellingMetric.orders` per agent; field `liveSellingOrders: number` added to `AgentMetrics` + `LeaderboardRow`. Inherits the existing date-range and Today auto-refresh. (v2.28.5)
 
 ---
 
