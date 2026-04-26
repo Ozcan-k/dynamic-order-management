@@ -253,6 +253,7 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
     return {
       posts: stores.reduce((s, x) => s + x.contentPostsCount, 0),
       liveHours: stores.reduce((s, x) => s + x.liveSellingHours, 0),
+      liveOrders: stores.reduce((s, x) => s + x.liveSellingOrders, 0),
       inquiries: stores.reduce((s, x) => s + x.marketplaceInquiries, 0),
       directSales: orders.reduce((s, o) => s + Number(o.totalAmount), 0),
     }
@@ -334,6 +335,7 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
               }}>
                 <Tile icon="📝" label="Posts" value={String(totals.posts)} />
                 <Tile icon="🔴" label="Live Hours" value={formatHours(totals.liveHours)} />
+                <Tile icon="🛍️" label="Live Orders" value={String(totals.liveOrders)} />
                 <Tile icon="💰" label="Direct Sales" value={formatPHP(totals.directSales)} highlight />
                 <Tile icon="🛒" label="Inquiries" value={String(totals.inquiries)} />
               </div>
@@ -355,11 +357,36 @@ function AgentDayModal({ agentId, agentName, date, isToday, onClose }: {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                         {s.contentPostsCount > 0 && <Pill text={`📝 ${s.contentPostsCount}`} />}
                         {s.liveSellingHours > 0 && <Pill text={`🔴 ${formatHours(s.liveSellingHours)}h`} />}
+                        {s.liveSellingOrders > 0 && <Pill text={`🛍️ ${s.liveSellingOrders}`} />}
                         {s.marketplaceInquiries > 0 && <Pill text={`🛒 ${s.marketplaceInquiries}`} />}
                       </div>
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* Live Sales Orders */}
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                Live Sales Orders{totals.liveOrders > 0 ? ` · ${totals.liveOrders}` : ''}
+              </h3>
+              {data.stores.some((s) => s.liveSellingOrders > 0) ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px', marginBottom: '16px' }}>
+                  {data.stores.filter((s) => s.liveSellingOrders > 0).map((s) => (
+                    <div key={`live-${s.store}`} style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      background: '#f8fafc',
+                    }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginBottom: '6px' }}>{s.store}</div>
+                      <div style={{ fontSize: '12px', color: '#475569' }}>
+                        🛍️ {s.liveSellingOrders} order{s.liveSellingOrders !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '16px' }}>No live selling orders for this day.</div>
               )}
 
               {/* Orders */}

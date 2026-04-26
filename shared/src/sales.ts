@@ -84,6 +84,7 @@ export interface SalesDayMetrics {
   date: string                  // YYYY-MM-DD (Manila)
   contentPostsCount: number     // checked posts across all stores for the day
   liveSellingHours: number
+  liveSellingOrderCount: number // sum of SalesLiveSellingMetric.orders for the day
   directSalesAmount: number     // PHP
   marketplaceInquiries: number
 }

@@ -251,7 +251,7 @@ export async function getCalendar(tenantId: string, agentId: string, month: stri
   function ensure(dateKey: string): SalesDayMetrics {
     let entry = byDay.get(dateKey)
     if (!entry) {
-      entry = { date: dateKey, contentPostsCount: 0, liveSellingHours: 0, directSalesAmount: 0, marketplaceInquiries: 0 }
+      entry = { date: dateKey, contentPostsCount: 0, liveSellingHours: 0, liveSellingOrderCount: 0, directSalesAmount: 0, marketplaceInquiries: 0 }
       byDay.set(dateKey, entry)
     }
     return entry
@@ -262,6 +262,7 @@ export async function getCalendar(tenantId: string, agentId: string, month: stri
     const entry = ensure(dateKey)
     entry.contentPostsCount += activity.contentPosts.length
     entry.liveSellingHours += activity.liveSellingMetrics.reduce((sum, m) => sum + Number(m.hours), 0)
+    entry.liveSellingOrderCount += activity.liveSellingMetrics.reduce((sum, m) => sum + m.orders, 0)
     if (activity.marketplaceReport) entry.marketplaceInquiries += activity.marketplaceReport.inquiries
   }
 
@@ -302,9 +303,15 @@ export async function getDayDetail(tenantId: string, agentId: string, date: stri
       store: a.storeName,
       contentPostsCount: a.contentPosts.length,
       liveSellingHours: a.liveSellingMetrics.reduce((sum, m) => sum + Number(m.hours), 0),
+      liveSellingOrders: a.liveSellingMetrics.reduce((sum, m) => sum + m.orders, 0),
       marketplaceInquiries: a.marketplaceReport?.inquiries ?? 0,
     }))
-    .filter((s) => s.contentPostsCount > 0 || s.liveSellingHours > 0 || s.marketplaceInquiries > 0)
+    .filter((s) =>
+      s.contentPostsCount > 0 ||
+      s.liveSellingHours > 0 ||
+      s.liveSellingOrders > 0 ||
+      s.marketplaceInquiries > 0
+    )
     .sort((a, b) => a.store.localeCompare(b.store))
 
   return {
