@@ -15,6 +15,7 @@ function activityScore(m: SalesDayMetrics | null): number {
   return (
     m.contentPostsCount +
     Math.round(m.liveSellingHours) +
+    (m.liveSellingOrderCount > 0 ? 1 : 0) +
     (m.directSalesAmount > 0 ? 2 : 0) +
     (m.marketplaceInquiries > 0 ? 1 : 0)
   )
@@ -101,6 +102,7 @@ export default function DaySummaryCell({ date, inMonth, isToday, isFuture, metri
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '10px', lineHeight: 1.3 }}>
           {metrics.contentPostsCount > 0 && <Line text={`📝 ${metrics.contentPostsCount} posts`} bright={score > 9} />}
           {metrics.liveSellingHours > 0 && <Line text={`🔴 ${formatHours(metrics.liveSellingHours)}h live`} bright={score > 9} />}
+          {metrics.liveSellingOrderCount > 0 && <Line text={`🛍️ ${metrics.liveSellingOrderCount} live orders`} bright={score > 9} />}
           {metrics.directSalesAmount > 0 && <Line text={`💰 ${formatPHPCompact(metrics.directSalesAmount)}`} bright={score > 9} />}
           {metrics.marketplaceInquiries > 0 && <Line text={`🛒 ${metrics.marketplaceInquiries} inq`} bright={score > 9} />}
         </div>

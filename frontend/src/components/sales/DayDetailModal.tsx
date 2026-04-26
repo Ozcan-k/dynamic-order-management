@@ -41,6 +41,7 @@ export default function DayDetailModal({ date, isToday, onClose }: DayDetailModa
     return {
       posts: stores.reduce((s, x) => s + x.contentPostsCount, 0),
       liveHours: stores.reduce((s, x) => s + x.liveSellingHours, 0),
+      liveOrders: stores.reduce((s, x) => s + x.liveSellingOrders, 0),
       inquiries: stores.reduce((s, x) => s + x.marketplaceInquiries, 0),
       sales: orders.reduce((s, o) => s + o.totalAmount, 0),
     }
@@ -134,6 +135,7 @@ export default function DayDetailModal({ date, isToday, onClose }: DayDetailModa
               }}>
                 <Tile icon="📝" label="Posts" value={String(totals.posts)} />
                 <Tile icon="🔴" label="Live Hours" value={formatHours(totals.liveHours)} />
+                <Tile icon="🛍️" label="Live Orders" value={String(totals.liveOrders)} />
                 <Tile icon="💰" label="Direct Sales" value={formatPHP(totals.sales)} highlight />
                 <Tile icon="🛒" label="Inquiries" value={String(totals.inquiries)} />
               </div>
@@ -150,6 +152,35 @@ export default function DayDetailModal({ date, isToday, onClose }: DayDetailModa
                   </div>
                 ) : (
                   <EmptyHint text="No store activity logged for this day yet." />
+                )}
+              </Section>
+
+              {/* Live Sales Orders */}
+              <Section title={`Live Sales Orders${totals.liveOrders > 0 ? ` · ${totals.liveOrders}` : ''}`}>
+                {data && data.stores.some((s) => s.liveSellingOrders > 0) ? (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                    gap: '8px',
+                  }}>
+                    {data.stores.filter((s) => s.liveSellingOrders > 0).map((s) => (
+                      <div key={s.store} style={{
+                        background: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '10px 12px',
+                      }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+                          {s.store}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#475569' }}>
+                          🛍️ {s.liveSellingOrders} order{s.liveSellingOrders !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyHint text="No live selling orders for this day." />
                 )}
               </Section>
 
@@ -295,6 +326,7 @@ function StoreRow({ store }: { store: DayDetailStore }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '11px', color: '#475569' }}>
         {store.contentPostsCount > 0 && <Pill text={`📝 ${store.contentPostsCount}`} />}
         {store.liveSellingHours > 0 && <Pill text={`🔴 ${formatHours(store.liveSellingHours)}h`} />}
+        {store.liveSellingOrders > 0 && <Pill text={`🛍️ ${store.liveSellingOrders}`} />}
         {store.marketplaceInquiries > 0 && <Pill text={`🛒 ${store.marketplaceInquiries}`} />}
       </div>
     </div>

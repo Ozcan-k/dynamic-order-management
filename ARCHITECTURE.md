@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.28.3  
+> **Version:** 2.28.4  
 > **Date:** 2026-04-25  
-> **Status:** In development — Picker Admin handheld scan now names the active picker in the 409 error toast (`Already assigned to <picker>: <tn>`) so warehouse admins can follow up directly without crosschecking the desktop. (v2.28.3)
+> **Status:** In development — Sales calendar (`/sales` agent + admin `/marketing-report` drill-down) now surfaces the daily Live Selling order count: a new `🛍️ N live orders` line on the calendar tile, a 5th "Live Orders" metric tile in the day-popup, and a "Live Sales Orders" per-store breakdown section between "Stores reported" and "Direct Orders". (v2.28.4)
 
 ---
 

@@ -61,6 +61,7 @@ export interface DayDetailStore {
   store: string
   contentPostsCount: number
   liveSellingHours: number
+  liveSellingOrders: number
   marketplaceInquiries: number
 }
 
