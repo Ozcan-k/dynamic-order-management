@@ -1177,7 +1177,7 @@ export default function PickerAdmin() {
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.error ?? 'Order not found'
-      const isAssigned = msg.toLowerCase().includes('assigned to picker')
+      const isAssigned = msg.toLowerCase().includes('assigned to')
       setScanFeedback({ type: isAssigned ? 'warning' : 'error', message: msg })
     },
   })

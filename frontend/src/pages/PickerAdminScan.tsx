@@ -79,7 +79,7 @@ export default function PickerAdminScan() {
       setFeedback({
         type: status === 404 ? 'warning' : 'error',
         message: status === 404 ? `Not found in system: ${tn}`
-          : status === 409 ? `Already assigned: ${tn}`
+          : status === 409 ? `${err?.response?.data?.error ?? 'Already assigned'}: ${tn}`
           : (err?.response?.data?.error ?? 'Failed to send'),
       })
       setTimeout(() => setFeedback(null), 3500)
@@ -110,7 +110,7 @@ export default function PickerAdminScan() {
       setFeedback({
         type: status === 404 ? 'warning' : 'error',
         message: status === 404 ? `Not found in system: ${tn}`
-          : status === 409 ? `Already assigned: ${tn}`
+          : status === 409 ? `${err?.response?.data?.error ?? 'Already assigned'}: ${tn}`
           : (err?.response?.data?.error ?? 'Scan failed'),
       })
       setTimeout(() => setFeedback(null), 3000)
