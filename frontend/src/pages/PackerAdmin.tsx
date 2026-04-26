@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
+import { connectSocket } from '../lib/socket'
 import { colors } from '../theme'
 import { getManilaDateString } from '../lib/manila'
 import DelayBadge from '../components/DelayBadge'
+import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
@@ -23,6 +25,7 @@ interface Order {
   platform: string
   carrierName?: string | null
   shopName?: string | null
+  status: string
   delayLevel: number
   priority: number
   workDate: string
@@ -30,6 +33,9 @@ interface Order {
   pickerAssignments: Array<{
     completedAt: string | null
     picker: { username: string }
+  }>
+  packerAssignments?: Array<{
+    packer: { id: string; username: string }
   }>
 }
 
@@ -285,6 +291,43 @@ export default function PackerAdmin() {
   const [completeTarget, setCompleteTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [selectedPackerId, setSelectedPackerId] = useState<string>('')
   const [bulkPackerId, setBulkPackerId] = useState<string>('')
+
+  // ── Scan & Stage state ───────────────────────────────────────────────────
+  const [stagedOrders, setStagedOrders] = useState<Order[]>([])
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
+
+  // On mount: drain Redis-backed pending staged orders (catches scans done before page open)
+  useEffect(() => {
+    api.get<{ orders: Order[] }>('/packer-admin/pending-staged')
+      .then(res => {
+        if (res.data.orders.length > 0) {
+          setStagedOrders(prev => {
+            const existing = new Set(prev.map(o => o.id))
+            const fresh = res.data.orders.filter(o => !existing.has(o.id))
+            if (fresh.length === 0) return prev
+            setScanFeedback({ type: 'success', message: `${fresh.length} handheld scan${fresh.length !== 1 ? 's' : ''} loaded` })
+            setTimeout(() => setScanFeedback(null), 3000)
+            return [...prev, ...fresh]
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Real-time: handheld phone scan event → auto-add order to staging
+  useEffect(() => {
+    const socket = connectSocket()
+    socket.on('order:packer-staged', (data: { order: Order }) => {
+      api.get('/packer-admin/pending-staged').catch(() => {})
+      setStagedOrders(prev => {
+        if (prev.find(o => o.id === data.order.id)) return prev
+        return [...prev, data.order]
+      })
+      setScanFeedback({ type: 'success', message: `Handheld staged: ${data.order.trackingNumber}` })
+      setTimeout(() => setScanFeedback(null), 3000)
+    })
+    return () => { socket.off('order:packer-staged') }
+  }, [])
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
   const [actionFeedback, setActionFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -375,6 +418,49 @@ export default function PackerAdmin() {
       setActionFeedback({ type: 'error', message: err?.response?.data?.error ?? 'Remove failed' })
     },
   })
+
+  // ── Scan & Stage mutations ──────────────────────────────────────────────────
+  const scanStageMutation = useMutation({
+    mutationFn: (trackingNumber: string) =>
+      api.post<{ order: Order }>('/packer-admin/scan', { trackingNumber }),
+    onSuccess: (res) => {
+      const order = res.data.order
+      setStagedOrders(prev => {
+        if (prev.find(o => o.id === order.id)) return prev
+        return [...prev, order]
+      })
+      setScanFeedback({ type: 'success', message: `Staged: ${order.trackingNumber}` })
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error ?? 'Order not found'
+      const isAssigned = msg.toLowerCase().includes('assigned to')
+      setScanFeedback({ type: isAssigned ? 'warning' : 'error', message: msg })
+    },
+  })
+
+  const assignStagedMutation = useMutation({
+    mutationFn: ({ orderIds, packerId }: { orderIds: string[]; packerId: string }) =>
+      api.post<{ assigned: number; skipped: number }>('/packer-admin/bulk-assign', { orderIds, packerId }),
+    onSuccess: (res) => {
+      const { assigned, skipped } = res.data
+      setStagedOrders([])
+      invalidateAll()
+      if (skipped > 0) {
+        setScanFeedback({ type: 'warning', message: `Assigned ${assigned} order${assigned !== 1 ? 's' : ''}. ${skipped} skipped (already assigned).` })
+      } else {
+        setScanFeedback({ type: 'success', message: `Successfully assigned ${assigned} order${assigned !== 1 ? 's' : ''}.` })
+      }
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error ?? 'Assign failed'
+      setScanFeedback({ type: 'error', message: msg })
+    },
+  })
+
+  function handleAssignStaged() {
+    if (!selectedPackerId) { setScanFeedback({ type: 'error', message: 'Please select a packer first' }); return }
+    assignStagedMutation.mutate({ orderIds: stagedOrders.map(o => o.id), packerId: selectedPackerId })
+  }
 
   const [bulkConfirm, setBulkConfirm] = useState<null | 'complete' | 'remove'>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -565,6 +651,112 @@ export default function PackerAdmin() {
         </div>
       )}
 
+      {/* ── Scan & Stage ── */}
+      <div style={{ marginBottom: '28px' }}>
+        <SectionHeader title="Scan & Stage" count={stagedOrders.length} />
+
+        <div style={{ display: 'flex', gap: '16px', marginTop: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* Left: scan input + feedback */}
+          <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+            <ScanInput
+              onScan={(tn) => {
+                setScanFeedback(null)
+                scanStageMutation.mutate(tn)
+              }}
+              disabled={scanStageMutation.isPending}
+            />
+            {scanFeedback && (
+              <div className={[
+                'feedback-banner',
+                scanFeedback.type === 'error' ? 'feedback-banner--error'
+                  : scanFeedback.type === 'warning' ? 'feedback-banner--warning'
+                  : 'feedback-banner--success',
+              ].join(' ')} style={{ marginTop: '8px' }}>
+                {scanFeedback.message}
+              </div>
+            )}
+          </div>
+
+          {/* Right: packer select + assign staged button */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '230px' }}>
+            <select
+              className="styled-select"
+              value={selectedPackerId}
+              onChange={e => setSelectedPackerId(e.target.value)}
+              style={{ minHeight: '40px' }}
+            >
+              <option value="">Select packer…</option>
+              {packers.map(p => (
+                <option key={p.id} value={p.id}>{p.username}</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-primary"
+              onClick={handleAssignStaged}
+              disabled={stagedOrders.length === 0 || !selectedPackerId || assignStagedMutation.isPending}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              {assignStagedMutation.isPending
+                ? 'Assigning...'
+                : `Assign ${stagedOrders.length > 0 ? stagedOrders.length + ' ' : ''}Staged Orders →`}
+            </button>
+          </div>
+        </div>
+
+        {/* Staged orders list */}
+        {stagedOrders.length > 0 && (
+          <div style={{ marginTop: '12px', border: `1px solid #bbf7d0`, borderRadius: '10px', overflow: 'hidden' }}>
+            <div style={{
+              background: '#f0fdf4', padding: '8px 16px', borderBottom: `1px solid #bbf7d0`,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: colors.success }}>
+                {stagedOrders.length} order{stagedOrders.length !== 1 ? 's' : ''} ready to assign
+              </span>
+              <button
+                onClick={() => { setStagedOrders([]); setScanFeedback(null) }}
+                style={{
+                  fontSize: '12px', color: colors.textMuted, background: 'none',
+                  border: 'none', cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+            <div style={{ background: '#fff' }}>
+              {stagedOrders.map((order, i) => (
+                <div key={order.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '9px 16px',
+                  borderBottom: i < stagedOrders.length - 1 ? `1px solid ${colors.border}` : 'none',
+                }}>
+                  <span style={{ fontSize: '11px', color: colors.textMuted, width: 20, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', flex: 1 }}>
+                    {order.trackingNumber}
+                  </span>
+                  <PlatformBadge platform={order.platform} />
+                  <DelayBadge level={order.delayLevel} />
+                  <span style={{ fontSize: '12px', color: colors.textSecondary, fontWeight: 600, minWidth: 40 }}>
+                    P{order.priority}
+                  </span>
+                  <button
+                    onClick={() => setStagedOrders(prev => prev.filter(o => o.id !== order.id))}
+                    style={{
+                      width: 26, height: 26, borderRadius: '6px', border: 'none',
+                      background: '#f1f5f9', cursor: 'pointer', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: colors.textSecondary, fontSize: '16px', lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Order search */}
       <div style={{
         background: '#fff', border: `1px solid ${colors.border}`, borderRadius: '10px',
@@ -714,7 +906,7 @@ export default function PackerAdmin() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '12px', color: colors.textMuted }}>
-            Orders arrive automatically when pickers complete them
+            Scan picker-completed orders to stage, then assign to a packer
           </span>
         </div>
       </div>
@@ -798,6 +990,25 @@ export default function PackerAdmin() {
                             CARRY
                           </span>
                         )}
+                        {order.status === 'PACKER_ASSIGNED' && order.packerAssignments?.[0] ? (
+                          <span style={{
+                            marginLeft: '6px', fontSize: '10px', fontWeight: 700,
+                            background: '#dcfce7', color: '#15803d',
+                            padding: '1px 8px', borderRadius: '9999px', fontFamily: 'sans-serif',
+                            verticalAlign: 'middle', border: '1px solid #86efac',
+                          }}>
+                            ASSIGNED → {order.packerAssignments[0].packer.username}
+                          </span>
+                        ) : order.status === 'PICKER_COMPLETE' ? (
+                          <span style={{
+                            marginLeft: '6px', fontSize: '10px', fontWeight: 700,
+                            background: '#f1f5f9', color: '#475569',
+                            padding: '1px 8px', borderRadius: '9999px', fontFamily: 'sans-serif',
+                            verticalAlign: 'middle', border: '1px solid #cbd5e1',
+                          }}>
+                            WAITING
+                          </span>
+                        ) : null}
                       </td>
                       <td><PlatformBadge platform={order.platform} /></td>
                       <td>

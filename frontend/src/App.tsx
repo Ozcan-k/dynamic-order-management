@@ -9,6 +9,7 @@ import PickerAdmin from './pages/PickerAdmin'
 import PickerAdminScan from './pages/PickerAdminScan'
 import PickerMobile from './pages/PickerMobile'
 import PackerAdmin from './pages/PackerAdmin'
+import PackerAdminScan from './pages/PackerAdminScan'
 import PackerMobile from './pages/PackerMobile'
 import Outbound from './pages/Outbound'
 import Dashboard from './pages/Dashboard'
@@ -140,6 +141,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN]}>
                 <PickerAdminScan />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/packer-admin-scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN]}>
+                <PackerAdminScan />
               </ProtectedRoute>
             }
           />
