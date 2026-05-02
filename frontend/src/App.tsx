@@ -20,6 +20,9 @@ import SalesDashboard from './pages/SalesDashboard'
 import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
+import StockDashboard from './pages/StockDashboard'
+import StockCreate from './pages/StockCreate'
+import StockScan from './pages/StockScan'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -199,6 +202,31 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
                 <AppLayout><MarketingReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Stock Control module — independent of order pipeline */}
+          <Route
+            path="/stock"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><StockDashboard /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/stock/create"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><StockCreate /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/stock/scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.STOCK_KEEPER]}>
+                <StockScan />
               </ProtectedRoute>
             }
           />

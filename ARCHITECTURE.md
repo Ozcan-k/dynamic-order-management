@@ -1,8 +1,10 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.29.0  
+> **Version:** 2.30.0  
 > **Date:** 2026-05-02  
-> **Status:** Live (deployed 2026-05-02, merge commit `13fb7c2`) — **Packer flow rebuilt**: shared queue replaced with per-packer pre-assignment (mirrors picker flow). `OrderStatus.PACKER_ASSIGNED` finally activated. New `/packer-admin/{assign,bulk-assign,scan,handheld-bulk-scan,pending-staged,unassign}` endpoints; new `/packer-admin-scan` phone page with green theme; PackerAdmin desktop gains Scan & Stage section + per-row PACKER_ASSIGNED badge; PackerMobile shows assigned-only list with empty-state copy "Waiting for admin to assign orders". Bug fix: ScanLogin now routes PACKER_ADMIN to `/packer-admin-scan` (was `/packer-admin`). Status flow `PICKER_COMPLETE → PACKER_ASSIGNED → PACKER_COMPLETE → OUTBOUND` (auto-dispatch preserved). Remove still auto-reassigns to original picker for either PACKER_ASSIGNED or PACKER_COMPLETE per user decision. (v2.29.0)
+> **Status:** In development on `test` branch — **New Stock Control module** (warehouse box inventory, fully isolated from order pipeline). New `STOCK_KEEPER` role added to `UserRole` enum. New tables `stock_items` + `stock_movements` with `StockStatus` (IN_STOCK/OUT_OF_STOCK) + `MovementDirection` (IN/OUT) enums. New `/stock/{items,items/bulk,scan,movements,stats}` endpoints (ADMIN-only except `/scan` which is ADMIN + STOCK_KEEPER). New pages: `/stock` dashboard (Items + Movements tabs), `/stock/create` (form → PDF of QR labels for Avery L7173 / J8173 sticker paper, A4 2×5 layout), `/stock/scan` (mobile camera UUID scan → IN/OUT toggle with sound + vibration feedback). Stock keepers log in via `/scan` URL with the same role-based redirect pattern as PICKER/PACKER. ADMIN creates stock keeper accounts from Settings → Stock Keepers section. (v2.30.0)
+
+Previous (v2.29.0, deployed 2026-05-02, merge commit `13fb7c2`) — Packer flow rebuilt: shared queue replaced with per-packer pre-assignment (mirrors picker flow). `OrderStatus.PACKER_ASSIGNED` activated. New `/packer-admin/{assign,bulk-assign,scan,handheld-bulk-scan,pending-staged,unassign}` endpoints; new `/packer-admin-scan` phone page with green theme; PackerAdmin desktop gains Scan & Stage section + per-row PACKER_ASSIGNED badge; PackerMobile shows assigned-only list. Status flow `PICKER_COMPLETE → PACKER_ASSIGNED → PACKER_COMPLETE → OUTBOUND` (auto-dispatch preserved).
 
 ---
 
@@ -447,6 +449,20 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **Any order/inbound/picker/packer panel** | (unchanged) | ❌ |
 
 **Key isolation:** sales agents have zero read/write access to orders, users, or any warehouse data. The role only touches the `sales_*` tables. Marketing report read access (v2.26.0+) exposes other agents' `sales_*` aggregates — every call is logged by `backend/src/middleware/auditLog.ts` (userId, role, tenantId, method, url, ts) via fastify logger.
+
+### Stock Keeper Role (v2.30.0)
+
+`STOCK_KEEPER` is a **cross-cutting role** — it does **not** participate in the order lifecycle. Stock keepers scan QR labels on warehouse boxes (incoming and outgoing) to track inventory. Multiple stock keepers per warehouse; admin creates accounts from Settings → Stock Keepers section.
+
+| Panel / Action | Admin | Stock Keeper |
+|---|:---:|:---:|
+| **Settings → Stock Keepers** (create/disable keepers) | ✅ | ❌ |
+| **`/stock` dashboard** (Items + Movements tabs + stats) | ✅ | ❌ |
+| **`/stock/create`** (generate QR label PDF) | ✅ | ❌ |
+| **`/stock/scan`** (mobile camera scan → IN/OUT toggle) | ✅ | ✅ |
+| **Any order/inbound/picker/packer/sales panel** | (unchanged) | ❌ |
+
+**Key isolation:** stock keepers can ONLY access `/stock/scan`. They have zero read/write access to orders, users, sales data, or stock dashboard. The Stock Control module only touches `stock_items` + `stock_movements` tables. Login flow mirrors PICKER/PACKER: `/scan` URL → role-based redirect to `/stock/scan`.
 
 ---
 

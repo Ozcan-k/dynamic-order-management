@@ -10,7 +10,7 @@ interface Props {
 
 // Handheld/scan routes — workers access these via QR codes on mobile devices.
 // On role mismatch, redirect to login (with ?next=) so they can switch accounts seamlessly.
-const SCAN_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
+const SCAN_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/packer-admin-scan', '/picker', '/packer', '/stock/scan']
 
 export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const user = useAuthStore((s) => s.user)

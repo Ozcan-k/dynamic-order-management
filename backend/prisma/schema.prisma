@@ -18,6 +18,17 @@ enum UserRole {
   PICKER
   PACKER
   SALES_AGENT
+  STOCK_KEEPER
+}
+
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+}
+
+enum MovementDirection {
+  IN
+  OUT
 }
 
 enum SalesPlatform {
@@ -86,15 +97,15 @@ model User {
   createdById  String?  @map("created_by")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  tenant     Tenant @relation(fields: [tenantId], references: [id])
-  createdBy  User?  @relation("UserCreatedBy", fields: [createdById], references: [id])
+  tenant       Tenant @relation(fields: [tenantId], references: [id])
+  createdBy    User?  @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdUsers User[] @relation("UserCreatedBy")
 
-  scannedOrders        Order[]           @relation("ScannedBy")
-  pickerAssignments    PickerAssignment[] @relation("PickerUser")
-  pickerAssignedByMe   PickerAssignment[] @relation("PickerAssignedBy")
-  packerAssignments    PackerAssignment[] @relation("PackerUser")
-  packerAssignedByMe   PackerAssignment[] @relation("PackerAssignedBy")
+  scannedOrders        Order[]              @relation("ScannedBy")
+  pickerAssignments    PickerAssignment[]   @relation("PickerUser")
+  pickerAssignedByMe   PickerAssignment[]   @relation("PickerAssignedBy")
+  packerAssignments    PackerAssignment[]   @relation("PackerUser")
+  packerAssignedByMe   PackerAssignment[]   @relation("PackerAssignedBy")
   statusHistoryChanges OrderStatusHistory[]
   salesActivities      SalesDailyActivity[] @relation("SalesActivityAgent")
   salesOrders          SalesDirectOrder[]   @relation("SalesOrderAgent")
@@ -122,8 +133,8 @@ model Order {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id])
-  scannedBy         User               @relation("ScannedBy", fields: [scannedById], references: [id])
+  tenant            Tenant               @relation(fields: [tenantId], references: [id])
+  scannedBy         User                 @relation("ScannedBy", fields: [scannedById], references: [id])
   statusHistory     OrderStatusHistory[]
   pickerAssignments PickerAssignment[]
   packerAssignments PackerAssignment[]
@@ -209,7 +220,7 @@ model SalesDailyActivity {
   id         String   @id @default(uuid())
   tenantId   String   @map("tenant_id")
   agentId    String   @map("agent_id")
-  reportDate DateTime @db.Date @map("report_date")
+  reportDate DateTime @map("report_date") @db.Date
   storeName  String   @map("store_name")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -272,13 +283,13 @@ model SalesDirectOrder {
   id           String      @id @default(uuid())
   tenantId     String      @map("tenant_id")
   agentId      String      @map("agent_id")
-  orderDate    DateTime    @db.Date @map("order_date")
+  orderDate    DateTime    @map("order_date") @db.Date
   storeName    String      @map("store_name")
   saleChannel  SaleChannel @map("sale_channel")
   companyName  String      @map("company_name")
   customerName String      @map("customer_name")
-  deliveryCost Decimal     @default(0) @db.Decimal(12, 2) @map("delivery_cost")
-  totalAmount  Decimal     @default(0) @db.Decimal(12, 2) @map("total_amount")
+  deliveryCost Decimal     @default(0) @map("delivery_cost") @db.Decimal(12, 2)
+  totalAmount  Decimal     @default(0) @map("total_amount") @db.Decimal(12, 2)
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
 
@@ -303,4 +314,39 @@ model SalesDirectOrderItem {
 
   @@index([productName])
   @@map("sales_direct_order_item")
+}
+
+// ─── Stock Control Module ────────────────────────────────────────────────────
+// QR-based warehouse inventory tracking. Independent of the Order pipeline.
+
+model StockItem {
+  id          String      @id @default(uuid())
+  tenantId    String      @map("tenant_id")
+  productType String      @map("product_type")
+  category    String
+  weightKg    Float       @map("weight_kg")
+  status      StockStatus @default(IN_STOCK)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  movements StockMovement[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, productType])
+  @@index([tenantId, category])
+  @@map("stock_items")
+}
+
+model StockMovement {
+  id          String            @id @default(uuid())
+  stockItemId String            @map("stock_item_id")
+  direction   MovementDirection
+  scannedById String            @map("scanned_by")
+  scannedAt   DateTime          @default(now()) @map("scanned_at")
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([stockItemId])
+  @@index([scannedAt])
+  @@map("stock_movements")
 }

@@ -6,6 +6,20 @@ export enum UserRole {
   PICKER = 'PICKER',
   PACKER = 'PACKER',
   SALES_AGENT = 'SALES_AGENT',
+  STOCK_KEEPER = 'STOCK_KEEPER',
+}
+
+export type StockStatus = 'IN_STOCK' | 'OUT_OF_STOCK'
+export type MovementDirection = 'IN' | 'OUT'
+
+export interface StockItemSummary {
+  id: string
+  productType: string
+  category: string
+  weightKg: number
+  status: StockStatus
+  createdAt: string
+  updatedAt: string
 }
 
 export * from './sales'

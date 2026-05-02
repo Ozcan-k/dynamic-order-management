@@ -53,6 +53,17 @@ async function main() {
   }
   console.log(`Pickers: 20 created (Picker 1–20)`)
 
+  // ── 2 Stock Keepers ───────────────────────────────────────────────────────
+  const keeperHash = await bcrypt.hash('stock123', 12)
+  for (const username of ['stockkeeper1', 'stockkeeper2']) {
+    await prisma.user.upsert({
+      where: { tenantId_username: { tenantId: tenant.id, username } },
+      update: {},
+      create: { tenantId: tenant.id, username, passwordHash: keeperHash, role: 'STOCK_KEEPER', isActive: true },
+    })
+  }
+  console.log('Stock Keepers: 2 created (stockkeeper1, stockkeeper2)')
+
   // ── Clear old test orders ─────────────────────────────────────────────────
   await prisma.orderStatusHistory.deleteMany({ where: { order: { tenantId: tenant.id } } })
   await prisma.pickerAssignment.deleteMany({ where: { order: { tenantId: tenant.id } } })
@@ -128,9 +139,10 @@ async function main() {
   console.log('40 active orders created (PICKER_ASSIGNED / PICKING / PICKER_COMPLETE)')
 
   console.log('\nSeed complete.')
-  console.log('  Admin   : admin / admin123')
-  console.log('  Pickers : Picker 1–20 / picker123')
-  console.log('  Orders  : 30 inbound + 40 active across 20 pickers')
+  console.log('  Admin         : admin / admin123')
+  console.log('  Pickers       : Picker 1–20 / picker123')
+  console.log('  Stock Keepers : stockkeeper1, stockkeeper2 / stock123')
+  console.log('  Orders        : 30 inbound + 40 active across 20 pickers')
 }
 
 main()
