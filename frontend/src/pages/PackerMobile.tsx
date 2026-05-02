@@ -14,6 +14,18 @@ interface PackerOrder {
   platform: string
   status: string
   delayLevel: number
+  assignmentId?: string
+  assignedAt?: string
+  priority?: number
+  createdAt?: string
+}
+
+function formatTime(iso?: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
+  } catch { return '' }
 }
 
 function playBeep(success: boolean) {
@@ -402,15 +414,74 @@ export default function PackerMobile() {
           </button>
         </div>
 
-        {/* Ready state placeholder */}
-        <div style={{
-          textAlign: 'center', padding: '32px 20px',
-          background: '#fff', borderRadius: '16px',
-          border: '2px dashed #d1fae5',
-        }}>
-          <div style={{ fontWeight: 700, color: '#374151', fontSize: '15px', marginBottom: '4px' }}>Ready to pack</div>
-          <div style={{ fontSize: '13px', color: '#9ca3af' }}>Scan a barcode to look up an order</div>
+        {/* ── Assigned orders list ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Your Orders
+          </span>
+          {(queueData?.orders ?? []).length > 0 && (
+            <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: '9999px', padding: '2px 10px', fontSize: '12px', fontWeight: 700 }}>
+              {queueData?.orders.length}
+            </span>
+          )}
         </div>
+
+        {(queueData?.orders ?? []).length === 0 ? (
+          <div style={{
+            textAlign: 'center', padding: '40px 24px',
+            background: '#fff', borderRadius: '16px',
+            border: '2px dashed #d1fae5',
+          }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: '50%', background: '#ecfdf5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 12px',
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <div style={{ fontWeight: 700, color: '#374151', fontSize: '15px', marginBottom: '4px' }}>All clear!</div>
+            <div style={{ fontSize: '13px', color: '#9ca3af' }}>Waiting for admin to assign orders</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {(queueData?.orders ?? []).map((order) => {
+              const borderLeft =
+                order.delayLevel >= 3 ? '#ef4444' :
+                order.delayLevel >= 1 ? '#f59e0b' : '#059669'
+              const cardBg =
+                order.delayLevel >= 3 ? '#fef2f2' :
+                order.delayLevel >= 1 ? '#fffbeb' : '#fff'
+              return (
+                <div key={order.assignmentId ?? order.id} style={{
+                  background: cardBg, borderRadius: '14px',
+                  border: `1px solid ${order.delayLevel >= 3 ? '#fecaca' : order.delayLevel >= 1 ? '#fde68a' : '#e2e8f0'}`,
+                  borderLeft: `4px solid ${borderLeft}`,
+                  padding: '14px 16px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                }}>
+                  <div style={{
+                    fontFamily: 'monospace', fontWeight: 700, fontSize: '14px',
+                    color: '#0f172a', marginBottom: '8px', wordBreak: 'break-all',
+                    letterSpacing: '0.02em', lineHeight: 1.4,
+                  }}>
+                    {order.trackingNumber}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <PlatformBadge platform={order.platform} />
+                    <DelayBadge level={order.delayLevel} />
+                    {order.assignedAt && (
+                      <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto', fontWeight: 500 }}>
+                        {formatTime(order.assignedAt)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── Camera overlay ── */}

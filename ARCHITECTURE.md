@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.28.5  
-> **Date:** 2026-04-25  
-> **Status:** In development — `/marketing-report` ChartsGrid now has a 5th chart **"Live Orders by Agent"** (purple `BarChart`, alongside Direct Sales / Live Hours / Daily Posts / Multi-Metric Radar). Backend `marketingReportService.getLeaderboard` aggregates `SalesLiveSellingMetric.orders` per agent; field `liveSellingOrders: number` added to `AgentMetrics` + `LeaderboardRow`. Inherits the existing date-range and Today auto-refresh. (v2.28.5)
+> **Version:** 2.29.0  
+> **Date:** 2026-04-26  
+> **Status:** In development — **Packer flow rebuilt**: shared queue replaced with per-packer pre-assignment (mirrors picker flow). `OrderStatus.PACKER_ASSIGNED` finally activated. New `/packer-admin/{assign,bulk-assign,scan,handheld-bulk-scan,pending-staged,unassign}` endpoints; new `/packer-admin-scan` phone page with green theme; PackerAdmin desktop gains Scan & Stage section + per-row PACKER_ASSIGNED badge; PackerMobile shows assigned-only list with empty-state copy "Waiting for admin to assign orders". Bug fix: ScanLogin now routes PACKER_ADMIN to `/packer-admin-scan` (was `/packer-admin`). Status flow `PICKER_COMPLETE → PACKER_ASSIGNED → PACKER_COMPLETE → OUTBOUND` (auto-dispatch preserved). Remove still auto-reassigns to original picker for either PACKER_ASSIGNED or PACKER_COMPLETE per user decision. (v2.29.0)
 
 ---
 

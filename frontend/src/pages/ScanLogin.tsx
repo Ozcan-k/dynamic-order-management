@@ -9,7 +9,7 @@ function getScanRoute(role: string): string {
     case 'ADMIN':
     case 'INBOUND_ADMIN':  return '/inbound-scan'
     case 'PICKER_ADMIN':   return '/picker-admin-scan'
-    case 'PACKER_ADMIN':   return '/packer-admin'
+    case 'PACKER_ADMIN':   return '/packer-admin-scan'
     case 'PICKER':         return '/picker'
     case 'PACKER':         return '/packer'
     default:               return '/unauthorized'
