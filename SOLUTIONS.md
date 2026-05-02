@@ -5,93 +5,59 @@ When the same issue appears again, check here first.
 
 ---
 
-## ⏳ PENDING MERGE — v2.29.0 Packer Pre-assignment Workflow
+## ✅ DEPLOYED — v2.29.0 Packer Pre-assignment Workflow (2026-05-02)
 
-**Status:** code complete on `test` branch, awaiting user merge approval to `main`.
-User explicitly said merge will happen later: *"marge daha sonra yapacagiz."*
+**Status:** Merged `test → main`, tagged `v2.29.0`, CD deployed to Vultr,
+post-deploy verification passed.
 
-### What's pending
+### Deploy facts
 
 | | Value |
 |---|---|
-| Branch | `test` at `35bda7f` |
-| Tag on test | `v2.29.0-test` (SHA `35bda7f`) |
-| Plan file | `C:\Users\okili\.claude\plans\goofy-snacking-iverson.md` |
+| Merge commit | `13fb7c2` (no-ff merge) |
+| Tag | `v2.29.0` (also `v2.29.0-test` on test SHA `35bda7f`) |
 | Files changed | 11 (10 modified + 1 new `PackerAdminScan.tsx`) |
 | Diff size | +1107 / -91 |
+| Plan file | `C:\Users\okili\.claude\plans\goofy-snacking-iverson.md` |
+| Verified | Backend `Up 3 minutes` post-rebuild · `:3000` LISTEN · `/health` ok · git HEAD = merge commit |
 
-### What it does (one-paragraph reminder)
+### What it did (one-paragraph reminder)
 
-Replaces the packer shared queue with per-packer pre-assignment. Packer Admin
-gets a new phone scan station (`/packer-admin-scan`, green theme) plus a desktop
+Replaced the packer shared queue with per-packer pre-assignment. Packer Admin
+got a new phone scan station (`/packer-admin-scan`, green theme) plus a desktop
 Scan & Stage section that mirrors PickerAdmin. Packers see only their own
 assigned orders on `/packer` and scan to complete (which still auto-dispatches
-to OUTBOUND — preserves today's behavior). Activates the long-defined-but-unused
+to OUTBOUND — preserves prior behavior). Activated the long-defined-but-unused
 `OrderStatus.PACKER_ASSIGNED` enum value. ScanLogin bug fix included:
 PACKER_ADMIN now routes to `/packer-admin-scan` (was wrongly routing to the
 desktop URL `/packer-admin`).
 
-### Merge command (when user gives the green light)
+### Deploy timing
 
-```bash
-cd "/c/Users/okili/OneDrive/Documents/Programs/dynamic-order-management"
-git checkout main && git pull origin main --rebase
-git merge test --no-ff -m "merge: v2.29.0 packer pre-assignment workflow + phone scan (test -> main)"
-git tag v2.29.0
-git push origin main && git push origin v2.29.0
-```
+Deploy ran **2026-05-02 ~04:00 PHT** (well before mesai start) so the
+empty-queue gap between CD completion and admin sweep was invisible to
+packers. Lesson: this kind of state-shape change must always be deployed
+in the off-hours window.
 
-**Push the specific tag, not `--tags`** — the old stale `v1.2.0-test` local tag
-will reject `--tags` again (cosmetic; just push the tag explicitly).
+### Rollback (kept here for reference if regression appears)
 
-### Critical pre-merge reminder
-
-**Deploy outside operating hours.** Between the moment CD finishes and the
-moment admin completes the assignment sweep, packer phones show **empty
-queues** because no PACKER_ASSIGNED rows exist yet. The user already
-acknowledged and agreed to this trade-off in plan mode.
-
-### Post-merge runbook (admin must do this once after CD)
-
-1. CD finishes (`docker compose up -d --build` rebuilds; `dom_backend`
-   restarts ~30s). Don't trust `(healthy)` flag — use
-   `ss -tlnp | grep 3000` per `feedback_verify_deploy.md`.
-2. Admin opens `https://domwarehouse.com/packer-admin` (desktop) **or**
-   `/scan` on phone → redirects to `/packer-admin-scan`.
-3. Admin uses Scan & Stage to scan every printed waybill on the bench;
-   each scan stages an order; pick a packer; click "Assign N Staged Orders".
-4. Verify packer phones show their items (15s refetch or instant socket
-   `order:assigned`).
-
-### Rollback if anything breaks
-
-Two paths, both reversible:
 1. **Quick fix** — revert `packerService.getMyOrders` to call the old
    `getPickerCompleteOrders` (1-line change), redeploy. Restores shared
    queue immediately.
-2. **Full rollback** — `git revert <merge-commit>` on main + push. CD
-   redeploys v2.28.5. PACKER_ASSIGNED rows created during the prod window
-   are harmless after revert (status rolls back to PICKER_COMPLETE; the
+2. **Full rollback** — `git revert 13fb7c2` on main + push. CD redeploys
+   v2.28.5. PACKER_ASSIGNED rows created during the prod window are
+   harmless after revert (status rolls back to PICKER_COMPLETE; the
    completion path simply creates the legacy completion row).
 
-### Memory rules to apply at merge time
-
-- `feedback_docs_sync.md` — ARCHITECTURE.md + CLAUDE.md already updated in
-  the same commit on test. ✓
-- `project_github.md` — push to test done. Merge → tag `v2.29.0` → push
-  main + tag. (`v2.29.0-test` already on remote.)
-- After merge, update memory `project_phase9.md` and `MEMORY.md` index to
-  reflect v2.29.0 live status.
-
-### Note on version slot
+### Version-slot reuse note
 
 The "PENDING — v2.29.0 Reports heavy-query refactor" entry below was
-**reserved** for that refactor at the time it was deferred (2026-04-23).
+reserved for that refactor at the time it was deferred (2026-04-23).
 That refactor was never picked up because the v2.28.1 pool fix appears to
-have resolved the 500s. The v2.29.0 slot has now been used by this packer
-workflow change. **If the reports refactor ever needs to ship, use v2.29.1
-or v2.30.0.** The technical content of that pending entry is still valid
-as instructions for the refactor; only the version label is stale.
+have resolved the 500s. The v2.29.0 slot was used by this packer workflow.
+**If the reports refactor ever needs to ship, use v2.29.1 or v2.30.0.**
+The technical content of that pending entry is still valid as instructions
+for the refactor; only the version label is stale.
 
 ---
 
