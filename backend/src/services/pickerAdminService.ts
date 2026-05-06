@@ -307,7 +307,7 @@ export async function getPickerStats(tenantId: string) {
                 status: OrderStatus.PICKER_ASSIGNED,
                 statusHistory: {
                   some: {
-                    fromStatus: OrderStatus.PICKER_COMPLETE,
+                    fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
                     toStatus: OrderStatus.PICKER_ASSIGNED,
                   },
                 },
@@ -346,7 +346,7 @@ export async function getPickerStats(tenantId: string) {
         status: OrderStatus.PICKER_ASSIGNED,
         statusHistory: {
           some: {
-            fromStatus: OrderStatus.PICKER_COMPLETE,
+            fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
             toStatus: OrderStatus.PICKER_ASSIGNED,
           },
         },

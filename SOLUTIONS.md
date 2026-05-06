@@ -5,6 +5,63 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-06] PickerAdmin "↩ Returned" badge invisible for orders removed from `PACKER_ASSIGNED` state
+
+### Problem
+Operator reported that on the PickerAdmin page, when packer-admin clicked "Remove" on an order that was already assigned to a packer, the "Returned" badge briefly appeared next to the picker (frontend optimistic update), then disappeared within ~10 s without the picker completing the order. Pickers reported confusion about whether they should re-pick the order.
+
+### Root Cause
+`getPickerStats` in `backend/src/services/pickerAdminService.ts` (two places: per-picker `returned` count + tenant-level `returnedCount`) filtered the "returned" condition with:
+```ts
+statusHistory: {
+  some: { fromStatus: PICKER_COMPLETE, toStatus: PICKER_ASSIGNED }
+}
+```
+But `packerAdminService.removeOrder` writes the history entry as `(order.status BEFORE remove) → PICKER_ASSIGNED`. Two cases:
+
+| Order state when "Remove" pressed | History entry written | Matches filter? |
+|---|---|---|
+| `PICKER_COMPLETE` (in packer queue, not yet packer-assigned) | `PICKER_COMPLETE → PICKER_ASSIGNED` | ✅ yes — badge shows |
+| **`PACKER_ASSIGNED`** (already with a packer) | **`PACKER_ASSIGNED → PICKER_ASSIGNED`** | **❌ no — badge missing** |
+| `PACKER_COMPLETE` (already packed, pre-dispatch) | `PACKER_COMPLETE → PICKER_ASSIGNED` | ❌ no |
+
+In a 7-day prod sample: 112 returns matched the filter (visible), 12 returns from `PACKER_ASSIGNED` were silently invisible.
+
+### Diagnostic queries
+```sql
+-- distribution of return-type transitions
+SELECT from_status, to_status, COUNT(*) FROM order_status_history
+WHERE to_status = 'PICKER_ASSIGNED' AND changed_at > NOW() - INTERVAL '7 days'
+GROUP BY 1,2 ORDER BY 3 DESC;
+
+-- currently-active returns per picker (post-fix should match the UI badge counts)
+SELECT u.username, COUNT(*) FROM picker_assignments pa
+JOIN users u ON u.id = pa.picker_id JOIN orders o ON o.id = pa.order_id
+WHERE pa.completed_at IS NULL AND o.status = 'PICKER_ASSIGNED' AND o.archived_at IS NULL
+  AND EXISTS (SELECT 1 FROM order_status_history h WHERE h.order_id = o.id
+     AND h.from_status IN ('PICKER_COMPLETE','PACKER_ASSIGNED','PACKER_COMPLETE')
+     AND h.to_status = 'PICKER_ASSIGNED')
+GROUP BY 1;
+```
+
+### Fix
+Widen the `fromStatus` filter to all three "return-source" statuses in both occurrences inside `getPickerStats`:
+```ts
+fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
+toStatus: OrderStatus.PICKER_ASSIGNED,
+```
+`INBOUND → PICKER_ASSIGNED` (the initial assignment, ~9k/day) is still excluded — correct, that's not a return.
+
+### Rule
+**Anywhere a query keys off "this order was returned to a picker", filter on `toStatus = PICKER_ASSIGNED` AND `fromStatus IN {PICKER_COMPLETE, PACKER_ASSIGNED, PACKER_COMPLETE}`.** A single `fromStatus = PICKER_COMPLETE` filter only covers one of three legitimate return entry points and silently undercounts.
+
+### Files Affected
+- `backend/src/services/pickerAdminService.ts` (lines 308–313 and 347–352)
+
+Shipped as **v2.31.3**.
+
+---
+
 ## [2026-05-06] `prisma db push` in CD failed silently — `--schema` flag missing for monorepo `WORKDIR=/app`
 
 ### Problem
@@ -29,7 +86,7 @@ docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --
 # expected: 🚀  Your database is now in sync with your Prisma schema.
 ```
 
-Permanent fix (planned v2.31.3): edit `.github/workflows/cd.yml` line 86 to add the `--schema=backend/prisma/schema.prisma` flag. After this lands, future deploys auto-sync schema.
+Permanent fix (shipped v2.31.3): `.github/workflows/cd.yml` line 86 now includes `--schema=backend/prisma/schema.prisma`. Future deploys auto-sync schema.
 
 ### Why we didn't catch this in CI
 CI runs `tsc --noEmit`, not `db push`. There's no environment in CI that mirrors prod's empty-schema starting state. Until we add a smoke test that hits a route requiring a recently-added table, this kind of silent failure repeats.
