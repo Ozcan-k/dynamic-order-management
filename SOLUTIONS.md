@@ -5,6 +5,45 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-05] Local `https://localhost:5173` returns 403 Forbidden — `localhost` missing from Vite `allowedHosts`
+
+### Problem
+After v2.30.0 added `allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com']` to `frontend/vite.config.ts` (production host check fix), local dev started returning **HTTP 403** for every request to `https://localhost:5173/`. `curl -k https://localhost:5173/` returned 403, browser showed a blank Forbidden page even though `dom_frontend` container was up and Vite logs showed `ready in N ms`.
+
+### Root Cause
+Vite 5 enforces a strict host-header check when `server.allowedHosts` is set as an explicit array. Any incoming request whose `Host` header is not in the allowlist is rejected with 403 — even `localhost`. The production fix added only the public hostnames and forgot to keep `localhost` / `127.0.0.1`, so dev was silently broken until someone tried to open the site locally.
+
+### Fix
+Add `localhost` and `127.0.0.1` to the allowlist in `frontend/vite.config.ts`:
+
+```typescript
+server: {
+  allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com', 'localhost', '127.0.0.1'],
+}
+```
+
+Apply to running container (vite.config.ts is not in the volume mount — see [2026-05-04] entry):
+
+```bash
+docker cp frontend/vite.config.ts dom_frontend:/app/frontend/vite.config.ts
+docker restart dom_frontend
+curl -sk -o /dev/null -w "%{http_code}\n" https://localhost:5173/   # expect 200
+```
+
+### Diagnostic tip
+- `curl -k https://localhost:5173/` returning 403 with `dom_frontend` up + Vite logs healthy = host-header rejection. First place to check is `server.allowedHosts` in `vite.config.ts`.
+- Browser hard-refresh (`Ctrl+Shift+R`) or incognito window is required after the fix — browsers cache 403 responses aggressively.
+
+### Rule
+**When `allowedHosts` is set as an array, it must include every host you intend to access from**, including dev hosts. The default (`true` / no setting) accepts everything; only switch to an array when you explicitly need to restrict.
+
+### Files Affected
+- `frontend/vite.config.ts:39`
+
+Shipped as **v2.31.1**.
+
+---
+
 ## [2026-05-04] Vite proxy config edits don't propagate to dom_frontend container
 
 ### Problem
