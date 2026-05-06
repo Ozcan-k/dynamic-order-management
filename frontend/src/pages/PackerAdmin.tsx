@@ -43,6 +43,7 @@ interface PackerStat {
   packer: { id: string; username: string }
   completed: number
   completedToday: number
+  assigned: number
 }
 
 interface PackerOrderRow {
@@ -224,6 +225,7 @@ function PackerOrdersModal({
 // ─── Per-packer stat card ────────────────────────────────────────────────────
 
 function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => void }) {
+  const hasOrders = stat.assigned > 0 || stat.completedToday > 0
 
   return (
     <div
@@ -239,22 +241,33 @@ function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => vo
             {stat.packer.username}
           </div>
           <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
-            {stat.completedToday} packed today
+            {stat.assigned} active · {stat.completedToday} packed today
           </div>
         </div>
-        {stat.completedToday > 0 && (
+        {/* Total active badge — mirrors PickerStatCard */}
+        {stat.assigned > 0 && (
           <span style={{
-            background: '#d1fae5', color: '#065f46',
+            background: '#dbeafe', color: '#1d4ed8',
             borderRadius: '9999px', padding: '2px 8px',
             fontSize: '12px', fontWeight: 700, flexShrink: 0,
           }}>
-            {stat.completedToday}
+            {stat.assigned}
           </span>
         )}
       </div>
 
-      {/* Status chip */}
+      {/* Status chips */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: '5px',
+          background: '#dbeafe', color: '#1e40af',
+          borderRadius: '6px', padding: '4px 8px',
+          fontSize: '11px', fontWeight: 600,
+          opacity: stat.assigned === 0 ? 0.45 : 1,
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6', flexShrink: 0 }} />
+          Assigned: {stat.assigned}
+        </div>
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '5px',
           background: '#d1fae5', color: '#065f46',
@@ -262,14 +275,28 @@ function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => vo
           fontSize: '11px', fontWeight: 600,
           opacity: stat.completedToday === 0 ? 0.45 : 1,
         }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669', flexShrink: 0 }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
           Done Today: {stat.completedToday}
         </div>
       </div>
 
-      {stat.completedToday === 0 && (
+      {/* Completion progress bar */}
+      {hasOrders && (
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ height: '4px', borderRadius: '9999px', background: colors.border, overflow: 'hidden', display: 'flex', gap: '2px' }}>
+            {stat.assigned > 0 && (
+              <div style={{ flex: stat.assigned, background: '#3b82f6', transition: 'flex 0.4s ease' }} />
+            )}
+            {stat.completedToday > 0 && (
+              <div style={{ flex: stat.completedToday, background: '#10b981', transition: 'flex 0.4s ease' }} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {!hasOrders && (
         <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '8px', fontStyle: 'italic' }}>
-          No orders packed yet
+          No orders assigned
         </div>
       )}
 
