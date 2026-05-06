@@ -5,6 +5,50 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-06] `prisma db push` in CD failed silently — `--schema` flag missing for monorepo `WORKDIR=/app`
+
+### Problem
+After v2.31.2 (test → main merge with the new `db push` line), prod deploy succeeded for code (frontend + backend running new code) but **schema didn't sync**. First user action on Products page returned: `Invalid prisma.productCategory.create() invocation: The table public.product_categories does not exist`. Tables were never created.
+
+### Root Cause
+`backend/Dockerfile` sets `WORKDIR /app` (monorepo root). The Prisma schema lives at `/app/backend/prisma/schema.prisma`. When CD runs `docker exec dom_backend npx prisma db push ...`, Prisma searches for the schema relative to cwd — i.e. it looks for `/app/schema.prisma` and `/app/prisma/schema.prisma`, both 404. It exits with `Error: Could not find Prisma Schema`.
+
+The CD's SSH script (`appleboy/ssh-action`) seems to continue past intermediate command failures by default, so the deploy step still reported green even though `db push` had crashed. The earlier `migrate deploy || true` line had been hiding the same path issue for weeks (no surprise — the project never had migration files for it to apply).
+
+### Fix
+Run `db push` with explicit schema path:
+```bash
+docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
+```
+
+Manual hotfix (one-off after the v2.31.2 deploy):
+```bash
+ssh root@45.32.107.63
+cd /opt/dom
+docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
+# expected: 🚀  Your database is now in sync with your Prisma schema.
+```
+
+Permanent fix (planned v2.31.3): edit `.github/workflows/cd.yml` line 86 to add the `--schema=backend/prisma/schema.prisma` flag. After this lands, future deploys auto-sync schema.
+
+### Why we didn't catch this in CI
+CI runs `tsc --noEmit`, not `db push`. There's no environment in CI that mirrors prod's empty-schema starting state. Until we add a smoke test that hits a route requiring a recently-added table, this kind of silent failure repeats.
+
+### Diagnostic tip
+After any deploy that should change schema:
+```bash
+docker exec dom_postgres psql -U postgres -d dom -c "\dt"
+```
+If a table you expect is missing, the schema-sync step didn't run. Don't trust green CD when the manifest of changed tables isn't present in the DB.
+
+### Rule
+**Whenever a Prisma command runs from the monorepo root (`/app`), pass `--schema=backend/prisma/schema.prisma` explicitly.** The schema is not at the cwd. This applies to `db push`, `migrate deploy`, `migrate dev`, `generate`, etc. Dockerfile builder stage already does this on line 19 (`RUN npx prisma generate --schema=backend/prisma/schema.prisma`); the CD script must do the same.
+
+### Files Affected
+- `.github/workflows/cd.yml` (pending v2.31.3)
+
+---
+
 ## [2026-05-05] CD switched from `prisma migrate deploy` to `prisma db push` — incomplete migration would brick prod
 
 ### Problem
