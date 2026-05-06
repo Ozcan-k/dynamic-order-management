@@ -5,6 +5,107 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-06] PickerAdmin "↩ Returned" badge invisible for orders removed from `PACKER_ASSIGNED` state
+
+### Problem
+Operator reported that on the PickerAdmin page, when packer-admin clicked "Remove" on an order that was already assigned to a packer, the "Returned" badge briefly appeared next to the picker (frontend optimistic update), then disappeared within ~10 s without the picker completing the order. Pickers reported confusion about whether they should re-pick the order.
+
+### Root Cause
+`getPickerStats` in `backend/src/services/pickerAdminService.ts` (two places: per-picker `returned` count + tenant-level `returnedCount`) filtered the "returned" condition with:
+```ts
+statusHistory: {
+  some: { fromStatus: PICKER_COMPLETE, toStatus: PICKER_ASSIGNED }
+}
+```
+But `packerAdminService.removeOrder` writes the history entry as `(order.status BEFORE remove) → PICKER_ASSIGNED`. Two cases:
+
+| Order state when "Remove" pressed | History entry written | Matches filter? |
+|---|---|---|
+| `PICKER_COMPLETE` (in packer queue, not yet packer-assigned) | `PICKER_COMPLETE → PICKER_ASSIGNED` | ✅ yes — badge shows |
+| **`PACKER_ASSIGNED`** (already with a packer) | **`PACKER_ASSIGNED → PICKER_ASSIGNED`** | **❌ no — badge missing** |
+| `PACKER_COMPLETE` (already packed, pre-dispatch) | `PACKER_COMPLETE → PICKER_ASSIGNED` | ❌ no |
+
+In a 7-day prod sample: 112 returns matched the filter (visible), 12 returns from `PACKER_ASSIGNED` were silently invisible.
+
+### Diagnostic queries
+```sql
+-- distribution of return-type transitions
+SELECT from_status, to_status, COUNT(*) FROM order_status_history
+WHERE to_status = 'PICKER_ASSIGNED' AND changed_at > NOW() - INTERVAL '7 days'
+GROUP BY 1,2 ORDER BY 3 DESC;
+
+-- currently-active returns per picker (post-fix should match the UI badge counts)
+SELECT u.username, COUNT(*) FROM picker_assignments pa
+JOIN users u ON u.id = pa.picker_id JOIN orders o ON o.id = pa.order_id
+WHERE pa.completed_at IS NULL AND o.status = 'PICKER_ASSIGNED' AND o.archived_at IS NULL
+  AND EXISTS (SELECT 1 FROM order_status_history h WHERE h.order_id = o.id
+     AND h.from_status IN ('PICKER_COMPLETE','PACKER_ASSIGNED','PACKER_COMPLETE')
+     AND h.to_status = 'PICKER_ASSIGNED')
+GROUP BY 1;
+```
+
+### Fix
+Widen the `fromStatus` filter to all three "return-source" statuses in both occurrences inside `getPickerStats`:
+```ts
+fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
+toStatus: OrderStatus.PICKER_ASSIGNED,
+```
+`INBOUND → PICKER_ASSIGNED` (the initial assignment, ~9k/day) is still excluded — correct, that's not a return.
+
+### Rule
+**Anywhere a query keys off "this order was returned to a picker", filter on `toStatus = PICKER_ASSIGNED` AND `fromStatus IN {PICKER_COMPLETE, PACKER_ASSIGNED, PACKER_COMPLETE}`.** A single `fromStatus = PICKER_COMPLETE` filter only covers one of three legitimate return entry points and silently undercounts.
+
+### Files Affected
+- `backend/src/services/pickerAdminService.ts` (lines 308–313 and 347–352)
+
+Shipped as **v2.31.3**.
+
+---
+
+## [2026-05-06] `prisma db push` in CD failed silently — `--schema` flag missing for monorepo `WORKDIR=/app`
+
+### Problem
+After v2.31.2 (test → main merge with the new `db push` line), prod deploy succeeded for code (frontend + backend running new code) but **schema didn't sync**. First user action on Products page returned: `Invalid prisma.productCategory.create() invocation: The table public.product_categories does not exist`. Tables were never created.
+
+### Root Cause
+`backend/Dockerfile` sets `WORKDIR /app` (monorepo root). The Prisma schema lives at `/app/backend/prisma/schema.prisma`. When CD runs `docker exec dom_backend npx prisma db push ...`, Prisma searches for the schema relative to cwd — i.e. it looks for `/app/schema.prisma` and `/app/prisma/schema.prisma`, both 404. It exits with `Error: Could not find Prisma Schema`.
+
+The CD's SSH script (`appleboy/ssh-action`) seems to continue past intermediate command failures by default, so the deploy step still reported green even though `db push` had crashed. The earlier `migrate deploy || true` line had been hiding the same path issue for weeks (no surprise — the project never had migration files for it to apply).
+
+### Fix
+Run `db push` with explicit schema path:
+```bash
+docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
+```
+
+Manual hotfix (one-off after the v2.31.2 deploy):
+```bash
+ssh root@45.32.107.63
+cd /opt/dom
+docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
+# expected: 🚀  Your database is now in sync with your Prisma schema.
+```
+
+Permanent fix (shipped v2.31.3): `.github/workflows/cd.yml` line 86 now includes `--schema=backend/prisma/schema.prisma`. Future deploys auto-sync schema.
+
+### Why we didn't catch this in CI
+CI runs `tsc --noEmit`, not `db push`. There's no environment in CI that mirrors prod's empty-schema starting state. Until we add a smoke test that hits a route requiring a recently-added table, this kind of silent failure repeats.
+
+### Diagnostic tip
+After any deploy that should change schema:
+```bash
+docker exec dom_postgres psql -U postgres -d dom -c "\dt"
+```
+If a table you expect is missing, the schema-sync step didn't run. Don't trust green CD when the manifest of changed tables isn't present in the DB.
+
+### Rule
+**Whenever a Prisma command runs from the monorepo root (`/app`), pass `--schema=backend/prisma/schema.prisma` explicitly.** The schema is not at the cwd. This applies to `db push`, `migrate deploy`, `migrate dev`, `generate`, etc. Dockerfile builder stage already does this on line 19 (`RUN npx prisma generate --schema=backend/prisma/schema.prisma`); the CD script must do the same.
+
+### Files Affected
+- `.github/workflows/cd.yml` (pending v2.31.3)
+
+---
+
 ## [2026-05-05] CD switched from `prisma migrate deploy` to `prisma db push` — incomplete migration would brick prod
 
 ### Problem

@@ -1,6 +1,6 @@
 # Inventory Module
 
-> **Status:** ✅ v2.31.0 — local'de çalışır halde, henüz commit/push edilmedi (CLAUDE.md kuralı: kullanıcı `test` push iznini bekliyor).
+> **Status:** ✅ LIVE on https://domwarehouse.com (v2.31.2, 2026-05-06). Schema sync via `prisma db push`; module + STOCK_KEEPER role + 4 admin pages + scan state machine all in production.
 > **Sticker standard:** Avery L7173 / J8173 (A4, 10 stickers/sheet, 99.1 × 57 mm)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
 

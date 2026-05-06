@@ -83,5 +83,5 @@ jobs:
             cd /opt/dom
             git pull origin main
             docker compose up -d --build --remove-orphans
-            docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate
+            docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
             docker image prune -f
