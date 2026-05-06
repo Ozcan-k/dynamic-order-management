@@ -356,15 +356,22 @@ export async function getPackerStats(tenantId: string) {
     Promise.all(
       packers.map(async (packer) => {
         const today = getManilaStartOfToday()
-        const [completedCount, completedToday] = await Promise.all([
+        const [completedCount, completedToday, assignedCount] = await Promise.all([
           prisma.packerAssignment.count({
             where: { packerId: packer.id, completedAt: { not: null } },
           }),
           prisma.packerAssignment.count({
             where: { packerId: packer.id, completedAt: { gte: today } },
           }),
+          prisma.packerAssignment.count({
+            where: {
+              packerId: packer.id,
+              completedAt: null,
+              order: { tenantId, archivedAt: null, status: OrderStatus.PACKER_ASSIGNED },
+            },
+          }),
         ])
-        return { packer, completed: completedCount, completedToday }
+        return { packer, completed: completedCount, completedToday, assigned: assignedCount }
       }),
     ),
     // Count all packer assignments ever completed (including already dispatched orders)
