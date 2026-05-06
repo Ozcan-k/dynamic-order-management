@@ -86,6 +86,14 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     badgeText: '#166534',
     hasEmail: false,
   },
+  [UserRole.STOCK_KEEPER]: {
+    label: 'Stock Keeper',
+    pluralLabel: 'Stock Keepers',
+    color: '#0891b2',
+    badgeBg: '#cffafe',
+    badgeText: '#155e75',
+    hasEmail: false,
+  },
 }
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -763,8 +771,21 @@ export default function Settings() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
             gap: '14px',
+            marginBottom: '32px',
           }}>
             <UserRoleCard role={UserRole.SALES_AGENT} users={byRole(UserRole.SALES_AGENT)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+          </div>
+
+          <SectionHeader
+            title="Stock Keepers"
+            desc="Stock keepers scan QR labels on warehouse boxes (incoming and outgoing) using the mobile scan station."
+          />
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '14px',
+          }}>
+            <UserRoleCard role={UserRole.STOCK_KEEPER} users={byRole(UserRole.STOCK_KEEPER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
         </>
       )}

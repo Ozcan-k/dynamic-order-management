@@ -20,6 +20,11 @@ import SalesDashboard from './pages/SalesDashboard'
 import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
+import Products from './pages/inventory/Products'
+import InventoryItems from './pages/inventory/InventoryItems'
+import Warehouses from './pages/inventory/Warehouses'
+import StockSummary from './pages/inventory/StockSummary'
+import StockScan from './pages/StockScan'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -199,6 +204,54 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
                 <AppLayout><MarketingReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Inventory module — Product / Inventory / Warehouse / Stock */}
+          <Route
+            path="/inventory"
+            element={<Navigate to="/inventory/stock" replace />}
+          />
+          <Route
+            path="/inventory/products"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><Products /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/items"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><InventoryItems /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/warehouses"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><Warehouses /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/stock"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><StockSummary /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Legacy /stock routes redirect into the new module */}
+          <Route path="/stock" element={<Navigate to="/inventory/stock" replace />} />
+          <Route path="/stock/create" element={<Navigate to="/inventory/items" replace />} />
+          <Route
+            path="/stock/scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.STOCK_KEEPER]}>
+                <StockScan />
               </ProtectedRoute>
             }
           />

@@ -24,6 +24,9 @@ import reportsRoutes from './routes/reports'
 import archiveRoutes from './routes/archive'
 import salesRoutes from './routes/sales'
 import marketingRoutes from './routes/marketing'
+import stockRoutes from './routes/stock'
+import productRoutes from './routes/products'
+import warehouseRoutes from './routes/warehouses'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -54,6 +57,9 @@ async function start() {
   await fastify.register(archiveRoutes, { prefix: '/archive' })
   await fastify.register(salesRoutes, { prefix: '/sales' })
   await fastify.register(marketingRoutes, { prefix: '/marketing' })
+  await fastify.register(stockRoutes, { prefix: '/stock' })
+  await fastify.register(productRoutes, { prefix: '/products' })
+  await fastify.register(warehouseRoutes, { prefix: '/warehouses' })
   if (process.env.NODE_ENV !== 'production') {
     await fastify.register(devTestRoutes)
   }

@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, type ReactNode } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
@@ -75,6 +75,14 @@ const ArchiveIcon = () => (
   </svg>
 )
 
+const StockIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+    <line x1="12" y1="22.08" x2="12" y2="12" />
+  </svg>
+)
+
 const SalesDashboardIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -137,6 +145,7 @@ interface NavItem {
   label: string
   icon: ReactNode
   roles: string[]
+  children?: NavItem[]
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -181,6 +190,18 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Archive',
     icon: <ArchiveIcon />,
     roles: [UserRole.ADMIN],
+  },
+  {
+    path: '/inventory',
+    label: 'Inventory',
+    icon: <StockIcon />,
+    roles: [UserRole.ADMIN],
+    children: [
+      { path: '/inventory/products', label: 'Product', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/items', label: 'Inventory', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/warehouses', label: 'Warehouse', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/stock', label: 'Stock', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+    ],
   },
   {
     path: '/sales',
@@ -236,11 +257,20 @@ export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
   const navigate = useNavigate()
+  const location = useLocation()
   const { isOpen, close } = useMobileSidebar()
 
   const visibleItems = NAV_ITEMS.filter(item =>
     user?.role && item.roles.includes(user.role)
   )
+
+  // Auto-expand any parent whose path is the active route prefix
+  const initialExpanded: Record<string, boolean> = {}
+  for (const it of visibleItems) {
+    if (it.children && location.pathname.startsWith(it.path)) initialExpanded[it.path] = true
+  }
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(initialExpanded)
+  const toggle = (path: string) => setExpanded((e) => ({ ...e, [path]: !e[path] }))
 
   async function handleLogout() {
     navigate(getLoginRedirect(), { replace: true })
@@ -279,19 +309,53 @@ export default function Sidebar() {
 
       {/* Nav links */}
       <div className="sidebar-nav">
-        {visibleItems.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={close}
-            className={({ isActive }) =>
-              ['sidebar-link', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
-            }
-          >
-            <span className="sidebar-link-icon">{item.icon}</span>
-            <span className="sidebar-link-label">{item.label}</span>
-          </NavLink>
-        ))}
+        {visibleItems.map(item => {
+          if (item.children && item.children.length > 0) {
+            const visibleChildren = item.children.filter((c) => user?.role && c.roles.includes(user.role))
+            const isOpenParent = !!expanded[item.path]
+            const isActiveParent = location.pathname.startsWith(item.path)
+            return (
+              <div key={item.path}>
+                <button
+                  type="button"
+                  onClick={() => toggle(item.path)}
+                  className={['sidebar-link', isActiveParent ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <span className="sidebar-link-icon">{item.icon}</span>
+                  <span className="sidebar-link-label" style={{ flex: 1 }}>{item.label}</span>
+                  <span style={{ fontSize: 10, opacity: 0.7, transform: isOpenParent ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▾</span>
+                </button>
+                {isOpenParent && visibleChildren.map((child) => (
+                  <NavLink
+                    key={child.path}
+                    to={child.path}
+                    onClick={close}
+                    className={({ isActive }) =>
+                      ['sidebar-link', 'sidebar-link--child', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
+                    }
+                    style={{ paddingLeft: 36 }}
+                  >
+                    <span className="sidebar-link-label">{child.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )
+          }
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              onClick={close}
+              className={({ isActive }) =>
+                ['sidebar-link', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
+              }
+            >
+              <span className="sidebar-link-icon">{item.icon}</span>
+              <span className="sidebar-link-label">{item.label}</span>
+            </NavLink>
+          )
+        })}
       </div>
 
       {/* Bottom: user + logout */}

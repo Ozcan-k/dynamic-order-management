@@ -18,6 +18,23 @@ enum UserRole {
   PICKER
   PACKER
   SALES_AGENT
+  STOCK_KEEPER
+}
+
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+}
+
+enum StockUnit {
+  KG
+  PCS
+}
+
+enum MovementType {
+  IN
+  USED
+  TRANSFER
 }
 
 enum SalesPlatform {
@@ -86,15 +103,15 @@ model User {
   createdById  String?  @map("created_by")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  tenant     Tenant @relation(fields: [tenantId], references: [id])
-  createdBy  User?  @relation("UserCreatedBy", fields: [createdById], references: [id])
+  tenant       Tenant @relation(fields: [tenantId], references: [id])
+  createdBy    User?  @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdUsers User[] @relation("UserCreatedBy")
 
-  scannedOrders        Order[]           @relation("ScannedBy")
-  pickerAssignments    PickerAssignment[] @relation("PickerUser")
-  pickerAssignedByMe   PickerAssignment[] @relation("PickerAssignedBy")
-  packerAssignments    PackerAssignment[] @relation("PackerUser")
-  packerAssignedByMe   PackerAssignment[] @relation("PackerAssignedBy")
+  scannedOrders        Order[]              @relation("ScannedBy")
+  pickerAssignments    PickerAssignment[]   @relation("PickerUser")
+  pickerAssignedByMe   PickerAssignment[]   @relation("PickerAssignedBy")
+  packerAssignments    PackerAssignment[]   @relation("PackerUser")
+  packerAssignedByMe   PackerAssignment[]   @relation("PackerAssignedBy")
   statusHistoryChanges OrderStatusHistory[]
   salesActivities      SalesDailyActivity[] @relation("SalesActivityAgent")
   salesOrders          SalesDirectOrder[]   @relation("SalesOrderAgent")
@@ -122,8 +139,8 @@ model Order {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id])
-  scannedBy         User               @relation("ScannedBy", fields: [scannedById], references: [id])
+  tenant            Tenant               @relation(fields: [tenantId], references: [id])
+  scannedBy         User                 @relation("ScannedBy", fields: [scannedById], references: [id])
   statusHistory     OrderStatusHistory[]
   pickerAssignments PickerAssignment[]
   packerAssignments PackerAssignment[]
@@ -209,7 +226,7 @@ model SalesDailyActivity {
   id         String   @id @default(uuid())
   tenantId   String   @map("tenant_id")
   agentId    String   @map("agent_id")
-  reportDate DateTime @db.Date @map("report_date")
+  reportDate DateTime @map("report_date") @db.Date
   storeName  String   @map("store_name")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -272,13 +289,13 @@ model SalesDirectOrder {
   id           String      @id @default(uuid())
   tenantId     String      @map("tenant_id")
   agentId      String      @map("agent_id")
-  orderDate    DateTime    @db.Date @map("order_date")
+  orderDate    DateTime    @map("order_date") @db.Date
   storeName    String      @map("store_name")
   saleChannel  SaleChannel @map("sale_channel")
   companyName  String      @map("company_name")
   customerName String      @map("customer_name")
-  deliveryCost Decimal     @default(0) @db.Decimal(12, 2) @map("delivery_cost")
-  totalAmount  Decimal     @default(0) @db.Decimal(12, 2) @map("total_amount")
+  deliveryCost Decimal     @default(0) @map("delivery_cost") @db.Decimal(12, 2)
+  totalAmount  Decimal     @default(0) @map("total_amount") @db.Decimal(12, 2)
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
 
@@ -303,4 +320,98 @@ model SalesDirectOrderItem {
 
   @@index([productName])
   @@map("sales_direct_order_item")
+}
+
+// ─── Inventory Module ────────────────────────────────────────────────────────
+// QR-based warehouse inventory tracking with product master / warehouses /
+// reserved-stock thresholds. Independent of the Order pipeline.
+
+model ProductCategory {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_categories")
+}
+
+model Product {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  categoryId        String    @map("category_id")
+  productCode       String    @map("product_code")
+  name              String
+  defaultUnit       StockUnit @default(KG) @map("default_unit")
+  reservedThreshold Float     @default(0) @map("reserved_threshold")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  category   ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  stockItems StockItem[]
+
+  @@unique([tenantId, productCode])
+  @@index([tenantId, categoryId])
+  @@map("products")
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  address   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  stockItems    StockItem[]
+  movementsFrom StockMovement[] @relation("MovementFrom")
+  movementsTo   StockMovement[] @relation("MovementTo")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("warehouses")
+}
+
+model StockItem {
+  id          String      @id @default(uuid())
+  tenantId    String      @map("tenant_id")
+  productId   String      @map("product_id")
+  warehouseId String      @map("warehouse_id")
+  unit        StockUnit
+  quantity    Float
+  batchNumber String      @map("batch_number")
+  status      StockStatus @default(IN_STOCK)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  movements StockMovement[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, productId])
+  @@index([tenantId, warehouseId])
+  @@index([tenantId, batchNumber])
+  @@map("stock_items")
+}
+
+model StockMovement {
+  id              String       @id @default(uuid())
+  stockItemId     String       @map("stock_item_id")
+  type            MovementType
+  fromWarehouseId String?      @map("from_warehouse_id")
+  toWarehouseId   String?      @map("to_warehouse_id")
+  scannedById     String       @map("scanned_by")
+  scannedAt       DateTime     @default(now()) @map("scanned_at")
+
+  stockItem     StockItem  @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse? @relation("MovementFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse? @relation("MovementTo", fields: [toWarehouseId], references: [id])
+
+  @@index([stockItemId])
+  @@index([scannedAt])
+  @@map("stock_movements")
 }

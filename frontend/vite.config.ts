@@ -5,7 +5,7 @@ import path from 'path'
 
 const backendUrl = process.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
 
-const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive', '/sales', '/marketing']
+const proxyRoutes = ['/auth', '/users', '/orders', '/assign', '/reports', '/health', '/picker-admin', '/packer-admin', '/picker', '/packer', '/outbound', '/archive', '/sales', '/marketing', '/stock', '/products', '/warehouses']
 const proxyConfig: Record<string, object> = Object.fromEntries(
   proxyRoutes.map((route) => [route, {
     target: backendUrl,
@@ -36,7 +36,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
-    allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com'],
+    allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com', 'localhost', '127.0.0.1'],
     https: hasCerts ? { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) } : undefined,
     proxy: proxyConfig,
     watch: {
