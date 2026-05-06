@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, type ReactNode } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { UserRole } from '@dom/shared'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../api/client'
@@ -145,6 +145,7 @@ interface NavItem {
   label: string
   icon: ReactNode
   roles: string[]
+  children?: NavItem[]
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -191,10 +192,16 @@ const NAV_ITEMS: NavItem[] = [
     roles: [UserRole.ADMIN],
   },
   {
-    path: '/stock',
-    label: 'Stock Control',
+    path: '/inventory',
+    label: 'Inventory',
     icon: <StockIcon />,
     roles: [UserRole.ADMIN],
+    children: [
+      { path: '/inventory/products', label: 'Product', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/items', label: 'Inventory', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/warehouses', label: 'Warehouse', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/stock', label: 'Stock', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+    ],
   },
   {
     path: '/sales',
@@ -250,11 +257,20 @@ export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
   const navigate = useNavigate()
+  const location = useLocation()
   const { isOpen, close } = useMobileSidebar()
 
   const visibleItems = NAV_ITEMS.filter(item =>
     user?.role && item.roles.includes(user.role)
   )
+
+  // Auto-expand any parent whose path is the active route prefix
+  const initialExpanded: Record<string, boolean> = {}
+  for (const it of visibleItems) {
+    if (it.children && location.pathname.startsWith(it.path)) initialExpanded[it.path] = true
+  }
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(initialExpanded)
+  const toggle = (path: string) => setExpanded((e) => ({ ...e, [path]: !e[path] }))
 
   async function handleLogout() {
     navigate(getLoginRedirect(), { replace: true })
@@ -293,19 +309,53 @@ export default function Sidebar() {
 
       {/* Nav links */}
       <div className="sidebar-nav">
-        {visibleItems.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={close}
-            className={({ isActive }) =>
-              ['sidebar-link', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
-            }
-          >
-            <span className="sidebar-link-icon">{item.icon}</span>
-            <span className="sidebar-link-label">{item.label}</span>
-          </NavLink>
-        ))}
+        {visibleItems.map(item => {
+          if (item.children && item.children.length > 0) {
+            const visibleChildren = item.children.filter((c) => user?.role && c.roles.includes(user.role))
+            const isOpenParent = !!expanded[item.path]
+            const isActiveParent = location.pathname.startsWith(item.path)
+            return (
+              <div key={item.path}>
+                <button
+                  type="button"
+                  onClick={() => toggle(item.path)}
+                  className={['sidebar-link', isActiveParent ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <span className="sidebar-link-icon">{item.icon}</span>
+                  <span className="sidebar-link-label" style={{ flex: 1 }}>{item.label}</span>
+                  <span style={{ fontSize: 10, opacity: 0.7, transform: isOpenParent ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▾</span>
+                </button>
+                {isOpenParent && visibleChildren.map((child) => (
+                  <NavLink
+                    key={child.path}
+                    to={child.path}
+                    onClick={close}
+                    className={({ isActive }) =>
+                      ['sidebar-link', 'sidebar-link--child', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
+                    }
+                    style={{ paddingLeft: 36 }}
+                  >
+                    <span className="sidebar-link-label">{child.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )
+          }
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              onClick={close}
+              className={({ isActive }) =>
+                ['sidebar-link', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
+              }
+            >
+              <span className="sidebar-link-icon">{item.icon}</span>
+              <span className="sidebar-link-label">{item.label}</span>
+            </NavLink>
+          )
+        })}
       </div>
 
       {/* Bottom: user + logout */}

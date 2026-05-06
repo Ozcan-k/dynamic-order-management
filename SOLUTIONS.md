@@ -5,6 +5,84 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-04] Vite proxy config edits don't propagate to dom_frontend container
+
+### Problem
+After adding `/products` and `/warehouses` to `frontend/vite.config.ts` `proxyRoutes` and restarting `dom_frontend`, calls through `https://localhost:5173/products` still returned `200 text/html` (SPA fallback) instead of being proxied to the backend.
+
+### Root Cause
+`docker-compose.yml` mounts only `./frontend/src` and `./shared/src` into the frontend container — **not** `frontend/vite.config.ts`. The config file is baked into the image during `docker build`, so editing it on the host has zero effect on the running container until either (a) the image is rebuilt, or (b) the file is `docker cp`'d in and Vite is restarted.
+
+This is a sibling pitfall to the [2026-05-02] proxyRoutes rule: that rule was about "did you remember to edit the file?", but here the file *was* edited — it just never reached the container.
+
+### Fix (until docker-compose is updated)
+
+```bash
+# 1. Edit vite.config.ts on host (add the new prefix to proxyRoutes)
+# 2. Copy into the running container
+docker cp frontend/vite.config.ts dom_frontend:/app/frontend/vite.config.ts
+# 3. Restart so Vite re-reads its config
+docker restart dom_frontend
+# 4. Verify: 401 (auth required), not 404
+curl -sk -H 'Accept: application/json' -o NUL -w "%{http_code}\n" https://localhost:5173/<new-prefix>
+```
+
+### Permanent fix
+Add the file to the volumes list in `docker-compose.yml`:
+```yaml
+frontend:
+  volumes:
+    - ./frontend/vite.config.ts:/app/frontend/vite.config.ts
+    - ./frontend/src:/app/frontend/src
+    - ./shared/src:/app/shared/src
+    - ./certs:/app/certs:ro
+```
+Then a host edit will hot-reload (Vite watches the config file). Until that change is made, the docker-cp + restart workaround above is the way.
+
+### Diagnostic tip
+- `text/html` response on a `/<new-prefix>` GET = Vite SPA fallback firing → proxy isn't matching → either `proxyRoutes` is missing the prefix, OR `vite.config.ts` in the container is stale.
+- `401`/`403` = proxy IS reaching the backend → config is good, the issue is auth.
+- Use `curl -H 'Accept: application/json'` so you don't trigger the `bypass` rule that returns `index.html` to browser-style requests.
+
+---
+
+## [2026-05-02] New API endpoint returns 404 in browser but 200 from curl-to-backend
+
+### Problem
+After adding a new route prefix (e.g. `/stock`) to the backend, browser calls
+through the Vite dev server return 404 even though `curl http://localhost:3000/<new-prefix>/...`
+hits the backend correctly.
+
+### Root Cause
+`frontend/vite.config.ts` has an explicit `proxyRoutes` allowlist. Any prefix
+not in that list is served by Vite itself — which has no such route, so it
+returns 404. **The allowlist must be edited every time a new top-level route
+prefix is added to the backend.**
+
+Compounding factor: the docker-compose `frontend` service only volume-mounts
+`./frontend/src` and `./shared/src` — `vite.config.ts` lives in the image, so
+host-side edits are NOT visible to the container until you `docker cp` the
+file in (or rebuild the image).
+
+### Fix
+```bash
+# 1. Add the new prefix to proxyRoutes in frontend/vite.config.ts
+# 2. Copy the updated config into the running container (volume mount won't pick it up)
+docker cp frontend/vite.config.ts dom_frontend:/app/frontend/vite.config.ts
+
+# 3. Restart frontend so Vite re-reads its config
+docker restart dom_frontend
+
+# 4. Verify: 401 (auth required) instead of 404
+curl -sk -o /dev/null -w "%{http_code}\n" -X POST https://localhost:5173/<new-prefix>/<endpoint>
+```
+
+For permanent fix, add `./frontend/vite.config.ts:/app/frontend/vite.config.ts`
+to the frontend service's `volumes:` in `docker-compose.yml` so host-side
+edits are picked up automatically.
+
+---
+
 ## ✅ DEPLOYED — v2.29.0 Packer Pre-assignment Workflow (2026-05-02)
 
 **Status:** Merged `test → main`, tagged `v2.29.0`, CD deployed to Vultr,

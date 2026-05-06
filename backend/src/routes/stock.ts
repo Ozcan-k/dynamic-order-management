@@ -3,28 +3,32 @@ import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import {
-  createBulkItems,
+  generateLabelsPdf,
   listItems,
   scanItem,
+  deleteItem,
   listMovements,
   getStats,
+  getSummary,
 } from '../services/stockService'
 
-const CreateBulkSchema = z.object({
-  productType: z.string().min(1).max(100),
-  category: z.string().min(1).max(100),
-  weightKg: z.number().positive().max(10000),
-  quantity: z.number().int().min(1).max(500),
+const GenerateLabelsSchema = z.object({
+  productId: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  unit: z.enum(['KG', 'PCS']),
+  quantity: z.number().positive().max(10000),
+  count: z.number().int().min(1).max(500),
 })
 
 const ListItemsQuerySchema = z.object({
   status: z.enum(['IN_STOCK', 'OUT_OF_STOCK']).optional(),
-  productType: z.string().min(1).max(100).optional(),
-  category: z.string().min(1).max(100).optional(),
+  productId: z.string().uuid().optional(),
+  warehouseId: z.string().uuid().optional(),
 })
 
 const ScanSchema = z.object({
-  stockItemId: z.string().uuid(),
+  id: z.string().uuid(),
+  warehouseId: z.string().uuid(),
 })
 
 const MovementsQuerySchema = z.object({
@@ -33,34 +37,37 @@ const MovementsQuerySchema = z.object({
 })
 
 export default async function stockRoutes(fastify: FastifyInstance) {
-  // POST /stock/items/bulk — ADMIN: create N items + return PDF of stickers
+  // POST /stock/labels — ADMIN: create N stock items + generate PDF labels.
+  // Unlike the old design (PDF-only, lazy-create on scan), each label now
+  // corresponds to a real StockItem row in the picked warehouse from print time.
   fastify.post(
-    '/items/bulk',
+    '/labels',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
     async (request, reply) => {
-      const result = CreateBulkSchema.safeParse(request.body)
+      const result = GenerateLabelsSchema.safeParse(request.body)
       if (!result.success) {
         return reply.code(400).send({ error: 'Invalid request body', details: result.error.flatten() })
       }
       const { tenantId } = request.user as JWTPayload
       try {
-        const { count, pdf } = await createBulkItems(tenantId, result.data)
+        const { count, batchNumber, pdf } = await generateLabelsPdf(tenantId, result.data)
         return reply
           .header('Content-Type', 'application/pdf')
           .header(
             'Content-Disposition',
-            `inline; filename="stock-labels-${count}-${new Date().toISOString().slice(0, 10)}.pdf"`,
+            `inline; filename="stock-labels-${batchNumber}-${count}.pdf"`,
           )
-          .header('X-Items-Created', String(count))
+          .header('X-Labels-Generated', String(count))
+          .header('X-Batch-Number', batchNumber)
           .send(pdf)
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Failed to create stock items'
+        const msg = err instanceof Error ? err.message : 'Failed to generate labels'
         return reply.code(400).send({ error: msg })
       }
     },
   )
 
-  // GET /stock/items — ADMIN: list items with filters
+  // GET /stock/items — ADMIN
   fastify.get(
     '/items',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
@@ -75,7 +82,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // POST /stock/scan — ADMIN + STOCK_KEEPER: toggle item IN/OUT
+  // POST /stock/scan — ADMIN + STOCK_KEEPER. State machine: IN / USED / TRANSFER.
   fastify.post(
     '/scan',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
@@ -86,17 +93,37 @@ export default async function stockRoutes(fastify: FastifyInstance) {
       }
       const { tenantId, userId } = request.user as JWTPayload
       try {
-        const scanResult = await scanItem(tenantId, userId, result.data.stockItemId)
+        const scanResult = await scanItem(tenantId, userId, result.data.warehouseId, { id: result.data.id })
         return reply.send(scanResult)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Scan failed'
+        return reply.code(400).send({ error: msg })
+      }
+    },
+  )
+
+  // DELETE /stock/items/:id — ADMIN
+  fastify.delete(
+    '/items/:id',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    async (request, reply) => {
+      const id = (request.params as { id: string }).id
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        return reply.code(400).send({ error: 'Invalid item id' })
+      }
+      const { tenantId } = request.user as JWTPayload
+      try {
+        const result = await deleteItem(tenantId, id)
+        return reply.send(result)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Delete failed'
         const code = msg === 'Stock item not found' ? 404 : 400
         return reply.code(code).send({ error: msg })
       }
     },
   )
 
-  // GET /stock/movements — ADMIN: history of scans
+  // GET /stock/movements — ADMIN
   fastify.get(
     '/movements',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
@@ -111,7 +138,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /stock/stats — ADMIN: dashboard summary
+  // GET /stock/stats — ADMIN: dashboard KPI numbers
   fastify.get(
     '/stats',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
@@ -119,6 +146,17 @@ export default async function stockRoutes(fastify: FastifyInstance) {
       const { tenantId } = request.user as JWTPayload
       const stats = await getStats(tenantId)
       return reply.send(stats)
+    },
+  )
+
+  // GET /stock/summary — ADMIN: per-product aggregates for Stock page
+  fastify.get(
+    '/summary',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const summary = await getSummary(tenantId)
+      return reply.send({ summary })
     },
   )
 }

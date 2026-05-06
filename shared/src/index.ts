@@ -10,13 +10,16 @@ export enum UserRole {
 }
 
 export type StockStatus = 'IN_STOCK' | 'OUT_OF_STOCK'
-export type MovementDirection = 'IN' | 'OUT'
+export type StockUnit = 'KG' | 'PCS'
+export type MovementType = 'IN' | 'USED' | 'TRANSFER'
 
 export interface StockItemSummary {
   id: string
-  productType: string
-  category: string
-  weightKg: number
+  productId: string
+  warehouseId: string
+  unit: StockUnit
+  quantity: number
+  batchNumber: string
   status: StockStatus
   createdAt: string
   updatedAt: string

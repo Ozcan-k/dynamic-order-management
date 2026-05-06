@@ -26,9 +26,15 @@ enum StockStatus {
   OUT_OF_STOCK
 }
 
-enum MovementDirection {
+enum StockUnit {
+  KG
+  PCS
+}
+
+enum MovementType {
   IN
-  OUT
+  USED
+  TRANSFER
 }
 
 enum SalesPlatform {
@@ -316,35 +322,94 @@ model SalesDirectOrderItem {
   @@map("sales_direct_order_item")
 }
 
-// ─── Stock Control Module ────────────────────────────────────────────────────
-// QR-based warehouse inventory tracking. Independent of the Order pipeline.
+// ─── Inventory Module ────────────────────────────────────────────────────────
+// QR-based warehouse inventory tracking with product master / warehouses /
+// reserved-stock thresholds. Independent of the Order pipeline.
+
+model ProductCategory {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_categories")
+}
+
+model Product {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  categoryId        String    @map("category_id")
+  productCode       String    @map("product_code")
+  name              String
+  defaultUnit       StockUnit @default(KG) @map("default_unit")
+  reservedThreshold Float     @default(0) @map("reserved_threshold")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  category   ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  stockItems StockItem[]
+
+  @@unique([tenantId, productCode])
+  @@index([tenantId, categoryId])
+  @@map("products")
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  address   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  stockItems    StockItem[]
+  movementsFrom StockMovement[] @relation("MovementFrom")
+  movementsTo   StockMovement[] @relation("MovementTo")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("warehouses")
+}
 
 model StockItem {
   id          String      @id @default(uuid())
   tenantId    String      @map("tenant_id")
-  productType String      @map("product_type")
-  category    String
-  weightKg    Float       @map("weight_kg")
+  productId   String      @map("product_id")
+  warehouseId String      @map("warehouse_id")
+  unit        StockUnit
+  quantity    Float
+  batchNumber String      @map("batch_number")
   status      StockStatus @default(IN_STOCK)
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   movements StockMovement[]
 
   @@index([tenantId, status])
-  @@index([tenantId, productType])
-  @@index([tenantId, category])
+  @@index([tenantId, productId])
+  @@index([tenantId, warehouseId])
+  @@index([tenantId, batchNumber])
   @@map("stock_items")
 }
 
 model StockMovement {
-  id          String            @id @default(uuid())
-  stockItemId String            @map("stock_item_id")
-  direction   MovementDirection
-  scannedById String            @map("scanned_by")
-  scannedAt   DateTime          @default(now()) @map("scanned_at")
+  id              String       @id @default(uuid())
+  stockItemId     String       @map("stock_item_id")
+  type            MovementType
+  fromWarehouseId String?      @map("from_warehouse_id")
+  toWarehouseId   String?      @map("to_warehouse_id")
+  scannedById     String       @map("scanned_by")
+  scannedAt       DateTime     @default(now()) @map("scanned_at")
 
-  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  stockItem     StockItem  @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse? @relation("MovementFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse? @relation("MovementTo", fields: [toWarehouseId], references: [id])
 
   @@index([stockItemId])
   @@index([scannedAt])
