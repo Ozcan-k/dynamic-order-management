@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { connectSocket } from '../lib/socket'
@@ -1112,14 +1112,15 @@ export default function PickerAdmin() {
     refetchOnMount: 'always',
   })
 
-  // Stats query
+  // Stats query — keep previous data on refetch so workload cards don't blank out
   const { data: statsData } = useQuery({
     queryKey: ['picker-admin-stats'],
     queryFn: async () => {
       const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number }>('/picker-admin/stats')
       return res.data
     },
-    staleTime: 0,
+    staleTime: 5_000,
+    placeholderData: keepPreviousData,
     refetchInterval: 10_000,
   })
 
