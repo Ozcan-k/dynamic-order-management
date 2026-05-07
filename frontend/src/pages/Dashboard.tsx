@@ -306,8 +306,9 @@ export default function Dashboard() {
   const stats = data ?? DEFAULT_STATS
   const outbound = outboundData ?? DEFAULT_OUTBOUND
 
-  const hh = now.toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Manila' }).slice(0, 2)
-  const mm = now.toLocaleTimeString('en-GB', { minute: '2-digit', timeZone: 'Asia/Manila' }).slice(-2)
+  const [hh, mm] = now
+    .toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Manila' })
+    .split(':')
   const weekday = now.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Manila' })
   const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Manila' })
   const updatedStr = dataUpdatedAt
