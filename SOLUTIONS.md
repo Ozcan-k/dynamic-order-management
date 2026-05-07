@@ -5,6 +5,46 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-07] PickerAdmin "Picker Workload" section blank for ~10 s after page open (N+1 query fan-out)
+
+### Problem
+Opening `/picker-admin` rendered the page header and orders table immediately, but the "Picker Workload" card grid stayed empty for ~10 seconds before per-picker cards appeared. The yesterday-shipped prefetch fix (v2.31.5) only addressed the **modal** open latency (clicking a picker card); the section itself still blanked on every navigation. Console errors at the same time (`wss://domwarehouse.com/?token=…` / `wss://localhost:5173/?token=…` failed, plus a `SlaSummaryCard` `border` vs `borderLeft` style warning) were unrelated red herrings — the WebSocket failure is just Vite HMR retrying in production (we run Vite dev mode behind nginx) and does not block API requests.
+
+### Root Cause
+`getPickerStats` in `backend/src/services/pickerAdminService.ts:274` issued **4N+2 Prisma queries per request**: for every active picker it ran four queries in parallel (active assignments select, lifetime completed count, today completed count, returned count), wrapped in a `Promise.all(pickers.map(...))`, plus two tenant-level counts. With ~10 active pickers that fanned out to ~42 round-trips. The dominant cost was the per-picker `returned` count — a `statusHistory.some({ fromStatus IN [PICKER_COMPLETE, PACKER_ASSIGNED, PACKER_COMPLETE], toStatus: PICKER_ASSIGNED })` subquery joining `OrderStatusHistory`, which has no composite index on `(order_id, from_status, to_status)` (verified in `backend/prisma/schema.prisma:160-172` — only PK and FK auto-indexes). Postgres scanned the history table once per picker. On the frontend (`PickerAdmin.tsx:1116`) the query had `staleTime: 0` with no `placeholderData`, so React Query showed an empty state on every mount instead of using the cached frame.
+
+### Fix
+Two changes shipped together as v2.32.0:
+
+1. **Backend: collapse N+1 → 6 queries** (`backend/src/services/pickerAdminService.ts`).
+   - 1× `pickerAssignment.findMany` selecting `{ pickerId, order.status }` for all active assignments — bucket per pickerId in JS.
+   - 1× `pickerAssignment.groupBy({ by: ['pickerId'] })` for lifetime completed.
+   - 1× `pickerAssignment.groupBy({ by: ['pickerId'] })` for today completed.
+   - 1× `pickerAssignment.findMany` selecting `pickerId` for the returned set (single statusHistory subquery now scans the table **once total** instead of N times) — count per pickerId via `Map`.
+   - 2× tenant-level queries (`returnedCount`, `totalCompleted`) — unchanged.
+   - Final assembly maps `pickers` over those Maps, falling back to zeros for pickers with no rows.
+
+2. **Frontend: cache last-good frame** (`frontend/src/pages/PickerAdmin.tsx:1116`).
+   - Imported `keepPreviousData` from `@tanstack/react-query`.
+   - Set `staleTime: 5_000` and `placeholderData: keepPreviousData` on the `picker-admin-stats` query.
+   - The 10 s `refetchInterval` is preserved; cards now stay populated during the background refetch instead of unmounting.
+
+### Verification path (post-deploy)
+- `docker exec dom_backend cat /app/backend/dist/services/pickerAdminService.js | grep -c "groupBy"` should be ≥ 2 (proves the new code shipped — old code had no `groupBy` calls).
+- Time `/picker-admin/stats` from the live API: should drop from multi-second to sub-second.
+- `/picker-admin` page open: workload cards visible within first paint when query is cached; first-ever load should still be much faster than before.
+
+### Rule
+When a per-row pattern appears as `Promise.all(items.map(async (x) => Promise.all([...]) ))` against a relational table, audit the inner queries — each subquery becomes O(N) round-trips. If any of them include a `some:`/`every:` on a related table without a covering index, it compounds into an O(N · table-size) scan. Replace with batched `findMany`/`groupBy` over `pickerId IN (...)` and aggregate in memory.
+
+### Files affected
+- `backend/src/services/pickerAdminService.ts` — `getPickerStats` rewritten.
+- `frontend/src/pages/PickerAdmin.tsx` — import + `picker-admin-stats` useQuery options.
+- `CLAUDE.md` — version `v2.31.6` → `v2.32.0`.
+- `ARCHITECTURE.md` — header status + new v2.32.0 section.
+
+---
+
 ## [2026-05-06] PickerAdmin "↩ Returned" badge invisible for orders removed from `PACKER_ASSIGNED` state
 
 ### Problem

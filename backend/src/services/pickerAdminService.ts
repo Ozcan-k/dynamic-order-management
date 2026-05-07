@@ -272,73 +272,65 @@ export async function bulkUnassignOrders(
 }
 
 export async function getPickerStats(tenantId: string) {
+  const today = getManilaStartOfToday()
+
   const pickers = await prisma.user.findMany({
     where: { tenantId, role: UserRole.PICKER, isActive: true },
     select: { id: true, username: true },
     orderBy: { username: 'asc' },
   })
+  const pickerIds = pickers.map((p) => p.id)
 
-  const [stats, returnedCount, totalCompleted] = await Promise.all([
-    Promise.all(
-      pickers.map(async (picker) => {
-        const today = getManilaStartOfToday()
-        const [activeAssignments, completedCount, completedToday, returned] = await Promise.all([
-          prisma.pickerAssignment.findMany({
-            where: {
-              pickerId: picker.id,
-              completedAt: null,
-              order: { tenantId, archivedAt: null },
+  const returnedFromStatuses = [
+    OrderStatus.PICKER_COMPLETE,
+    OrderStatus.PACKER_ASSIGNED,
+    OrderStatus.PACKER_COMPLETE,
+  ]
+
+  const [
+    activeAssignments,
+    completedTotals,
+    completedTodayTotals,
+    returnedAssignments,
+    returnedCount,
+    totalCompleted,
+  ] = await Promise.all([
+    prisma.pickerAssignment.findMany({
+      where: {
+        pickerId: { in: pickerIds },
+        completedAt: null,
+        order: { tenantId, archivedAt: null },
+      },
+      select: { pickerId: true, order: { select: { status: true } } },
+    }),
+    prisma.pickerAssignment.groupBy({
+      by: ['pickerId'],
+      where: { pickerId: { in: pickerIds }, completedAt: { not: null } },
+      _count: { _all: true },
+    }),
+    prisma.pickerAssignment.groupBy({
+      by: ['pickerId'],
+      where: { pickerId: { in: pickerIds }, completedAt: { gte: today } },
+      _count: { _all: true },
+    }),
+    prisma.pickerAssignment.findMany({
+      where: {
+        pickerId: { in: pickerIds },
+        completedAt: null,
+        order: {
+          tenantId,
+          archivedAt: null,
+          status: OrderStatus.PICKER_ASSIGNED,
+          statusHistory: {
+            some: {
+              fromStatus: { in: returnedFromStatuses },
+              toStatus: OrderStatus.PICKER_ASSIGNED,
             },
-            select: { order: { select: { status: true } } },
-          }),
-          prisma.pickerAssignment.count({
-            where: { pickerId: picker.id, completedAt: { not: null } },
-          }),
-          prisma.pickerAssignment.count({
-            where: { pickerId: picker.id, completedAt: { gte: today } },
-          }),
-          prisma.pickerAssignment.count({
-            where: {
-              pickerId: picker.id,
-              completedAt: null,
-              order: {
-                tenantId,
-                archivedAt: null,
-                status: OrderStatus.PICKER_ASSIGNED,
-                statusHistory: {
-                  some: {
-                    fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
-                    toStatus: OrderStatus.PICKER_ASSIGNED,
-                  },
-                },
-              },
-            },
-          }),
-        ])
-
-        const statusCounts = {
-          PICKER_ASSIGNED: 0,
-          PICKING: 0,
-          PICKER_COMPLETE: 0,
-        }
-
-        for (const a of activeAssignments) {
-          const s = a.order.status
-          if (s === OrderStatus.PICKER_ASSIGNED) statusCounts.PICKER_ASSIGNED++
-          else if (s === OrderStatus.PICKING) statusCounts.PICKING++
-          else if (s === OrderStatus.PICKER_COMPLETE) statusCounts.PICKER_COMPLETE++
-        }
-
-        return {
-          picker,
-          statusCounts,
-          total: activeAssignments.length,
-          completed: completedCount,
-          completedToday,
-          returned,
-        }
-      }),
-    ),
+          },
+        },
+      },
+      select: { pickerId: true },
+    }),
     prisma.order.count({
       where: {
         tenantId,
@@ -346,7 +338,7 @@ export async function getPickerStats(tenantId: string) {
         status: OrderStatus.PICKER_ASSIGNED,
         statusHistory: {
           some: {
-            fromStatus: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKER_COMPLETE] },
+            fromStatus: { in: returnedFromStatuses },
             toStatus: OrderStatus.PICKER_ASSIGNED,
           },
         },
@@ -356,6 +348,64 @@ export async function getPickerStats(tenantId: string) {
       where: { completedAt: { not: null }, order: { tenantId, archivedAt: null } },
     }),
   ])
+
+  const completedMap = new Map<string, number>()
+  for (const row of completedTotals) {
+    completedMap.set(row.pickerId, row._count._all)
+  }
+
+  const completedTodayMap = new Map<string, number>()
+  for (const row of completedTodayTotals) {
+    completedTodayMap.set(row.pickerId, row._count._all)
+  }
+
+  const returnedMap = new Map<string, number>()
+  for (const a of returnedAssignments) {
+    returnedMap.set(a.pickerId, (returnedMap.get(a.pickerId) ?? 0) + 1)
+  }
+
+  type ActiveBucket = {
+    PICKER_ASSIGNED: number
+    PICKING: number
+    PICKER_COMPLETE: number
+    total: number
+  }
+  const activeMap = new Map<string, ActiveBucket>()
+  for (const a of activeAssignments) {
+    const bucket = activeMap.get(a.pickerId) ?? {
+      PICKER_ASSIGNED: 0,
+      PICKING: 0,
+      PICKER_COMPLETE: 0,
+      total: 0,
+    }
+    const s = a.order.status
+    if (s === OrderStatus.PICKER_ASSIGNED) bucket.PICKER_ASSIGNED++
+    else if (s === OrderStatus.PICKING) bucket.PICKING++
+    else if (s === OrderStatus.PICKER_COMPLETE) bucket.PICKER_COMPLETE++
+    bucket.total++
+    activeMap.set(a.pickerId, bucket)
+  }
+
+  const stats = pickers.map((picker) => {
+    const active = activeMap.get(picker.id) ?? {
+      PICKER_ASSIGNED: 0,
+      PICKING: 0,
+      PICKER_COMPLETE: 0,
+      total: 0,
+    }
+    return {
+      picker,
+      statusCounts: {
+        PICKER_ASSIGNED: active.PICKER_ASSIGNED,
+        PICKING: active.PICKING,
+        PICKER_COMPLETE: active.PICKER_COMPLETE,
+      },
+      total: active.total,
+      completed: completedMap.get(picker.id) ?? 0,
+      completedToday: completedTodayMap.get(picker.id) ?? 0,
+      returned: returnedMap.get(picker.id) ?? 0,
+    }
+  })
 
   return { stats, returnedCount, totalCompleted }
 }
