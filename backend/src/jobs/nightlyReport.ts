@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { redisConnection } from '../lib/queues'
 import { hardDeleteExpiredOrders } from '../services/archiveService'
 import { OrderStatus } from '@dom/shared'
-import { getManilaStartOfToday, getManilaDateString } from '../lib/manila'
+import { getManilaStartOfToday } from '../lib/manila'
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -59,36 +59,25 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
   }
 
   const today = getManilaStartOfToday()
-  const yesterday = new Date(today.getTime() - DAY_MS)
   const tomorrow = new Date(today.getTime() + DAY_MS)
-  const sevenDaysAgo = new Date(today.getTime() - 6 * DAY_MS)
 
   const [
-    inboundTotal,
-    outboundTotal,
+    scannedToday,
     dispatchedToday,
-    dispatchedYesterday,
     remainingActive,
     d0, d1, d2, d3, d4Active,
-    weeklyDispatchedRows,
     topCarriersRaw,
     pickerCompletions,
     packerCompletions,
   ] = await Promise.all([
-    prisma.order.count({ where: { tenantId } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND } }),
+    prisma.order.count({ where: { tenantId, workDate: { gte: today, lt: tomorrow } } }),
     prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: today, lt: tomorrow } } }),
-    prisma.order.count({ where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: yesterday, lt: today } } }),
     prisma.order.count({ where: { tenantId, status: { not: OrderStatus.OUTBOUND }, archivedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 0, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 1, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 2, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 3, slaCompletedAt: null } }),
     prisma.order.count({ where: { tenantId, delayLevel: 4, slaCompletedAt: null } }),
-    prisma.order.findMany({
-      where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: sevenDaysAgo, lt: tomorrow } },
-      select: { slaCompletedAt: true },
-    }),
     prisma.order.groupBy({
       by: ['carrierName'],
       where: { tenantId, status: OrderStatus.OUTBOUND, slaCompletedAt: { gte: today, lt: tomorrow } },
@@ -106,27 +95,9 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
 
   // ── Derived metrics ────────────────────────────────────────────────────────
   const remaining = remainingActive
-  // Fixed: was `dispatchedToday / inboundTotal` (lifetime). Now: % of today's workload dispatched.
+  // % of today's workload dispatched (today's scanned + carryover that's still active)
   const dailyWorkload = dispatchedToday + remaining
   const dispatchRate = dailyWorkload > 0 ? Math.round((dispatchedToday / dailyWorkload) * 100) : 0
-
-  const dispatchDelta = dispatchedToday - dispatchedYesterday
-  const deltaPct = dispatchedYesterday > 0
-    ? Math.round((dispatchDelta / dispatchedYesterday) * 100)
-    : (dispatchedToday > 0 ? 100 : 0)
-
-  // 7-day series bucketing by Manila date
-  const weekCounts = new Map<string, number>()
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * DAY_MS)
-    weekCounts.set(getManilaDateString(d), 0)
-  }
-  for (const row of weeklyDispatchedRows) {
-    if (!row.slaCompletedAt) continue
-    const k = getManilaDateString(row.slaCompletedAt)
-    if (weekCounts.has(k)) weekCounts.set(k, (weekCounts.get(k) ?? 0) + 1)
-  }
-  const weekSeries = [...weekCounts.entries()] // [[date, count], ...] oldest → newest
 
   // Top 5 carriers
   const topCarriers = topCarriersRaw
@@ -157,51 +128,6 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
   const from = process.env.SMTP_FROM || 'DOM Warehouse System <noreply@example.com>'
 
   // ── HTML builders ──────────────────────────────────────────────────────────
-
-  const deltaBadge = (() => {
-    if (dispatchDelta === 0) {
-      return `<span style="display:inline-block;background:#f1f5f9;color:#64748b;font-weight:700;font-size:12px;padding:4px 10px;border-radius:999px;">— no change vs yesterday</span>`
-    }
-    const up = dispatchDelta > 0
-    const bg = up ? '#ecfdf5' : '#fef2f2'
-    const fg = up ? '#059669' : '#dc2626'
-    const arrow = up ? '▲' : '▼'
-    const sign = up ? '+' : ''
-    return `<span style="display:inline-block;background:${bg};color:${fg};font-weight:700;font-size:12px;padding:4px 10px;border-radius:999px;">${arrow} ${sign}${dispatchDelta} (${sign}${deltaPct}%) vs yesterday</span>`
-  })()
-
-  // Sparkline (7 days) — inline SVG
-  const sparkline = (() => {
-    const w = 520, h = 56, pad = 4
-    const max = Math.max(1, ...weekSeries.map(([, v]) => v))
-    const step = weekSeries.length > 1 ? (w - pad * 2) / (weekSeries.length - 1) : 0
-    const pts = weekSeries.map(([, v], i) => {
-      const x = pad + i * step
-      const y = h - pad - (v / max) * (h - pad * 2)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    const polyPts = pts.join(' ')
-    const areaPts = `${pad},${h - pad} ${polyPts} ${w - pad},${h - pad}`
-    const dots = weekSeries.map(([, v], i) => {
-      const x = pad + i * step
-      const y = h - pad - (v / max) * (h - pad * 2)
-      const isLast = i === weekSeries.length - 1
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isLast ? 4 : 2.5}" fill="${isLast ? '#0ea5e9' : '#7dd3fc'}" stroke="#ffffff" stroke-width="${isLast ? 2 : 1}"/>`
-    }).join('')
-    const labels = weekSeries.map(([date], i) => {
-      const x = pad + i * step
-      const d = new Date(`${date}T12:00:00+08:00`)
-      const label = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Asia/Manila' })
-      return `<text x="${x.toFixed(1)}" y="${h + 14}" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="Arial,sans-serif">${esc(label)}</text>`
-    }).join('')
-    return `
-      <svg width="100%" height="${h + 20}" viewBox="0 0 ${w} ${h + 20}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="${areaPts}" fill="rgba(14,165,233,0.12)"/>
-        <polyline points="${polyPts}" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-        ${dots}
-        ${labels}
-      </svg>`
-  })()
 
   // Stacked SLA bar
   const slaBar = (() => {
@@ -352,17 +278,16 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
         <!-- ── HERO KPI ── -->
         <tr>
           <td style="background:#ffffff;padding:28px 36px 20px;">
-            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Today at a glance</div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Today's Summary</div>
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td style="vertical-align:middle;">
                   <div style="font-size:52px;font-weight:900;color:#0f172a;line-height:1;letter-spacing:-1.5px;">${dispatchedToday}</div>
                   <div style="font-size:13px;color:#64748b;margin-top:6px;font-weight:600;">orders dispatched today</div>
-                  <div style="margin-top:10px;">${deltaBadge}</div>
                 </td>
                 <td style="vertical-align:middle;text-align:right;width:140px;">
                   <div style="display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px;min-width:120px;">
-                    <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Dispatch Rate</div>
+                    <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Completion</div>
                     <div style="font-size:26px;font-weight:800;color:#0f172a;line-height:1;margin-top:6px;">${dispatchRate}%</div>
                     <div style="font-size:10px;color:#94a3b8;margin-top:4px;">of today's workload</div>
                   </div>
@@ -370,44 +295,46 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
               </tr>
             </table>
 
-            <!-- 7-day sparkline -->
+            <!-- Progress bar: dispatched vs remaining -->
             <div style="margin-top:22px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;">
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:6px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
                 <tr>
-                  <td><span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Dispatched · last 7 days</span></td>
-                  <td style="text-align:right;"><span style="font-size:11px;color:#64748b;font-weight:600;">Total ${weekSeries.reduce((s, [, v]) => s + v, 0)}</span></td>
+                  <td><span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Today's Pipeline</span></td>
+                  <td style="text-align:right;"><span style="font-size:11px;color:#64748b;font-weight:600;">${dispatchedToday} of ${dailyWorkload} done</span></td>
                 </tr>
               </table>
-              ${sparkline}
+              <div style="background:#e2e8f0;border-radius:999px;height:10px;overflow:hidden;">
+                <div style="width:${dispatchRate}%;height:100%;background:linear-gradient(90deg,#10b981,#059669);border-radius:999px;"></div>
+              </div>
             </div>
           </td>
         </tr>
 
         ${criticalAlertHtml}
 
-        <!-- ── SUMMARY CARDS ── -->
+        <!-- ── TODAY'S NUMBERS ── -->
         <tr>
           <td style="background:#ffffff;padding:4px 36px 20px;">
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td width="31%" style="padding-right:8px;">
                   <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 12px;text-align:center;">
-                    <div style="font-size:28px;font-weight:800;color:#0f172a;line-height:1;">${inboundTotal}</div>
-                    <div style="font-size:11px;color:#64748b;margin-top:6px;font-weight:500;">Total Scanned</div>
+                    <div style="font-size:28px;font-weight:800;color:#0f172a;line-height:1;">${scannedToday}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:6px;font-weight:500;">Scanned Today</div>
                   </div>
                 </td>
                 <td width="4%"></td>
                 <td width="31%" style="padding:0 4px;">
                   <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px 12px;text-align:center;">
-                    <div style="font-size:28px;font-weight:800;color:#059669;line-height:1;">${outboundTotal}</div>
-                    <div style="font-size:11px;color:#047857;margin-top:6px;font-weight:500;">Total Dispatched</div>
+                    <div style="font-size:28px;font-weight:800;color:#059669;line-height:1;">${dispatchedToday}</div>
+                    <div style="font-size:11px;color:#047857;margin-top:6px;font-weight:500;">Dispatched Today</div>
                   </div>
                 </td>
                 <td width="4%"></td>
                 <td width="31%" style="padding-left:8px;">
                   <div style="background:${remaining > 0 ? '#fffbeb' : '#f0fdf4'};border:1px solid ${remaining > 0 ? '#fde68a' : '#bbf7d0'};border-radius:12px;padding:16px 12px;text-align:center;">
                     <div style="font-size:28px;font-weight:800;color:${remaining > 0 ? '#b45309' : '#059669'};line-height:1;">${remaining}</div>
-                    <div style="font-size:11px;color:${remaining > 0 ? '#92400e' : '#047857'};margin-top:6px;font-weight:500;">Active Pipeline</div>
+                    <div style="font-size:11px;color:${remaining > 0 ? '#92400e' : '#047857'};margin-top:6px;font-weight:500;">Still in Pipeline</div>
                   </div>
                 </td>
               </tr>
@@ -481,8 +408,7 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
 </body>
 </html>`
 
-  const subjectDelta = dispatchDelta === 0 ? '' : ` (${dispatchDelta > 0 ? '+' : ''}${dispatchDelta})`
-  const subject = `DOM Nightly Report — ${dateStr} · ${dispatchedToday} dispatched${subjectDelta}, ${remaining} in pipeline`
+  const subject = `DOM Nightly Report — ${dateStr} · ${dispatchedToday} dispatched, ${remaining} in pipeline`
 
   for (const admin of admins) {
     if (!admin.email) continue

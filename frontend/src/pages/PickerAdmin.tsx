@@ -771,13 +771,15 @@ function PickerOrdersModal({
 }
 
 // ─── Per-picker stat card ────────────────────────────────────────────────────
-function PickerStatCard({ stat, onClick }: { stat: PickerStat; onClick: () => void }) {
+function PickerStatCard({ stat, onClick, onPrefetch }: { stat: PickerStat; onClick: () => void; onPrefetch?: () => void }) {
   const hasOrders = stat.total > 0 || stat.completed > 0
 
   return (
     <div
       className="picker-stat-card"
       onClick={onClick}
+      onMouseEnter={onPrefetch}
+      onFocus={onPrefetch}
       style={{ cursor: 'pointer' }}
     >
       {/* Header */}
@@ -1840,6 +1842,14 @@ export default function PickerAdmin() {
                 key={stat.picker.id}
                 stat={stat}
                 onClick={() => setModalPicker({ id: stat.picker.id, username: stat.picker.username })}
+                onPrefetch={() => queryClient.prefetchQuery({
+                  queryKey: ['picker-orders', stat.picker.id],
+                  queryFn: async () => {
+                    const res = await api.get<{ orders: PickerOrderRow[] }>(`/picker-admin/picker/${stat.picker.id}/orders`)
+                    return res.data.orders
+                  },
+                  staleTime: 5_000,
+                })}
               />
             ))}
           </div>
