@@ -5,6 +5,52 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-07] `/picker-admin/stats` still hung after N+1 fix — missing composite index on `order_status_history`
+
+### Problem
+After v2.32.0 (`getPickerStats` collapsed from 4N+2 Prisma queries to 6 batched queries with in-memory aggregation) shipped to live, the `/picker-admin` workload section was **still** blank on page open — DevTools network tab showed `/picker-admin/stats` stuck in `pending` while sibling requests (`orders`, `pickers`, `pending-staged`) returned in 200–500 ms. User reported the page felt slower than before the v2.32.0 fix.
+
+### Verification path that ruled out deploy persist bug
+Per the deploy-persist feedback rule, the first move was to confirm the container actually had the new code, not chase another code fix:
+- `docker inspect dom_backend --format='{{.Created}}'` → fresh timestamp from CD run.
+- `docker exec dom_backend grep -c groupBy /app/backend/dist/services/pickerAdminService.js` → `2` (≥ 2 means the v2.32.0 refactor is in the running bundle; old code had zero `groupBy` calls).
+- `Restarts=0`, healthy logs.
+
+So the v2.32.0 code was running. The slowness was a **second, distinct** bottleneck the N+1 collapse couldn't fix.
+
+### Root Cause
+Two of the six batched queries hit `order_status_history`:
+1. Per-picker `returned` `findMany` — selects `pickerId` for assignments whose order had a status transition `[PICKER_COMPLETE | PACKER_ASSIGNED | PACKER_COMPLETE] → PICKER_ASSIGNED`.
+2. Tenant-level `returnedCount` `count` — same filter shape, scoped to the tenant.
+
+Both compile to an `EXISTS` subquery on `order_status_history` keyed by `order_id` plus filters on `from_status` and `to_status`. The table (`backend/prisma/schema.prisma:160-172`) had only the primary key and FK auto-indexes — no covering composite index. Postgres therefore did a sequential scan over the entire history table for every candidate order, twice per stats request. As history grew (each pick / pack / dispatch writes a row), the scan got linearly slower. Collapsing N+1 cut the per-request scan count from N+1 to 2, but didn't fix the per-scan cost.
+
+### Fix (v2.32.1)
+Composite index `order_status_history(order_id, from_status, to_status)` added in `backend/prisma/schema.prisma`:
+
+```prisma
+@@index([orderId, fromStatus, toStatus], map: "order_status_history_order_id_from_status_to_status_idx")
+```
+
+To avoid blocking live picker/packer scans during the index build (status history is written on every status transition; a regular `CREATE INDEX` takes a `SHARE` lock that blocks writes), the index was first created on the live database with `CREATE INDEX CONCURRENTLY` from a `psql` session — zero-downtime build, no write lock. Only after that did the schema change get committed and pushed. CD's `prisma db push` sees the index already exists with the matching name and no-ops, so the deploy itself is also lock-free.
+
+### Verification (post-deploy)
+- `\d order_status_history` lists the new index alongside PK and FK indexes.
+- `EXPLAIN ANALYZE` of the returned subquery shows `Index Scan using order_status_history_order_id_from_status_to_status_idx` instead of `Seq Scan on order_status_history`.
+- DevTools shows `/picker-admin/stats` returning in tens-of-ms instead of timing out.
+- Browser hard reload (`Ctrl + Shift + R`) needed to bust Vite's per-module cache after frontend changes; not strictly required for this index-only fix but worth doing on first verify.
+
+### Rule
+When `Promise.all` over ad-hoc queries collapses an N+1 but the request is still slow, look at **per-scan cost**, not just **scan count**. Any Prisma `some:` / `every:` filter on a related table is a `WHERE EXISTS` subquery — if the joined columns aren't covered by an index, even a single occurrence becomes O(table-size). Add a composite index on `(fk, filtered_col_1, filtered_col_2, ...)` matching the subquery's filter shape. For high-traffic tables, build it with `CREATE INDEX CONCURRENTLY` first, then sync the schema (Prisma `db push` no-ops once the index exists with the expected name).
+
+### Files affected
+- `backend/prisma/schema.prisma` — `@@index` added on `OrderStatusHistory`.
+- `CLAUDE.md` — version `v2.32.0` → `v2.32.1`.
+- `ARCHITECTURE.md` — header status + new v2.32.1 section.
+- Live DB — index `order_status_history_order_id_from_status_to_status_idx` created via `CREATE INDEX CONCURRENTLY` on `dom_postgres`.
+
+---
+
 ## [2026-05-07] PickerAdmin "Picker Workload" section blank for ~10 s after page open (N+1 query fan-out)
 
 ### Problem
@@ -134,7 +180,7 @@ CI runs `tsc --noEmit`, not `db push`. There's no environment in CI that mirrors
 ### Diagnostic tip
 After any deploy that should change schema:
 ```bash
-docker exec dom_postgres psql -U postgres -d dom -c "\dt"
+docker exec dom_postgres psql -U dom_user -d dom_db -c "\dt"
 ```
 If a table you expect is missing, the schema-sync step didn't run. Don't trust green CD when the manifest of changed tables isn't present in the DB.
 

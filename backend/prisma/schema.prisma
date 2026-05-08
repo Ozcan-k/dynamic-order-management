@@ -168,6 +168,7 @@ model OrderStatusHistory {
   order     Order @relation(fields: [orderId], references: [id])
   changedBy User  @relation(fields: [changedById], references: [id])
 
+  @@index([orderId, fromStatus, toStatus], map: "order_status_history_order_id_from_status_to_status_idx")
   @@map("order_status_history")
 }
 
