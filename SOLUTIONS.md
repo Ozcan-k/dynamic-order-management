@@ -180,7 +180,7 @@ CI runs `tsc --noEmit`, not `db push`. There's no environment in CI that mirrors
 ### Diagnostic tip
 After any deploy that should change schema:
 ```bash
-docker exec dom_postgres psql -U postgres -d dom -c "\dt"
+docker exec dom_postgres psql -U dom_user -d dom_db -c "\dt"
 ```
 If a table you expect is missing, the schema-sync step didn't run. Don't trust green CD when the manifest of changed tables isn't present in the DB.
 
