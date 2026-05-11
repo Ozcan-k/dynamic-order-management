@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
 import {
@@ -30,6 +31,7 @@ export default function Warehouses() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<WarehouseInput>({ name: '', address: '' })
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Warehouse | null>(null)
 
   function startNew() { setEditing(null); setForm({ name: '', address: '' }); setShowForm(true); setError(null) }
   function startEdit(w: Warehouse) { setEditing(w); setForm({ name: w.name, address: w.address }); setShowForm(true); setError(null) }
@@ -46,12 +48,15 @@ export default function Warehouses() {
     }
   }
 
-  async function handleDelete(w: Warehouse) {
-    if (!window.confirm(`Delete warehouse "${w.name}"?`)) return
-    try { await remove.mutateAsync(w.id) }
-    catch (err) {
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    try {
+      await remove.mutateAsync(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (err) {
       const e = err as { response?: { data?: { error?: string } }; message?: string }
       setError(e?.response?.data?.error ?? e?.message ?? 'Failed to delete warehouse')
+      setDeleteTarget(null)
     }
   }
 
@@ -107,22 +112,20 @@ export default function Warehouses() {
                 <tr style={{ textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>
                   <th style={th}>Name</th>
                   <th style={th}>Address</th>
-                  <th style={th}>In-stock items</th>
                   <th style={{ ...th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {warehouses.length === 0 && (
-                  <tr><td colSpan={4} style={{ ...td, color: colors.textMuted }}>No warehouses yet.</td></tr>
+                  <tr><td colSpan={3} style={{ ...td, color: colors.textMuted }}>No warehouses yet.</td></tr>
                 )}
                 {warehouses.map((w) => (
                   <tr key={w.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                     <td style={{ ...td, fontWeight: 600 }}>{w.name}</td>
                     <td style={td}>{w.address}</td>
-                    <td style={td}>{w.itemsCount ?? 0}</td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <button onClick={() => startEdit(w)} style={btnLink}>Edit</button>
-                      <button onClick={() => handleDelete(w)} style={{ ...btnLink, color: colors.danger }}>Delete</button>
+                      <button onClick={() => setDeleteTarget(w)} style={{ ...btnLink, color: colors.danger }}>Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -131,6 +134,19 @@ export default function Warehouses() {
           )}
         </div>
       </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete warehouse"
+          message={`This will permanently remove "${deleteTarget.name}" from the warehouse list.`}
+          detail={deleteTarget.address}
+          confirmLabel="Delete"
+          tone="danger"
+          busy={remove.isPending}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </PageShell>
   )
 }

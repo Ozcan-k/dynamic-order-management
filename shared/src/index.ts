@@ -9,7 +9,7 @@ export enum UserRole {
   STOCK_KEEPER = 'STOCK_KEEPER',
 }
 
-export type StockStatus = 'IN_STOCK' | 'OUT_OF_STOCK'
+export type StockStatus = 'PENDING' | 'IN_STOCK' | 'OUT_OF_STOCK'
 export type StockUnit = 'KG' | 'PCS'
 export type MovementType = 'IN' | 'USED' | 'TRANSFER'
 

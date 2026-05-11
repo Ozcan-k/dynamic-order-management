@@ -3,10 +3,37 @@ import { prisma } from '../lib/prisma'
 
 export interface ProductInput {
   categoryId: string
-  productCode: string
+  productCode?: string
   name: string
   defaultUnit: StockUnit
   reservedThreshold: number
+}
+
+// ─── Product code auto-generation ──────────────────────────────────────────
+// Format: {CAT3}-{NNN} where CAT3 is up to 3 ASCII-alpha chars from the
+// category name (uppercase) and NNN is the zero-padded next sequence number
+// for that prefix within the tenant. e.g. Nuts → NUT-001, NUT-002.
+
+function categoryPrefix(name: string): string {
+  const letters = name.toUpperCase().replace(/[^A-Z]/g, '')
+  const slice = letters.slice(0, 3)
+  return slice.length >= 2 ? slice.padEnd(3, 'X') : 'PRD'
+}
+
+async function nextProductCode(tenantId: string, categoryName: string): Promise<string> {
+  const prefix = categoryPrefix(categoryName)
+  const existing = await prisma.product.findMany({
+    where: { tenantId, productCode: { startsWith: `${prefix}-` } },
+    select: { productCode: true },
+  })
+  const maxSeq = existing.reduce((max, row) => {
+    const m = row.productCode.match(/^[A-Z]{3}-(\d+)$/)
+    if (!m) return max
+    const n = parseInt(m[1], 10)
+    return n > max ? n : max
+  }, 0)
+  const next = (maxSeq + 1).toString().padStart(3, '0')
+  return `${prefix}-${next}`
 }
 
 export interface CategoryInput {
@@ -73,12 +100,10 @@ export async function getProduct(tenantId: string, id: string) {
 }
 
 function validateProductInput(input: Partial<ProductInput>) {
-  const productCode = input.productCode?.trim()
   const name = input.name?.trim()
   const reserved = input.reservedThreshold
 
   if (input.categoryId !== undefined && !input.categoryId) throw new Error('Category is required')
-  if (productCode !== undefined && !productCode) throw new Error('Product ID is required')
   if (name !== undefined && !name) throw new Error('Product name is required')
   if (reserved !== undefined && (reserved < 0 || !Number.isFinite(reserved))) {
     throw new Error('Reserved must be a non-negative number')
@@ -93,28 +118,41 @@ export async function createProduct(tenantId: string, input: ProductInput) {
 
   const category = await prisma.productCategory.findFirst({
     where: { id: input.categoryId, tenantId },
-    select: { id: true },
+    select: { id: true, name: true },
   })
   if (!category) throw new Error('Category not found')
 
-  try {
-    return await prisma.product.create({
-      data: {
-        tenantId,
-        categoryId: input.categoryId,
-        productCode: input.productCode.trim(),
-        name: input.name.trim(),
-        defaultUnit: input.defaultUnit,
-        reservedThreshold: input.reservedThreshold,
-      },
-      include: { category: { select: { id: true, name: true } } },
-    })
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      throw new Error('A product with this Product ID already exists')
+  // Retry loop guards against race conditions when two creates collide on the
+  // same auto-generated productCode (P2002 unique violation on tenantId+code).
+  const MAX_RETRIES = 5
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const productCode = input.productCode?.trim() || await nextProductCode(tenantId, category.name)
+    try {
+      return await prisma.product.create({
+        data: {
+          tenantId,
+          categoryId: input.categoryId,
+          productCode,
+          name: input.name.trim(),
+          defaultUnit: input.defaultUnit,
+          reservedThreshold: input.reservedThreshold,
+        },
+        include: { category: { select: { id: true, name: true } } },
+      })
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        // If the user provided a code explicitly, surface the collision.
+        if (input.productCode?.trim()) {
+          throw new Error('A product with this Product ID already exists')
+        }
+        lastErr = err
+        continue // try a fresh sequence
+      }
+      throw err
     }
-    throw err
   }
+  throw lastErr instanceof Error ? lastErr : new Error('Could not generate a unique Product ID — please retry')
 }
 
 export async function updateProduct(

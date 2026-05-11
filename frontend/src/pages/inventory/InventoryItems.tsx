@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
-import { useGenerateLabels, useStockItems } from '../../api/stock'
+import { useGenerateLabels } from '../../api/stock'
 import { useProducts } from '../../api/products'
 import { useWarehouses } from '../../api/warehouses'
 import type { StockUnit } from '@dom/shared'
@@ -40,7 +40,6 @@ export default function InventoryItems() {
   const user = useAuthStore((s) => s.user)
   const { data: products = [] } = useProducts()
   const { data: warehouses = [] } = useWarehouses()
-  const { data: items = [] } = useStockItems()
 
   const [productId, setProductId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
@@ -52,7 +51,6 @@ export default function InventoryItems() {
 
   const mutation = useGenerateLabels()
 
-  // Pre-fill defaults when products/warehouses become available
   useEffect(() => {
     if (!productId && products.length) setProductId(products[0].id)
   }, [products, productId])
@@ -83,8 +81,6 @@ export default function InventoryItems() {
     }
   }
 
-  const recentBatches = collectBatches(items).slice(0, 20)
-
   if (products.length === 0) {
     return (
       <PageShell icon={StockIcon} title="Inventory — Create Labels" subtitle={`${user?.username}`}>
@@ -110,122 +106,92 @@ export default function InventoryItems() {
       title="Inventory — Create Labels"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
-        <div style={cardStyle}>
-          <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700 }}>Generate QR Labels</h3>
-          <p style={{ margin: '0 0 18px', fontSize: 13, color: colors.textSecondary }}>
-            Each printed label corresponds to one stock item placed in the chosen warehouse. Avery L7173 / J8173 (A4, 10 per sheet).
-          </p>
+      <div style={{ ...cardStyle, maxWidth: 720, margin: '0 auto' }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700 }}>Generate QR Labels</h3>
+        <p style={{ margin: '0 0 8px', fontSize: 13, color: colors.textSecondary }}>
+          Each printed label corresponds to one physical box. Avery L7173 / J8173 (A4, 10 per sheet).
+        </p>
+        <p style={{ margin: '0 0 18px', fontSize: 12, color: colors.textMuted, fontStyle: 'italic' }}>
+          Printed labels are pending until a Stock Keeper scans them into a warehouse.
+        </p>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Field label="Product">
-              <select value={productId} onChange={(e) => setProductId(e.target.value)} required style={inputStyle}>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} — {p.category.name} (#{p.productCode})</option>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="Product">
+            <select value={productId} onChange={(e) => setProductId(e.target.value)} required style={inputStyle}>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} — {p.category.name} (#{p.productCode})</option>
+              ))}
+            </select>
+          </Field>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Unit">
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['KG', 'PCS'] as StockUnit[]).map((u) => (
+                  <button
+                    key={u} type="button" onClick={() => setUnit(u)}
+                    style={{
+                      flex: 1, padding: '10px 14px', borderRadius: 8, fontWeight: 700, fontSize: 13,
+                      border: `1.5px solid ${unit === u ? colors.primary : colors.border}`,
+                      background: unit === u ? colors.primary : '#fff',
+                      color: unit === u ? '#fff' : colors.textSecondary,
+                      cursor: 'pointer',
+                    }}
+                  >{u}</button>
                 ))}
-              </select>
+              </div>
             </Field>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Unit">
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {(['KG', 'PCS'] as StockUnit[]).map((u) => (
-                    <button
-                      key={u} type="button" onClick={() => setUnit(u)}
-                      style={{
-                        flex: 1, padding: '10px 14px', borderRadius: 8, fontWeight: 700, fontSize: 13,
-                        border: `1.5px solid ${unit === u ? colors.primary : colors.border}`,
-                        background: unit === u ? colors.primary : '#fff',
-                        color: unit === u ? '#fff' : colors.textSecondary,
-                        cursor: 'pointer',
-                      }}
-                    >{u}</button>
-                  ))}
-                </div>
-              </Field>
-              <Field label={unit === 'KG' ? 'Weight per label (kg)' : 'Count per label (pcs)'}>
-                <input
-                  type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
-                  required min={0} step="any" style={inputStyle}
-                  placeholder={unit === 'KG' ? '5.0' : '24'}
-                />
-              </Field>
-            </div>
-
-            <Field label="Warehouse">
-              <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required style={inputStyle}>
-                {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </Field>
-
-            <Field label="Number of labels">
+            <Field label={unit === 'KG' ? 'Weight per label (kg)' : 'Count per label (pcs)'}>
               <input
-                type="number" value={count} onChange={(e) => setCount(e.target.value)}
-                required min={1} max={500} step={1} style={inputStyle}
+                type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
+                required min={0} step="any" style={inputStyle}
+                placeholder={unit === 'KG' ? '5.0' : '24'}
               />
             </Field>
+          </div>
 
-            <Field label="Batch number (auto)">
-              <div style={{ ...inputStyle, fontFamily: 'monospace', color: colors.textSecondary, background: '#f1f5f9' }}>
-                {todayBatchPreview()}
-              </div>
-            </Field>
+          <Field label="Warehouse (printed on label — destination)">
+            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required style={inputStyle}>
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </Field>
 
-            {error && <ErrorBox message={error} />}
+          <Field label="Number of labels">
+            <input
+              type="number" value={count} onChange={(e) => setCount(e.target.value)}
+              required min={1} max={500} step={1} style={inputStyle}
+            />
+          </Field>
 
-            {success && (
-              <div style={{
-                padding: '12px 14px', borderRadius: 8,
-                background: '#dcfce7', border: '1px solid #86efac',
-                fontSize: 13, color: '#166534', fontWeight: 500,
-              }}>
-                ✓ {success.count} label(s) created · Batch <strong>{success.batchNumber}</strong>{' '}
-                <a href={success.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 700 }}>Reopen PDF</a>
-              </div>
-            )}
+          <Field label="Batch number (auto)">
+            <div style={{ ...inputStyle, fontFamily: 'monospace', color: colors.textSecondary, background: '#f1f5f9' }}>
+              {todayBatchPreview()}
+            </div>
+          </Field>
 
-            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}
-              style={{ marginTop: 4, padding: '12px 18px', fontWeight: 700,
-                opacity: mutation.isPending ? 0.7 : 1, cursor: mutation.isPending ? 'not-allowed' : 'pointer' }}>
-              {mutation.isPending ? 'Generating PDF…' : 'Generate Labels PDF'}
-            </button>
-          </form>
-        </div>
+          {error && <ErrorBox message={error} />}
 
-        <div style={cardStyle}>
-          <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 700 }}>Recent Batches</h3>
-          {recentBatches.length === 0 ? (
-            <div style={{ color: colors.textMuted, fontSize: 13 }}>No labels created yet.</div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>
-                  <th style={th}>Batch</th>
-                  <th style={th}>Product</th>
-                  <th style={th}>Warehouse</th>
-                  <th style={th}>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentBatches.map((b) => (
-                  <tr key={b.batch} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                    <td style={{ ...td, fontFamily: 'monospace' }}>{b.batch}</td>
-                    <td style={td}>{b.productName}</td>
-                    <td style={td}>{b.warehouseName}</td>
-                    <td style={td}>{b.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {success && (
+            <div style={{
+              padding: '12px 14px', borderRadius: 8,
+              background: '#dcfce7', border: '1px solid #86efac',
+              fontSize: 13, color: '#166534', fontWeight: 500,
+            }}>
+              ✓ {success.count} label(s) created · Batch <strong>{success.batchNumber}</strong>{' '}
+              <a href={success.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 700 }}>Reopen PDF</a>
+            </div>
           )}
-        </div>
+
+          <button type="submit" className="btn btn-primary" disabled={mutation.isPending}
+            style={{ marginTop: 4, padding: '12px 18px', fontWeight: 700,
+              opacity: mutation.isPending ? 0.7 : 1, cursor: mutation.isPending ? 'not-allowed' : 'pointer' }}>
+            {mutation.isPending ? 'Generating PDF…' : 'Generate Labels PDF'}
+          </button>
+        </form>
       </div>
     </PageShell>
   )
 }
-
-const th: React.CSSProperties = { padding: '10px 8px', fontWeight: 700, color: colors.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }
-const td: React.CSSProperties = { padding: '10px 8px', color: colors.textPrimary }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -244,16 +210,4 @@ function ErrorBox({ message }: { message: string }) {
       fontSize: 13, color: '#dc2626', fontWeight: 500,
     }}>{message}</div>
   )
-}
-
-interface BatchRow { batch: string; productName: string; warehouseName: string; count: number; createdAt: string }
-function collectBatches(items: { batchNumber: string; product: { name: string }; warehouse: { name: string }; createdAt: string }[]): BatchRow[] {
-  const map = new Map<string, BatchRow>()
-  for (const it of items) {
-    const key = `${it.batchNumber}::${it.product.name}::${it.warehouse.name}`
-    const existing = map.get(key)
-    if (existing) existing.count += 1
-    else map.set(key, { batch: it.batchNumber, productName: it.product.name, warehouseName: it.warehouse.name, count: 1, createdAt: it.createdAt })
-  }
-  return Array.from(map.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
 }

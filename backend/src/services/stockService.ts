@@ -13,8 +13,13 @@ export interface GenerateLabelsInput {
   count: number
 }
 
-export interface ScanPayload {
+export type ScanOperation = 'IN' | 'OUT' | 'TRANSFER'
+
+export interface ScanInput {
   id: string
+  operation: ScanOperation
+  warehouseId: string
+  toWarehouseId?: string
 }
 
 export type ScanResultType = 'IN' | 'USED' | 'TRANSFER'
@@ -162,6 +167,9 @@ export async function generateLabelsPdf(
 
   const batchNumber = await nextBatchNumber(tenantId)
 
+  // Labels are created in PENDING status. A Stock Keeper must scan each QR
+  // with the "Stock In" operation to flip it to IN_STOCK; until then the
+  // label does not count towards inventory totals.
   const created = await prisma.$transaction(async (tx) => {
     const rows = []
     for (let i = 0; i < input.count; i++) {
@@ -173,7 +181,7 @@ export async function generateLabelsPdf(
           unit: input.unit,
           quantity: input.quantity,
           batchNumber,
-          status: 'IN_STOCK',
+          status: 'PENDING',
         },
         select: { id: true },
       })
@@ -219,40 +227,41 @@ export async function listItems(
 export async function scanItem(
   tenantId: string,
   scannedById: string,
-  warehouseId: string,
-  payload: ScanPayload,
+  input: ScanInput,
 ): Promise<ScanResult> {
-  if (!payload.id) throw new Error('Invalid QR payload — missing id')
-  if (!warehouseId) throw new Error('Warehouse must be selected before scanning')
+  if (!input.id) throw new Error('Invalid QR payload — missing id')
+  if (!input.warehouseId) throw new Error('Warehouse must be selected before scanning')
 
   const scanWarehouse = await prisma.warehouse.findFirst({
-    where: { id: warehouseId, tenantId },
+    where: { id: input.warehouseId, tenantId },
     select: { id: true, name: true },
   })
   if (!scanWarehouse) throw new Error('Selected warehouse not found')
 
   const existing = await prisma.stockItem.findFirst({
-    where: { id: payload.id, tenantId },
+    where: { id: input.id, tenantId },
     include: {
       product: { select: { id: true, name: true, productCode: true } },
       warehouse: { select: { id: true, name: true } },
     },
   })
-
   if (!existing) throw new Error('Unknown label — no stock record found for this QR code')
 
-  const sameWarehouse = existing.warehouseId === scanWarehouse.id
+  const includeBlock = {
+    product: { select: { id: true, name: true, productCode: true } },
+    warehouse: { select: { id: true, name: true } },
+  }
 
-  // Case A: out → re-IN at scanned warehouse
-  if (existing.status === 'OUT_OF_STOCK') {
+  // ─── Stock In ─────────────────────────────────────────────────────────────
+  if (input.operation === 'IN') {
+    if (existing.status === 'IN_STOCK') {
+      throw new Error(`Already in stock at ${existing.warehouse.name}`)
+    }
     const [updated] = await prisma.$transaction([
       prisma.stockItem.update({
         where: { id: existing.id },
         data: { status: 'IN_STOCK', warehouseId: scanWarehouse.id },
-        include: {
-          product: { select: { id: true, name: true, productCode: true } },
-          warehouse: { select: { id: true, name: true } },
-        },
+        include: includeBlock,
       }),
       prisma.stockMovement.create({
         data: {
@@ -271,22 +280,22 @@ export async function scanItem(
     }
   }
 
-  // Case B: in stock + same warehouse → USED (out)
-  if (sameWarehouse) {
+  // ─── Stock Out ────────────────────────────────────────────────────────────
+  if (input.operation === 'OUT') {
+    if (existing.status !== 'IN_STOCK') {
+      throw new Error('Item is not in stock — cannot mark as out')
+    }
     const [updated] = await prisma.$transaction([
       prisma.stockItem.update({
         where: { id: existing.id },
         data: { status: 'OUT_OF_STOCK' },
-        include: {
-          product: { select: { id: true, name: true, productCode: true } },
-          warehouse: { select: { id: true, name: true } },
-        },
+        include: includeBlock,
       }),
       prisma.stockMovement.create({
         data: {
           stockItemId: existing.id,
           type: 'USED',
-          fromWarehouseId: scanWarehouse.id,
+          fromWarehouseId: existing.warehouseId,
           scannedById,
         },
       }),
@@ -294,39 +303,52 @@ export async function scanItem(
     return {
       item: shapeItem(updated),
       type: 'USED',
-      fromWarehouse: scanWarehouse.name,
+      fromWarehouse: existing.warehouse.name,
       message: `Used / out — ${updated.product.name}`,
     }
   }
 
-  // Case C: in stock + different warehouse → TRANSFER
-  const fromName = existing.warehouse.name
-  const [updated] = await prisma.$transaction([
-    prisma.stockItem.update({
-      where: { id: existing.id },
-      data: { warehouseId: scanWarehouse.id },
-      include: {
-        product: { select: { id: true, name: true, productCode: true } },
-        warehouse: { select: { id: true, name: true } },
-      },
-    }),
-    prisma.stockMovement.create({
-      data: {
-        stockItemId: existing.id,
-        type: 'TRANSFER',
-        fromWarehouseId: existing.warehouseId,
-        toWarehouseId: scanWarehouse.id,
-        scannedById,
-      },
-    }),
-  ])
-  return {
-    item: shapeItem(updated),
-    type: 'TRANSFER',
-    fromWarehouse: fromName,
-    toWarehouse: scanWarehouse.name,
-    message: `Transferred ${fromName} → ${scanWarehouse.name}`,
+  // ─── Stock Transfer ──────────────────────────────────────────────────────
+  if (input.operation === 'TRANSFER') {
+    if (!input.toWarehouseId) throw new Error('Destination warehouse is required for transfer')
+    if (existing.status !== 'IN_STOCK') {
+      throw new Error('Only in-stock items can be transferred')
+    }
+    const target = await prisma.warehouse.findFirst({
+      where: { id: input.toWarehouseId, tenantId },
+      select: { id: true, name: true },
+    })
+    if (!target) throw new Error('Destination warehouse not found')
+    if (existing.warehouseId === target.id) {
+      throw new Error(`Item is already at ${target.name}`)
+    }
+    const fromName = existing.warehouse.name
+    const [updated] = await prisma.$transaction([
+      prisma.stockItem.update({
+        where: { id: existing.id },
+        data: { warehouseId: target.id },
+        include: includeBlock,
+      }),
+      prisma.stockMovement.create({
+        data: {
+          stockItemId: existing.id,
+          type: 'TRANSFER',
+          fromWarehouseId: existing.warehouseId,
+          toWarehouseId: target.id,
+          scannedById,
+        },
+      }),
+    ])
+    return {
+      item: shapeItem(updated),
+      type: 'TRANSFER',
+      fromWarehouse: fromName,
+      toWarehouse: target.name,
+      message: `Transferred ${fromName} → ${target.name}`,
+    }
   }
+
+  throw new Error('Unknown scan operation')
 }
 
 function shapeItem(row: {
@@ -420,66 +442,80 @@ export async function listMovements(
 
 // ─── Aggregates / Stats ──────────────────────────────────────────────────────
 
-export async function getSummary(tenantId: string) {
+export interface WarehouseBreakdown {
+  warehouseId: string
+  warehouseName: string
+  boxes: number
+  quantity: number
+}
+
+export interface StockSummaryRow {
+  productId: string
+  productCode: string
+  productName: string
+  categoryId: string
+  categoryName: string
+  defaultUnit: StockUnit
+  reservedThreshold: number
+  inStockQuantity: number
+  boxCount: number
+  byWarehouse: WarehouseBreakdown[]
+  lowStock: boolean
+}
+
+export async function getSummary(tenantId: string): Promise<StockSummaryRow[]> {
   const products = await prisma.product.findMany({
     where: { tenantId },
     include: { category: { select: { id: true, name: true } } },
     orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }],
   })
-
   if (products.length === 0) return []
 
-  const productIds = products.map((p) => p.id)
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-
-  const [inStockCounts, transferCounts, usedCounts] = await Promise.all([
-    prisma.stockItem.groupBy({
-      by: ['productId'],
-      where: { tenantId, productId: { in: productIds }, status: 'IN_STOCK' },
-      _count: { _all: true },
-    }),
-    prisma.stockMovement.groupBy({
-      by: ['stockItemId'],
-      where: {
-        stockItem: { tenantId, productId: { in: productIds } },
-        type: 'TRANSFER',
-        scannedAt: { gte: since },
-      },
-      _count: { _all: true },
-    }),
-    prisma.stockMovement.groupBy({
-      by: ['stockItemId'],
-      where: {
-        stockItem: { tenantId, productId: { in: productIds } },
-        type: 'USED',
-        scannedAt: { gte: since },
-      },
-      _count: { _all: true },
-    }),
-  ])
-
-  const inStockMap = new Map(inStockCounts.map((c) => [c.productId, c._count._all]))
-
-  // Movement counts are by stockItemId; need to map back to productId
-  const stockItems = await prisma.stockItem.findMany({
-    where: { tenantId, productId: { in: productIds } },
-    select: { id: true, productId: true },
+  const items = await prisma.stockItem.findMany({
+    where: { tenantId, status: 'IN_STOCK' },
+    select: {
+      productId: true,
+      warehouseId: true,
+      quantity: true,
+      warehouse: { select: { name: true } },
+    },
   })
-  const itemToProduct = new Map(stockItems.map((s) => [s.id, s.productId]))
 
-  const transferByProduct = new Map<string, number>()
-  for (const c of transferCounts) {
-    const pid = itemToProduct.get(c.stockItemId)
-    if (pid) transferByProduct.set(pid, (transferByProduct.get(pid) ?? 0) + c._count._all)
+  type Bucket = {
+    quantity: number
+    boxes: number
+    byWh: Map<string, WarehouseBreakdown>
   }
-  const usedByProduct = new Map<string, number>()
-  for (const c of usedCounts) {
-    const pid = itemToProduct.get(c.stockItemId)
-    if (pid) usedByProduct.set(pid, (usedByProduct.get(pid) ?? 0) + c._count._all)
+  const byProduct = new Map<string, Bucket>()
+  for (const it of items) {
+    let bucket = byProduct.get(it.productId)
+    if (!bucket) {
+      bucket = { quantity: 0, boxes: 0, byWh: new Map() }
+      byProduct.set(it.productId, bucket)
+    }
+    bucket.quantity += it.quantity
+    bucket.boxes += 1
+    const whBucket = bucket.byWh.get(it.warehouseId)
+    if (whBucket) {
+      whBucket.boxes += 1
+      whBucket.quantity += it.quantity
+    } else {
+      bucket.byWh.set(it.warehouseId, {
+        warehouseId: it.warehouseId,
+        warehouseName: it.warehouse.name,
+        boxes: 1,
+        quantity: it.quantity,
+      })
+    }
   }
 
   return products.map((p) => {
-    const inStock = inStockMap.get(p.id) ?? 0
+    const bucket = byProduct.get(p.id)
+    const inStockQuantity = bucket?.quantity ?? 0
+    const boxCount = bucket?.boxes ?? 0
+    const byWarehouse = bucket
+      ? Array.from(bucket.byWh.values()).sort((a, b) => a.warehouseName.localeCompare(b.warehouseName))
+      : []
     return {
       productId: p.id,
       productCode: p.productCode,
@@ -488,10 +524,10 @@ export async function getSummary(tenantId: string) {
       categoryName: p.category.name,
       defaultUnit: p.defaultUnit,
       reservedThreshold: p.reservedThreshold,
-      inStockCount: inStock,
-      transferCount: transferByProduct.get(p.id) ?? 0,
-      usedCount: usedByProduct.get(p.id) ?? 0,
-      lowStock: inStock < p.reservedThreshold,
+      inStockQuantity,
+      boxCount,
+      byWarehouse,
+      lowStock: inStockQuantity < p.reservedThreshold,
     }
   })
 }

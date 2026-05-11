@@ -21,14 +21,16 @@ const GenerateLabelsSchema = z.object({
 })
 
 const ListItemsQuerySchema = z.object({
-  status: z.enum(['IN_STOCK', 'OUT_OF_STOCK']).optional(),
+  status: z.enum(['PENDING', 'IN_STOCK', 'OUT_OF_STOCK']).optional(),
   productId: z.string().uuid().optional(),
   warehouseId: z.string().uuid().optional(),
 })
 
 const ScanSchema = z.object({
   id: z.string().uuid(),
+  operation: z.enum(['IN', 'OUT', 'TRANSFER']),
   warehouseId: z.string().uuid(),
+  toWarehouseId: z.string().uuid().optional(),
 })
 
 const MovementsQuerySchema = z.object({
@@ -82,7 +84,10 @@ export default async function stockRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // POST /stock/scan — ADMIN + STOCK_KEEPER. State machine: IN / USED / TRANSFER.
+  // POST /stock/scan — ADMIN + STOCK_KEEPER. Operation-driven:
+  // IN flips PENDING/OUT_OF_STOCK → IN_STOCK at warehouseId.
+  // OUT flips IN_STOCK → OUT_OF_STOCK.
+  // TRANSFER moves IN_STOCK from current warehouse to toWarehouseId.
   fastify.post(
     '/scan',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
@@ -93,7 +98,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
       }
       const { tenantId, userId } = request.user as JWTPayload
       try {
-        const scanResult = await scanItem(tenantId, userId, result.data.warehouseId, { id: result.data.id })
+        const scanResult = await scanItem(tenantId, userId, result.data)
         return reply.send(scanResult)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Scan failed'

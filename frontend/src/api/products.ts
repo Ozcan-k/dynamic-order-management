@@ -22,10 +22,10 @@ export interface Product {
 
 export interface ProductInput {
   categoryId: string
-  productCode: string
   name: string
   defaultUnit: StockUnit
   reservedThreshold: number
+  productCode?: string
 }
 
 // ─── Categories ─────────────────────────────────────────────────────────────

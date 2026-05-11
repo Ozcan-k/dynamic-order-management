@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
 import {
@@ -66,6 +67,7 @@ function CategoriesTab() {
   const remove = useDeleteCategory()
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -78,10 +80,15 @@ function CategoriesTab() {
     }
   }
 
-  async function handleDelete(id: string, label: string) {
-    if (!window.confirm(`Delete category "${label}"?`)) return
-    try { await remove.mutateAsync(id) }
-    catch (err) { setError(extractErr(err) ?? 'Failed to delete category') }
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    try {
+      await remove.mutateAsync(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (err) {
+      setError(extractErr(err) ?? 'Failed to delete category')
+      setDeleteTarget(null)
+    }
   }
 
   return (
@@ -115,7 +122,7 @@ function CategoriesTab() {
               }}>
                 <span style={{ fontWeight: 600 }}>{c.name}</span>
                 <button
-                  onClick={() => handleDelete(c.id, c.name)}
+                  onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
                   style={{ background: 'transparent', border: 'none', color: colors.danger, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                 >
                   Delete
@@ -125,6 +132,19 @@ function CategoriesTab() {
           </ul>
         )}
       </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete category"
+          message={`This will permanently remove the category "${deleteTarget.name}".`}
+          detail="Categories referenced by existing products cannot be deleted."
+          confirmLabel="Delete"
+          tone="danger"
+          busy={remove.isPending}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   )
 }
@@ -141,10 +161,10 @@ function ProductsTab() {
   const [editing, setEditing] = useState<Product | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
 
   const blankInput: ProductInput = {
     categoryId: categories[0]?.id ?? '',
-    productCode: '',
     name: '',
     defaultUnit: 'KG',
     reservedThreshold: 0,
@@ -161,7 +181,6 @@ function ProductsTab() {
     setEditing(p)
     setForm({
       categoryId: p.categoryId,
-      productCode: p.productCode,
       name: p.name,
       defaultUnit: p.defaultUnit,
       reservedThreshold: p.reservedThreshold,
@@ -182,10 +201,15 @@ function ProductsTab() {
     }
   }
 
-  async function handleDelete(p: Product) {
-    if (!window.confirm(`Delete product "${p.name}" (${p.productCode})?`)) return
-    try { await remove.mutateAsync(p.id) }
-    catch (err) { setError(extractErr(err) ?? 'Failed to delete product') }
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    try {
+      await remove.mutateAsync(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (err) {
+      setError(extractErr(err) ?? 'Failed to delete product')
+      setDeleteTarget(null)
+    }
   }
 
   if (categories.length === 0) {
@@ -229,10 +253,15 @@ function ProductsTab() {
                 />
               </Field>
               <Field label="Product ID">
-                <input
-                  type="text" value={form.productCode} onChange={(e) => setForm({ ...form, productCode: e.target.value })}
-                  required maxLength={60} style={inputStyle} placeholder="e.g. NUT-A001"
-                />
+                {editing ? (
+                  <div style={{ ...inputStyle, fontFamily: 'monospace', background: '#f1f5f9', color: colors.textSecondary }}>
+                    {editing.productCode}
+                  </div>
+                ) : (
+                  <div style={{ ...inputStyle, color: colors.textMuted, fontStyle: 'italic', background: '#f8fafc' }}>
+                    Auto-generated on save (e.g. NUT-001)
+                  </div>
+                )}
               </Field>
               <Field label="Default Unit">
                 <select
@@ -291,7 +320,7 @@ function ProductsTab() {
                   <td style={td}>{p.reservedThreshold}</td>
                   <td style={{ ...td, textAlign: 'right' }}>
                     <button onClick={() => startEdit(p)} style={btnLink}>Edit</button>
-                    <button onClick={() => handleDelete(p)} style={{ ...btnLink, color: colors.danger }}>Delete</button>
+                    <button onClick={() => setDeleteTarget(p)} style={{ ...btnLink, color: colors.danger }}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -299,6 +328,19 @@ function ProductsTab() {
           </table>
         )}
       </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete product"
+          message={`This will permanently remove "${deleteTarget.name}" from the product master list.`}
+          detail={`Product ID: ${deleteTarget.productCode} · Category: ${deleteTarget.category.name}`}
+          confirmLabel="Delete"
+          tone="danger"
+          busy={remove.isPending}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   )
 }
