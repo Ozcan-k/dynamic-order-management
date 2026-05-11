@@ -145,6 +145,7 @@ All located in `frontend/src/components/shared/`.
 | `Avatar` | `Avatar.tsx` | `username, size?` | Indigo initial-letter avatar circle |
 | `PlatformBadge` | `PlatformBadge.tsx` | `platform` | Pill badge for SHOPEE/LAZADA/TIKTOK/OTHER |
 | `SectionHeader` | `SectionHeader.tsx` | `title, count?, children?` | `h2` + count pill + right-side action slot |
+| `ConfirmModal` | `ConfirmModal.tsx` | `title, message, detail?, confirmLabel?, cancelLabel?, tone?, busy?, onConfirm, onCancel` | createPortal modal replacing `window.confirm()`. `tone="danger"` → red gradient header with `!` icon; `tone="primary"` → blue gradient header with `?`. Inventory module migrated to it in v2.33.0; new pages must use it instead of native confirm. |
 
 ### Other components (root of `frontend/src/components/`)
 
