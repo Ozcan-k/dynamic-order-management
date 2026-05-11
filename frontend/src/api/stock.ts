@@ -49,6 +49,13 @@ export interface StockStats {
   in30d: number
 }
 
+export interface WarehouseBreakdown {
+  warehouseId: string
+  warehouseName: string
+  boxes: number
+  quantity: number
+}
+
 export interface StockSummaryRow {
   productId: string
   productCode: string
@@ -57,9 +64,9 @@ export interface StockSummaryRow {
   categoryName: string
   defaultUnit: StockUnit
   reservedThreshold: number
-  inStockCount: number
-  transferCount: number
-  usedCount: number
+  inStockQuantity: number
+  boxCount: number
+  byWarehouse: WarehouseBreakdown[]
   lowStock: boolean
 }
 
@@ -83,9 +90,13 @@ export interface ScanResult {
   message: string
 }
 
+export type ScanOperation = 'IN' | 'OUT' | 'TRANSFER'
+
 export interface ScanPayload {
   id: string
+  operation: ScanOperation
   warehouseId: string
+  toWarehouseId?: string
 }
 
 export interface GenerateLabelsInput {

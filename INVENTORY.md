@@ -1,14 +1,36 @@
 # Inventory Module
 
-> **Status:** ✅ LIVE on https://domwarehouse.com (v2.31.2, 2026-05-06). Schema sync via `prisma db push`; module + STOCK_KEEPER role + 4 admin pages + scan state machine all in production.
+> **Status:** ✅ LIVE on https://domwarehouse.com (v2.33.0, 2026-05-10). Schema sync via `prisma db push`. v2.33.0 introduces operation-driven scan (Stock In / Stock Out / Stock Transfer), `StockStatus.PENDING` for unscanned printed labels (QR generation no longer inflates inventory), auto-generated Product IDs (`{CAT3}-NNN`), enriched per-warehouse stock breakdown with hover tooltip, search bar on the Stock page, and a unified `ConfirmModal` replacing all native `window.confirm` dialogs.
 > **Sticker standard:** Avery L7173 / J8173 (A4, 10 stickers/sheet, 99.1 × 57 mm)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
 
 ---
 
+## v2.33.0 değişiklik özeti (2026-05-10)
+
+1. **Auto Product ID** — Admin "+ Add Product"'a basınca Product ID girmez; backend `{CategoryPrefix3}-NNN` formatında üretir (örn. Nuts → `NUT-001`). Kategori prefiksi kategori adının ilk 3 ASCII harfi (uppercase); harf yetersizse `X` ile pad'lenir ya da `PRD` fallback'i devreye girer. Collision durumunda 5'e kadar retry yapılır.
+2. **PENDING label flow** — `POST /stock/labels` artık `StockItem` satırlarını **`PENDING`** status'unda yaratır. Bu satırlar `getSummary` / `getStats` / hover breakdown hesaplamalarında **görünmez**. Bir Stock Keeper QR'ı "Stock In" işlemiyle scan edince satır `IN_STOCK`'a flip olur ve envantere katılır.
+3. **Operation-driven scan** — `/stock/scan` body'si `{ id, operation: 'IN'|'OUT'|'TRANSFER', warehouseId, toWarehouseId? }` formatına geçti. Server artık state machine'i çıkarımla bulmaz; operatör seçer:
+   - **IN:** `PENDING`/`OUT_OF_STOCK` → `IN_STOCK` at `warehouseId`. `IN_STOCK` ise hata: "Already in stock at …".
+   - **OUT:** `IN_STOCK` → `OUT_OF_STOCK` (movement type `USED`). Diğer status'larda hata.
+   - **TRANSFER:** `IN_STOCK` + `warehouseId !== toWarehouseId` → taşı. Aksi halde hata.
+4. **Stock sayfası yeniden tasarım** —
+   - Üst 4 KPI kartı (Products / Low stock / Transfers / Used) **kaldırıldı**.
+   - Toolbar'a **search input** (product name + Product ID arar) eklendi; mevcut kategori dropdown ve Low-stock-only toggle korundu.
+   - Tablo kolonları: **Category · Product · Product ID · In Stock (qty + unit) · Box Quantity · Reserved · Status · Actions**. Transfer/Used kolonları kaldırıldı.
+   - **In Stock hücresi hover** → koyu tooltip: depo başına `boxes · quantity (kg/pcs)`.
+   - **Actions:** Edit (createPortal modal) + Delete (ConfirmModal). Edit, kategori/isim/unit/reserved alanlarını güncellemeye izin verir; Product ID immutable ve modal başlığında gösterilir.
+5. **Inventory (label gen) sayfası** — Sağdaki "Recent Batches" kartı kaldırıldı; form full-width (max 720px, centered) ve "Printed labels are pending until a Stock Keeper scans them into a warehouse." disclaimer'ı eklendi.
+6. **Warehouse sayfası** — Tablodan "In-stock items" kolonu kaldırıldı.
+7. **Custom ConfirmModal** — Yeni `components/shared/ConfirmModal.tsx` (createPortal, DESIGN_SYSTEM Remove pattern). Inventory modülündeki tüm `window.confirm()` çağrıları bu modal'la değiştirildi: Products tab category/product delete, Warehouses delete, StockSummary product delete.
+8. **`StockSummaryRow` shape değişikliği** — Eski `inStockCount`/`transferCount`/`usedCount` alanları kaldırıldı; yerine: `inStockQuantity: number` (sum of `IN_STOCK` `quantity`), `boxCount: number` (sayım), `byWarehouse: WarehouseBreakdown[]` (hover için), `lowStock: boolean` (`inStockQuantity < reservedThreshold`).
+9. **Scan page debug** — Mobile scan ekranına "Show raw QR (debug)" toggle eklendi. Açıkken kameranın okuduğu raw metni overlay olarak gösterir — JSON parse / UUID format problemlerini canlı sahada teşhis etmek için. Parser `{id}` JSON'unu **veya** çıplak UUID'yi kabul edecek şekilde gevşetildi.
+
+---
+
 ## Genel Bakış
 
-Stock Control modülü v2.30.0'da tek sayfa yapısıyla tasarlanmıştı; v2.31.0'da 4 alt sayfaya bölünmüş bir **Inventory** modülüne yeniden yapılandırıldı. Sebep: kullanıcı master data ihtiyaçları (sabit kategori listesi yetmedi), warehouse-bazlı takip, ve düşük stok uyarısı isterdi.
+Stock Control modülü v2.30.0'da tek sayfa yapısıyla tasarlanmıştı; v2.31.0'da 4 alt sayfaya bölünmüş bir **Inventory** modülüne yeniden yapılandırıldı. v2.33.0'da scan akışı operasyon-bazlı oldu ve label üretimi artık otomatik stok'a katmıyor.
 
 **Sidebar yapısı:**
 ```
@@ -74,7 +96,7 @@ Sticker baskıdan önce ölçüleri cetvelle doğrula. Kayma varsa `backend/src/
 **Prisma model'leri** (`backend/prisma/schema.prisma`):
 
 ```prisma
-enum StockStatus  { IN_STOCK | OUT_OF_STOCK }
+enum StockStatus  { PENDING | IN_STOCK | OUT_OF_STOCK }
 enum StockUnit    { KG | PCS }
 enum MovementType { IN | USED | TRANSFER }
 

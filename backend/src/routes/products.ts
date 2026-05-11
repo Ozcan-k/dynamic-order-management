@@ -20,7 +20,7 @@ const CategoryBodySchema = z.object({
 
 const ProductBodySchema = z.object({
   categoryId: UUID,
-  productCode: z.string().min(1).max(60),
+  productCode: z.string().min(1).max(60).optional(),
   name: z.string().min(1).max(120),
   defaultUnit: z.enum(['KG', 'PCS']),
   reservedThreshold: z.number().min(0).max(1_000_000),

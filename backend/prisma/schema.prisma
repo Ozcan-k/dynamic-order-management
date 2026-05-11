@@ -22,6 +22,7 @@ enum UserRole {
 }
 
 enum StockStatus {
+  PENDING
   IN_STOCK
   OUT_OF_STOCK
 }

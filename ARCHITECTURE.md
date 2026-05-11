@@ -1,8 +1,8 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.32.1  
-> **Date:** 2026-05-07  
-> **Status:** LIVE on https://domwarehouse.com — **PickerAdmin workload performance** finished (v2.32.0 + v2.32.1). v2.32.0 collapsed `getPickerStats` from N+1 (4N+2 Prisma queries) to 6 batched queries with in-memory aggregation, but the workload section was still slow because the `returned` subquery (`statusHistory.some({ fromStatus IN (...), toStatus: PICKER_ASSIGNED })`) hit `OrderStatusHistory` without a covering index — Postgres did a sequential scan. v2.32.1 adds a composite index on `OrderStatusHistory(order_id, from_status, to_status)` (created on the live DB with `CREATE INDEX CONCURRENTLY` first to avoid blocking writes; schema change is then a no-op for `db push`). **Inventory module redesign** shipped (v2.31.0–v2.31.2) + picker badge filter & CD schema-flag fixes (v2.31.3) + PackerAdmin per-packer "Assigned" count (v2.31.4) + Dashboard clock format + PickerAdmin workload prefetch + Nightly report today-only refactor (v2.31.5) + Mobile app plan tracking doc `MOBILE_APP.md` added to project root (v2.31.6 — docs only, no code change). Sidebar gained a parent "Inventory" menu with 4 children: **Product** (admin master data — Category, Product Name, Product ID/code, Default Unit, Reserved threshold), **Inventory** (relocated label generator — Product dropdown, KG/PCS toggle, Quantity, Warehouse dropdown, auto Batch Number `YYYYMMDD-NNN`, Label count), **Warehouse** (warehouse master data with Name + Address), **Stock** (per-product summary table with Transfer / Used / In-Stock counts and Low-Stock badge when in-stock < reserved). New tables: `product_categories`, `products`, `warehouses`. `stock_items` rewritten with FKs (`productId`, `warehouseId`) plus `unit` (KG/PCS), `quantity`, `batchNumber`. `stock_movements.type` enum replaces `MovementDirection` — IN / USED / TRANSFER. Scan state machine in `/stock/scan` (body now requires `{ id, warehouseId }`): same warehouse → USED (out), different warehouse → TRANSFER (warehouse change, status stays IN), OUT_OF_STOCK re-scan → IN (re-stock). `/stock/labels` now creates `count` `StockItem` rows in DB at print time inside a transaction; QR payload is `{ id }`; sticker text shows product name + product code + quantity+unit + warehouse name + batch. New routes `/products` + `/warehouses` (CRUD, ADMIN-only except `GET` which is also STOCK_KEEPER for the scan dropdowns). `/stock/summary` returns per-product aggregates for the Stock page. StockScan UI has a top-of-screen warehouse selector (full-width pill button → bottom sheet) with `localStorage` persist. Sidebar `NavItem` interface gained `children?: NavItem[]` with collapse/expand state. Vite proxy `proxyRoutes` extended with `/products` and `/warehouses`.
+> **Version:** 2.33.0  
+> **Date:** 2026-05-10  
+> **Status:** LIVE on https://domwarehouse.com — **Inventory module overhaul** (v2.33.0). Operation-driven scan replaces the implicit IN/USED/TRANSFER state machine: the stock keeper picks **Stock In**, **Stock Out**, or **Stock Transfer** from a dropdown (with a second "to warehouse" picker for Transfer), and the server only validates the chosen transition. QR label generation no longer auto-inflates inventory — `POST /stock/labels` writes new `StockItem` rows in a new **`StockStatus.PENDING`** status, and the first **Stock In** scan flips them to `IN_STOCK`; until then they are invisible to `/stock/summary`, `/stock/stats`, and warehouse counters. Stock page rewritten: 4 KPI cards removed, search input added, Transfer/Used columns replaced with a **Box Quantity** column, hover on the In-Stock cell pops a per-warehouse breakdown tooltip (boxes × quantity per warehouse), and each row gains Edit + Delete actions. Product creation auto-generates `Product ID` as `{CategoryPrefix3}-NNN` (Nuts → NUT-001, …); collisions retry 5×. Native `window.confirm()` removed from every Inventory page in favour of a new `components/shared/ConfirmModal.tsx` (createPortal modal). Scan page rebuilt with operation/warehouse bottom-sheet pickers and an optional "Show raw QR" debug overlay for diagnosing field-side scan failures; the QR parser now accepts either raw UUID or `{id: "<uuid>"}` JSON. Frontend `StockSummaryRow` reshape — `inStockCount`/`transferCount`/`usedCount` replaced with `inStockQuantity`/`boxCount`/`byWarehouse[]`. **PickerAdmin workload performance** finished (v2.32.0 + v2.32.1). v2.32.0 collapsed `getPickerStats` from N+1 (4N+2 Prisma queries) to 6 batched queries with in-memory aggregation, but the workload section was still slow because the `returned` subquery (`statusHistory.some({ fromStatus IN (...), toStatus: PICKER_ASSIGNED })`) hit `OrderStatusHistory` without a covering index — Postgres did a sequential scan. v2.32.1 adds a composite index on `OrderStatusHistory(order_id, from_status, to_status)` (created on the live DB with `CREATE INDEX CONCURRENTLY` first to avoid blocking writes; schema change is then a no-op for `db push`). **Inventory module redesign** shipped (v2.31.0–v2.31.2) + picker badge filter & CD schema-flag fixes (v2.31.3) + PackerAdmin per-packer "Assigned" count (v2.31.4) + Dashboard clock format + PickerAdmin workload prefetch + Nightly report today-only refactor (v2.31.5) + Mobile app plan tracking doc `MOBILE_APP.md` added to project root (v2.31.6 — docs only, no code change). Sidebar gained a parent "Inventory" menu with 4 children: **Product** (admin master data — Category, Product Name, Product ID/code, Default Unit, Reserved threshold), **Inventory** (relocated label generator — Product dropdown, KG/PCS toggle, Quantity, Warehouse dropdown, auto Batch Number `YYYYMMDD-NNN`, Label count), **Warehouse** (warehouse master data with Name + Address), **Stock** (per-product summary table with Transfer / Used / In-Stock counts and Low-Stock badge when in-stock < reserved). New tables: `product_categories`, `products`, `warehouses`. `stock_items` rewritten with FKs (`productId`, `warehouseId`) plus `unit` (KG/PCS), `quantity`, `batchNumber`. `stock_movements.type` enum replaces `MovementDirection` — IN / USED / TRANSFER. Scan state machine in `/stock/scan` (body now requires `{ id, warehouseId }`): same warehouse → USED (out), different warehouse → TRANSFER (warehouse change, status stays IN), OUT_OF_STOCK re-scan → IN (re-stock). `/stock/labels` now creates `count` `StockItem` rows in DB at print time inside a transaction; QR payload is `{ id }`; sticker text shows product name + product code + quantity+unit + warehouse name + batch. New routes `/products` + `/warehouses` (CRUD, ADMIN-only except `GET` which is also STOCK_KEEPER for the scan dropdowns). `/stock/summary` returns per-product aggregates for the Stock page. StockScan UI has a top-of-screen warehouse selector (full-width pill button → bottom sheet) with `localStorage` persist. Sidebar `NavItem` interface gained `children?: NavItem[]` with collapse/expand state. Vite proxy `proxyRoutes` extended with `/products` and `/warehouses`.
 
 Patch v2.31.1 (2026-05-05) — `frontend/vite.config.ts` `allowedHosts` extended with `localhost` and `127.0.0.1`. Vite 5 strict host check was returning 403 on local dev because the prod-only allowlist had stripped these. SOLUTIONS.md [2026-05-05] documents the regression.
 
@@ -939,49 +939,68 @@ A **"Clear filters"** button appears when any filter is active.
 
 ---
 
-### 7.9 Inventory Module ✅ Rewritten (v2.31.0)
+### 7.9 Inventory Module ✅ Operation-driven scan (v2.33.0)
 **Visible to:** Admin (full); Stock Keeper (scan-only + read-only product/warehouse lookups)
 **Sidebar:** parent "Inventory" with 4 children — **Product**, **Inventory**, **Warehouse**, **Stock**.
 **Routes:** `/inventory/products`, `/inventory/items`, `/inventory/warehouses`, `/inventory/stock` (all admin); `/stock/scan` (admin + stock keeper mobile camera).
 
-Independent inventory module for warehouse boxes. **Not connected to the order pipeline** — no shared tables, no shared queries, no shared queues. Replaces the old single-page Stock Control (v2.30.0): the hardcoded category list and `productType`/`weightKg` columns are gone, replaced by tenant-scoped Product master data with reserved-stock thresholds, an explicit Warehouse table, and a label flow that pre-creates real `StockItem` rows at print time.
+Independent inventory module for warehouse boxes. **Not connected to the order pipeline** — no shared tables, no shared queries, no shared queues.
 
 #### Data model
 
 | Table | Purpose | Key fields |
 |---|---|---|
 | `product_categories` | Admin-defined categories per tenant | `tenantId`, `name` (`@@unique [tenantId, name]`) |
-| `products` | Product master data | `tenantId`, `categoryId`, `productCode` (visible "Product ID"), `name`, `defaultUnit` (KG/PCS), `reservedThreshold` |
+| `products` | Product master data | `tenantId`, `categoryId`, `productCode` (auto `{CAT3}-NNN` when admin omits it), `name`, `defaultUnit` (KG/PCS), `reservedThreshold` |
 | `warehouses` | Physical locations | `tenantId`, `name`, `address` (`@@unique [tenantId, name]`) |
-| `stock_items` | One row per printed label / physical box | `productId` (FK), `warehouseId` (FK, current location), `unit`, `quantity`, `batchNumber`, `status` |
+| `stock_items` | One row per printed label / physical box | `productId` (FK), `warehouseId` (FK, current location), `unit`, `quantity`, `batchNumber`, `status` (`PENDING` / `IN_STOCK` / `OUT_OF_STOCK`) |
 | `stock_movements` | Scan event log | `type` (IN / USED / TRANSFER), `fromWarehouseId?`, `toWarehouseId?`, `scannedById`, `scannedAt` |
 
-Enums: `StockUnit { KG, PCS }`, `MovementType { IN, USED, TRANSFER }`. The old `MovementDirection (IN, OUT)` enum is dropped. Migration `20260504000000_inventory_module_redesign` includes a `TRUNCATE stock_items, stock_movements CASCADE` (user-approved clean slate — no production stock data existed yet).
+Enums: `StockStatus { PENDING, IN_STOCK, OUT_OF_STOCK }` (PENDING added v2.33.0), `StockUnit { KG, PCS }`, `MovementType { IN, USED, TRANSFER }`.
+
+#### Auto Product ID (v2.33.0)
+
+The Products form no longer takes a `productCode` from the admin. `productService.createProduct` computes the next `{CategoryPrefix3}-NNN` per tenant — prefix is the uppercased first 3 ASCII alpha chars of the category name (padded with `X` if shorter, `PRD` fallback if zero letters), and NNN is the next free 3-digit sequence within that prefix. The route accepts an explicit `productCode` (kept for migrations / scripts), but the UI never sends one. Inserts collide-retry up to 5× on `P2002` before surfacing the error.
 
 #### Scan state machine (POST `/stock/scan`, prefix `/stock`)
 
-Body now requires `{ id, warehouseId }` — the keeper's selected current warehouse. The QR payload encodes only `{ id }`; product/warehouse/quantity/batch are looked up server-side. The state machine in `stockService.scanItem`:
+Body is now operation-driven: `{ id, operation: 'IN' | 'OUT' | 'TRANSFER', warehouseId, toWarehouseId? }`. The QR payload encodes `{ id }` (or a raw UUID — the parser accepts both). The state machine in `stockService.scanItem`:
 
-| Existing item state | Scanned warehouse | Action | Movement type |
-|---|---|---|---|
-| not found | — | error: "Unknown label" | — |
-| `IN_STOCK`, same warehouse | same | flip to `OUT_OF_STOCK` | `USED` |
-| `IN_STOCK`, different warehouse | new | update `warehouseId`, status stays IN | `TRANSFER` (`fromWarehouseId`/`toWarehouseId` populated) |
-| `OUT_OF_STOCK` | any | flip to `IN_STOCK`, set `warehouseId` | `IN` (re-stock) |
+| Operation | Existing item state | Action | Movement type | Error case |
+|---|---|---|---|---|
+| `IN` | `PENDING` or `OUT_OF_STOCK` | flip to `IN_STOCK`, set `warehouseId` | `IN` | `IN_STOCK` → "Already in stock at {warehouse}" |
+| `OUT` | `IN_STOCK` | flip to `OUT_OF_STOCK` | `USED` | non-`IN_STOCK` → "Item is not in stock — cannot mark as out" |
+| `TRANSFER` | `IN_STOCK` and `warehouseId !== toWarehouseId` | update `warehouseId` to `toWarehouseId` | `TRANSFER` | non-`IN_STOCK` or same warehouse → explicit error |
 
-Result banner colors: IN → green, USED → red, TRANSFER → blue. Camera resumes 1.5s later.
+Result banner colors: IN → green, USED → red, TRANSFER → blue. Camera resumes 1.5s after each scan. A "Show raw QR (debug)" toggle on the start screen displays the most recent decoded text inside the camera frame — used to diagnose field-side scan failures.
 
-#### Pre-created labels (POST `/stock/labels`)
+#### Pre-created labels (POST `/stock/labels`) — PENDING flow (v2.33.0)
 
-Unlike the old design (PDF-only, lazy-create on scan), the new flow creates `count` `StockItem` rows in DB at print time inside a single transaction. Body: `{ productId, warehouseId, unit, quantity, count }`. Server generates a per-day batch number `YYYYMMDD-NNN` (counter persisted via `stock_items.batch_number` lookup). PDF QR encodes only `{ id }`; the printed sticker shows product name, product code, quantity+unit, warehouse name, batch, and a short id suffix. Avery L7173 / J8173 layout (10 per A4 sheet) preserved.
+`POST /stock/labels` creates `count` `StockItem` rows in a single transaction with `status = 'PENDING'`. These rows are invisible to `/stock/summary`, `/stock/stats`, and the warehouse hover breakdown — they only contribute to inventory after a stock keeper scans each QR with the **Stock In** operation, which flips the row to `IN_STOCK` and writes an `IN` movement. Body: `{ productId, warehouseId, unit, quantity, count }`. Server generates a per-day batch number `YYYYMMDD-NNN`. PDF QR encodes `{ id }`; the printed sticker shows product name, product code, quantity+unit, destination warehouse name, batch, and a short id suffix. Avery L7173 / J8173 layout (10 per A4 sheet) preserved.
 
 #### Sidebar — parent/child nav
 
 `frontend/src/components/shared/Sidebar.tsx` `NavItem` interface gained `children?: NavItem[]`. Parent items render as a button (not NavLink) that toggles `expanded[path]`; children render as indented `NavLink`s when expanded. Parent auto-expands when `location.pathname.startsWith(parent.path)`. Currently only Inventory has children — pattern is reusable for future parent menus.
 
-#### Per-product Stock Summary (`/inventory/stock`)
+#### Per-product Stock Summary (`/inventory/stock`) — rewritten (v2.33.0)
 
-Calls `GET /stock/summary` which returns one row per product with: `inStockCount`, `transferCount` (30d), `usedCount` (30d), `reservedThreshold`, `lowStock` (boolean = `inStockCount < reservedThreshold`). Frontend renders KPI cards (Products / Low stock / Transfers 30d / Used 30d) plus the table; rows where `lowStock=true` get a red row tint and a Low Stock badge.
+Calls `GET /stock/summary` which returns one row per product:
+
+```ts
+{
+  productId, productCode, productName, categoryId, categoryName, defaultUnit,
+  reservedThreshold,
+  inStockQuantity: number,          // sum(stock_items.quantity) where status=IN_STOCK
+  boxCount: number,                 // count of IN_STOCK rows
+  byWarehouse: Array<{
+    warehouseId, warehouseName,
+    boxes: number, quantity: number,
+  }>,                               // per-warehouse breakdown (for hover tooltip)
+  lowStock: boolean,                // inStockQuantity < reservedThreshold
+}
+```
+
+PENDING and OUT_OF_STOCK rows are excluded from every aggregate above. Frontend (`pages/inventory/StockSummary.tsx`) renders a single toolbar (search input + categories dropdown + Low-stock-only toggle) above the table — the v2.31.0 KPI strip was removed. Columns: Category · Product · Product ID · In Stock (qty + unit) · Box Quantity · Reserved · Status · Actions. Hovering the In-Stock cell pops a dark tooltip with the `byWarehouse` breakdown (`Main WH · 3 box · 15 kg`). Actions: Edit (createPortal modal — kategori/name/unit/reserved alanları, Product ID immutable) + Delete (`ConfirmModal`).
 
 #### API endpoints
 
@@ -993,7 +1012,7 @@ Calls `GET /stock/summary` which returns one row per product with: `inStockCount
 | POST | `/categories` | `{ name }` | ADMIN |
 | DELETE | `/categories/:id` | — | ADMIN (409 if referenced) |
 | GET | `/` | `?categoryId` | ADMIN, STOCK_KEEPER |
-| POST | `/` | `{ categoryId, productCode, name, defaultUnit, reservedThreshold }` | ADMIN |
+| POST | `/` | `{ categoryId, name, defaultUnit, reservedThreshold, productCode? }` — `productCode` auto-generated `{CAT3}-NNN` if omitted | ADMIN |
 | PUT | `/:id` | (partial body) | ADMIN |
 | DELETE | `/:id` | — | ADMIN (409 if has stock items) |
 
@@ -1010,13 +1029,13 @@ Calls `GET /stock/summary` which returns one row per product with: `inStockCount
 
 | Method | Path | Body | Roles | Notes |
 |---|---|---|---|---|
-| POST | `/labels` | `{ productId, warehouseId, unit, quantity, count }` | ADMIN | Creates `count` StockItems + returns PDF. Headers: `X-Labels-Generated`, `X-Batch-Number` |
-| GET | `/items` | `?status&productId&warehouseId` | ADMIN | Includes product+warehouse relations |
-| POST | `/scan` | `{ id, warehouseId }` | ADMIN, STOCK_KEEPER | State machine above |
+| POST | `/labels` | `{ productId, warehouseId, unit, quantity, count }` | ADMIN | Creates `count` StockItems in `PENDING` status + returns PDF. Headers: `X-Labels-Generated`, `X-Batch-Number` |
+| GET | `/items` | `?status&productId&warehouseId` | ADMIN | Includes product+warehouse relations; `status` accepts `PENDING`/`IN_STOCK`/`OUT_OF_STOCK` |
+| POST | `/scan` | `{ id, operation: 'IN'\|'OUT'\|'TRANSFER', warehouseId, toWarehouseId? }` | ADMIN, STOCK_KEEPER | Operation-driven state machine above |
 | DELETE | `/items/:id` | — | ADMIN | UUID validation; cascades movements |
 | GET | `/movements` | `?limit&offset` | ADMIN | Joins fromWarehouse/toWarehouse/scannedBy |
-| GET | `/stats` | — | ADMIN | KPI numbers (Products, In stock, Low stock, Transfers 30d, Used 30d) |
-| GET | `/summary` | — | ADMIN | Per-product aggregate (transferCount, usedCount, lowStock) |
+| GET | `/stats` | — | ADMIN | KPI numbers (only IN_STOCK rows counted — PENDING excluded) |
+| GET | `/summary` | — | ADMIN | Per-product aggregate with `byWarehouse` breakdown (only IN_STOCK rows; PENDING excluded) |
 
 #### Vite proxy requirement
 
