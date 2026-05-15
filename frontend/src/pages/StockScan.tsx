@@ -86,6 +86,10 @@ export default function StockScan() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [debugRaw, setDebugRaw] = useState<string | null>(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [pendingScan, setPendingScan] = useState<{ id: string } | null>(null)
+  const pendingRef = useRef<{ id: string } | null>(null)
+
+  useEffect(() => { pendingRef.current = pendingScan }, [pendingScan])
 
   const scanMutation = useScanStock()
 
@@ -149,7 +153,7 @@ export default function StockScan() {
     video.play().then(() => {
       reader.decodeFromStream(stream, video, (result, _err, controls) => {
         if (controls && !controlsRef.current) controlsRef.current = controls
-        if (!result || lockedRef.current) return
+        if (!result || lockedRef.current || pendingRef.current) return
         const text = result.getText().trim()
         setDebugRaw(text)
         const id = parseStockQr(text)
@@ -163,25 +167,10 @@ export default function StockScan() {
           setErrorMessage('Pick operation and warehouse(s) first.')
           return
         }
-        lockedRef.current = true
+        // QR detected — alert user, lock further detection, and ask them
+        // to confirm before we actually commit the operation.
         playBeep(true); vibrate(100)
-        const payload: ScanPayload = {
-          id, operation, warehouseId,
-          ...(needsToWarehouse ? { toWarehouseId } : {}),
-        }
-        scanMutation.mutate(payload, {
-          onSuccess: (data) => {
-            setLastResult(data); setErrorMessage(null)
-            window.setTimeout(() => { lockedRef.current = false }, 2500)
-          },
-          onError: (err: unknown) => {
-            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-              ?? 'Scan failed'
-            setErrorMessage(msg); setLastResult(null)
-            playBeep(false); vibrate([80, 60, 80])
-            window.setTimeout(() => { lockedRef.current = false }, 2500)
-          },
-        })
+        setPendingScan({ id })
       }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
         .catch(() => { /* noop */ })
     }).catch(() => {
@@ -196,6 +185,34 @@ export default function StockScan() {
   }, [cameraOn, warehouseId, toWarehouseId, operation, needsToWarehouse, ready])
 
   useEffect(() => () => stopCamera(), [stopCamera])
+
+  function cancelScan() {
+    setPendingScan(null)
+  }
+
+  function confirmScan() {
+    if (!pendingScan) return
+    const payload: ScanPayload = {
+      id: pendingScan.id,
+      operation,
+      warehouseId,
+      ...(needsToWarehouse ? { toWarehouseId } : {}),
+    }
+    scanMutation.mutate(payload, {
+      onSuccess: (data) => {
+        setLastResult(data); setErrorMessage(null)
+        setPendingScan(null)
+        playBeep(true); vibrate(200)
+      },
+      onError: (err: unknown) => {
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+          ?? 'Scan failed'
+        setErrorMessage(msg); setLastResult(null)
+        setPendingScan(null)
+        playBeep(false); vibrate([80, 60, 80])
+      },
+    })
+  }
 
   async function handleLogout() {
     try { await api.post('/auth/logout') } catch { /* ignore */ }
@@ -439,6 +456,74 @@ export default function StockScan() {
           </div>
         </div>
       )}
+
+      {/* Scan confirmation modal — shown when a QR is detected and we are
+          waiting for the operator to confirm the action. Camera keeps
+          running but pendingRef prevents re-detection until resolved. */}
+      {pendingScan && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 60, display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div style={{ width: '100%', background: '#0f172a', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 19, background: `${opMeta.color}33`, border: `1px solid ${opMeta.color}88`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📦</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>Confirm scan</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>QR detected — review and confirm.</div>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Row label="Operation" value={opMeta.label} valueColor={opMeta.color} />
+              {needsToWarehouse ? (
+                <>
+                  <Row label="From" value={selectedWarehouse?.name ?? '—'} />
+                  <Row label="To" value={destinationWarehouse?.name ?? '—'} />
+                </>
+              ) : (
+                <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
+              )}
+              <Row label="QR" value={pendingScan.id.slice(0, 8) + '…'} mono />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={cancelScan}
+                disabled={scanMutation.isPending}
+                style={{
+                  flex: 1, padding: '14px 12px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#e2e8f0', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+                  opacity: scanMutation.isPending ? 0.5 : 1,
+                }}
+              >Cancel</button>
+              <button
+                onClick={confirmScan}
+                disabled={scanMutation.isPending}
+                style={{
+                  flex: 2, padding: '14px 12px', borderRadius: 12,
+                  background: `linear-gradient(135deg, ${opMeta.color}, ${opMeta.color}dd)`,
+                  border: 'none', color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer',
+                  boxShadow: `0 4px 16px ${opMeta.color}66`,
+                  opacity: scanMutation.isPending ? 0.7 : 1,
+                }}
+              >{scanMutation.isPending ? 'Working…' : `Confirm ${opMeta.label}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Row({ label, value, mono, valueColor }: { label: string; value: string; mono?: boolean; valueColor?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+      <span style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{label}</span>
+      <span style={{
+        fontSize: 14, fontWeight: 700, color: valueColor ?? '#f1f5f9',
+        fontFamily: mono ? 'monospace' : undefined, textAlign: 'right',
+      }}>{value}</span>
     </div>
   )
 }

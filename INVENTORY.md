@@ -48,7 +48,7 @@ Inventory  ▼
 2. ADMIN **Warehouse** sayfasında depoları tanımlar (Name, Address).
 3. ADMIN **Inventory** sayfasında label üretir: Product dropdown'dan seçer, KG/PCS toggle yapar, miktar + warehouse + label sayısı girer → **Generate Labels PDF**. Backend bu sırada `count` adet `StockItem` satırı oluşturur (her biri seçilen warehouse'da, status `IN_STOCK`). Batch number sunucu üretir: `YYYYMMDD-NNN`. PDF iner.
 4. ADMIN PDF'i Avery L7173 sticker kağıdına basar → kutulara yapıştırır.
-5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → ekranın üstündeki **Warehouse Selector**'dan kendi mevcut deposunu seçer → kamera açılır.
+5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → ekranın altındaki **Warehouse / Operation Selector**'dan ayarları seçer → kamera açılır. **v2.33.5+:** QR algılandığında kamera otomatik commit yapmaz; titreşim + bip + alt **"Confirm scan"** modali görünür (Operation · Warehouse · QR önizleme). Operatör **Confirm** veya **Cancel**'a basana kadar mutation tetiklenmez. Onaylanırsa ikinci titreşim + bip + sonuç banner'ı çıkar.
 6. QR scan state machine'i (server-side, `stockService.scanItem`):
    - Item bulunamadı → "Unknown label" hatası
    - IN_STOCK + aynı warehouse → **USED** (status OUT_OF_STOCK, kırmızı banner)
