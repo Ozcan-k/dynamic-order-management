@@ -11,7 +11,7 @@
 1. **Auto Product ID** — Admin "+ Add Product"'a basınca Product ID girmez; backend `{CategoryPrefix3}-NNN` formatında üretir (örn. Nuts → `NUT-001`). Kategori prefiksi kategori adının ilk 3 ASCII harfi (uppercase); harf yetersizse `X` ile pad'lenir ya da `PRD` fallback'i devreye girer. Collision durumunda 5'e kadar retry yapılır.
 2. **PENDING label flow** — `POST /stock/labels` artık `StockItem` satırlarını **`PENDING`** status'unda yaratır. Bu satırlar `getSummary` / `getStats` / hover breakdown hesaplamalarında **görünmez**. Bir Stock Keeper QR'ı "Stock In" işlemiyle scan edince satır `IN_STOCK`'a flip olur ve envantere katılır.
 3. **Operation-driven scan** — `/stock/scan` body'si `{ id, operation: 'IN'|'OUT'|'TRANSFER', warehouseId, toWarehouseId? }` formatına geçti. Server artık state machine'i çıkarımla bulmaz; operatör seçer. v2.33.4'te no-op state'ler **soft success** ile döner (`noChange: true`) — kullanıcı sahada kırmızı hata yerine sarı "Already done" banner görür:
-   - **IN:** `PENDING`/`OUT_OF_STOCK` → `IN_STOCK` at `warehouseId`. Aynı warehouse'da zaten `IN_STOCK` ise no-op soft success ("Already stocked"). Farklı warehouse'da `IN_STOCK` ise hata + Transfer önerisi.
+   - **IN:** Sadece `PENDING` durumdaki labellar `IN_STOCK`'a flip edilebilir. v2.34.1'den itibaren bir label bir kez stoğa alındıktan sonra (status `IN_STOCK` veya `OUT_OF_STOCK`) tekrar IN denenmesi **sert hata** döner — kullanıcı Transfer/OUT kullanmalı veya yeni label üretmeli. (v2.33.4'te aynı warehouse re-IN soft success'ti; v2.34.1'de geri alındı.)
    - **OUT:** `IN_STOCK` → `OUT_OF_STOCK` (movement type `USED`). `OUT_OF_STOCK` ise no-op soft success. `PENDING` ise hata ("Stock In first").
    - **TRANSFER:** `IN_STOCK` + `warehouseId !== toWarehouseId` → taşı. Hedef zaten mevcut warehouse ise no-op soft success. `IN_STOCK` değilse hata.
 4. **Stock sayfası yeniden tasarım** —
@@ -48,7 +48,9 @@ Inventory  ▼
 2. ADMIN **Warehouse** sayfasında depoları tanımlar (Name, Address).
 3. ADMIN **Inventory** sayfasında label üretir: Product dropdown'dan seçer, KG/PCS toggle yapar, miktar + warehouse + label sayısı girer → **Generate Labels PDF**. Backend bu sırada `count` adet `StockItem` satırı oluşturur (her biri seçilen warehouse'da, status `IN_STOCK`). Batch number sunucu üretir: `YYYYMMDD-NNN`. PDF iner.
 4. ADMIN PDF'i Avery L7173 sticker kağıdına basar → kutulara yapıştırır.
-5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → ekranın altındaki **Warehouse / Operation Selector**'dan ayarları seçer → kamera açılır. **v2.33.5+:** QR algılandığında kamera otomatik commit yapmaz; titreşim + bip + alt **"Confirm scan"** modali görünür (Operation · Warehouse · QR önizleme). Operatör **Confirm** veya **Cancel**'a basana kadar mutation tetiklenmez. Onaylanırsa ikinci titreşim + bip + sonuç banner'ı çıkar.
+5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → **Scan Mode** (Single / Bulk) + Operation + Warehouse seçer → kamera açılır. **v2.34.2+:** Kamera tam ekran fixed overlay (`position: fixed, inset: 0`), üstte floating chip bar (× kapatma + Op + WH + Mode toggle), altta result/log strip — viewfinder maksimum alan kullanır. **v2.34.1+:** Operation seçimi açıkça yapılana kadar Open Camera Op picker'ı açar. **Modes:**
+   - **Single Scan:** QR algılandığında titreşim + bip + **"Confirm scan"** bottom-sheet modali. Operatör Confirm'e basana kadar mutation tetiklenmez. Onaylanırsa ikinci titreşim + bip + result banner.
+   - **Bulk Scan (v2.34.2):** Modal yok — her başarılı algılamada mutation otomatik atılır, sonuç bottom log'a eklenir (son 5 görünür, toplam 50 saklanır). `lockedRef` 800ms debounce ile aynı frame'in iki kez işlenmesini engeller. Counter `BULK · N done · M errors` üst kısımda gösterilir.
 6. QR scan state machine'i (server-side, `stockService.scanItem`):
    - Item bulunamadı → "Unknown label" hatası
    - IN_STOCK + aynı warehouse → **USED** (status OUT_OF_STOCK, kırmızı banner)
@@ -82,12 +84,12 @@ Inventory  ▼
 
 **Hücre içeriği (her label):**
 - **Sol:** QR kod (36×36mm) — raw UUID string (scanner `{id}` JSON'u da kabul eder; payload kısaltıldı)
-- **Sağ (text alanı 18mm geniş, yukarıdan aşağı; tüm satırlarda `lineBreak: false` + `ellipsis: true` → tek satır, taşma ellipsis ile kesilir):**
-  - Product Name (9pt bold) — y = 4 mm
-  - Quantity+Unit (10pt bold, örn. "5 kg") — y = 11 mm
-  - Warehouse Name (6pt) — y = 20 mm
-  - `#productCode` (6pt) — y = 26 mm
-  - `YYYYMMDD-NNN` (6pt Courier, "Batch " prefiksi yok) — y = 32 mm
+- **Sağ (text alanı 18mm geniş, yukarıdan aşağı; her satır `fitText(doc, str, textW)` helper'ı ile manuel olarak `…` ile kısaltılır):**
+  - Product Name (10pt bold) — y = 5 mm
+  - Quantity+Unit (12pt bold, örn. "5 kg") — y = 15 mm
+  - `#productCode` (7pt) — y = 26 mm
+  - `YYYYMMDD-NNN` (7pt Courier, "Batch " prefiksi yok) — y = 33 mm
+  - v2.34.2'den itibaren **Warehouse Name label'dan kaldırıldı** — depo bilgisi DB'de ve QR scan sonucu UI'da görünüyor, sticker üzerinde gereksiz görsel gürültü.
 
 QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. v2.33.3'te raw UUID string'e geçildi (scanner her ikisini de kabul eder, parser `parseStockQr` UUID + `{id}` JSON ikisini de parse eder). QR ayarları: `errorCorrectionLevel: 'M'` + `margin: 4` (QR standart quiet zone). v2.33.2'deki `'H'` küçük 30mm canvas'ta modül boyutunu 0.81 mm'ye düşürerek scan başarısız olmuştu; M + raw UUID + 36mm canvas modülü 1.09 mm'ye çıkarır (phone scan rahatlar).
 
