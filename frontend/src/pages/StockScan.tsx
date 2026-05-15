@@ -31,8 +31,15 @@ function playBeep(success: boolean) {
   } catch { /* noop */ }
 }
 
+// navigator.vibrate is only supported on Android (Chrome/Firefox) and a few
+// other Android browsers. iOS Safari does not implement the Web Vibration
+// API at all, so vibration silently does nothing there — no JS workaround
+// can deliver true haptics on iOS via the web.
+const HAS_VIBRATE = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
+
 function vibrate(pattern: number | number[]) {
-  try { navigator.vibrate?.(pattern) } catch { /* noop */ }
+  if (!HAS_VIBRATE) return
+  try { navigator.vibrate(pattern) } catch { /* noop */ }
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -169,7 +176,7 @@ export default function StockScan() {
         }
         // QR detected — alert user, lock further detection, and ask them
         // to confirm before we actually commit the operation.
-        playBeep(true); vibrate(100)
+        playBeep(true); vibrate([80, 60, 140])
         setPendingScan({ id })
       }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
         .catch(() => { /* noop */ })
@@ -202,14 +209,14 @@ export default function StockScan() {
       onSuccess: (data) => {
         setLastResult(data); setErrorMessage(null)
         setPendingScan(null)
-        playBeep(true); vibrate(200)
+        playBeep(true); vibrate([200, 60, 80, 60, 80])
       },
       onError: (err: unknown) => {
         const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
           ?? 'Scan failed'
         setErrorMessage(msg); setLastResult(null)
         setPendingScan(null)
-        playBeep(false); vibrate([80, 60, 80])
+        playBeep(false); vibrate([100, 60, 100, 60, 100])
       },
     })
   }
@@ -226,17 +233,17 @@ export default function StockScan() {
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: '#0f172a', color: '#fff' }}>
       <header style={{
-        padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         background: 'rgba(15,23,42,0.95)', borderBottom: '1px solid rgba(148,163,184,0.2)',
       }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.04em' }}>STOCK SCAN</div>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>{user?.username}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em' }}>STOCK SCAN</div>
+          <div style={{ fontSize: 10, color: '#94a3b8' }}>{user?.username}</div>
         </div>
         <button
           onClick={handleLogout}
           style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-            color: '#f1f5f9', padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+            color: '#f1f5f9', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
         >Sign Out</button>
       </header>
 
@@ -322,69 +329,109 @@ export default function StockScan() {
         )}
       </div>
 
-      <div style={{ padding: '8px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.1)' }}>
-        {/* Operation selector */}
-        <button
-          onClick={() => setShowOpPicker(true)}
-          style={{
-            padding: '10px 14px', borderRadius: 10,
-            background: `${opMeta.color}28`,
-            border: `1px solid ${opMeta.color}66`,
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>OPERATION</span>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>{opMeta.label}</span>
-          </span>
-          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-        </button>
-
-        {/* Warehouse selector (source/current) */}
-        <button
-          onClick={() => setShowWhPicker('from')}
-          style={{
-            padding: '10px 14px', borderRadius: 10,
-            background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
-            border: `1px solid ${selectedWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>
-              {needsToWarehouse ? 'FROM WAREHOUSE' : 'WAREHOUSE'}
-            </span>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>
-              {selectedWarehouse ? selectedWarehouse.name : 'Select warehouse'}
-            </span>
-          </span>
-          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-        </button>
-
-        {/* Destination warehouse (only for Transfer) */}
-        {needsToWarehouse && (
+      {cameraOn ? (
+        // Compact chip row — when camera is running we collapse the
+        // selectors to a single horizontal strip so the viewfinder gets
+        // as much vertical space as possible. Each chip still opens its
+        // picker on tap.
+        <div style={{ padding: '6px 10px 10px', display: 'flex', gap: 6, background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.1)' }}>
           <button
-            onClick={() => setShowWhPicker('to')}
+            onClick={() => setShowOpPicker(true)}
+            style={{
+              flex: 1, padding: '8px 10px', borderRadius: 10,
+              background: `${opMeta.color}28`, border: `1px solid ${opMeta.color}66`,
+              color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}
+          >{opMeta.label}</button>
+          <button
+            onClick={() => setShowWhPicker('from')}
+            style={{
+              flex: 1, padding: '8px 10px', borderRadius: 10,
+              background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+              border: `1px solid ${selectedWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+              color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}
+          >{selectedWarehouse?.name ?? 'Select WH'}</button>
+          {needsToWarehouse && (
+            <button
+              onClick={() => setShowWhPicker('to')}
+              style={{
+                flex: 1, padding: '8px 10px', borderRadius: 10,
+                background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+                border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+                color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}
+            >→ {destinationWarehouse?.name ?? 'Dest'}</button>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: '8px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.1)' }}>
+          {/* Operation selector */}
+          <button
+            onClick={() => setShowOpPicker(true)}
             style={{
               padding: '10px 14px', borderRadius: 10,
-              background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
-              border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+              background: `${opMeta.color}28`,
+              border: `1px solid ${opMeta.color}66`,
               color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
             }}
           >
             <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>TO WAREHOUSE</span>
+              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>OPERATION</span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{opMeta.label}</span>
+            </span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+          </button>
+
+          {/* Warehouse selector (source/current) */}
+          <button
+            onClick={() => setShowWhPicker('from')}
+            style={{
+              padding: '10px 14px', borderRadius: 10,
+              background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+              border: `1px solid ${selectedWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+              color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            }}
+          >
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>
+                {needsToWarehouse ? 'FROM WAREHOUSE' : 'WAREHOUSE'}
+              </span>
               <span style={{ fontSize: 14, fontWeight: 700 }}>
-                {destinationWarehouse ? destinationWarehouse.name : 'Select destination'}
+                {selectedWarehouse ? selectedWarehouse.name : 'Select warehouse'}
               </span>
             </span>
             <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
           </button>
-        )}
-      </div>
+
+          {/* Destination warehouse (only for Transfer) */}
+          {needsToWarehouse && (
+            <button
+              onClick={() => setShowWhPicker('to')}
+              style={{
+                padding: '10px 14px', borderRadius: 10,
+                background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+                border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+                color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+              }}
+            >
+              <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>TO WAREHOUSE</span>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>
+                  {destinationWarehouse ? destinationWarehouse.name : 'Select destination'}
+                </span>
+              </span>
+              <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Operation picker bottom sheet */}
       {showOpPicker && (
