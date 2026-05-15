@@ -76,20 +76,20 @@ Inventory  ▼
 | Label (page size) | 60 × 40 | 170.08 × 113.39 |
 | Sayfa marjı | 0 | 0 |
 | Padding | 2 | 5.67 |
-| QR kod | 30 × 30 | 85.04 × 85.04 |
-| QR konumu | sol, dikey ortalı (y = 5 mm) | x = 5.67, y = 14.17 |
+| QR kod | 36 × 36 | 102.05 × 102.05 |
+| QR konumu | sol, dikey ortalı (y = 2 mm) | x = 5.67, y = 5.67 |
 | Layout | 1 label/sayfa (roll) | N adet label → N sayfalı PDF |
 
 **Hücre içeriği (her label):**
-- **Sol:** QR kod (30×30mm) — JSON kodlanmış: `{ id }` (sadece UUID; backend lookup yapar)
-- **Sağ (text alanı 24mm geniş, yukarıdan aşağı):**
-  - Product Name (9pt bold, ellipsis) — y = 5 mm
-  - Quantity+Unit (11pt bold, örn. "5 kg") — y = 11 mm
-  - Warehouse Name (7pt, ellipsis) — y = 19 mm
-  - `#productCode` (6pt, ellipsis) — y = 25 mm
-  - `Batch YYYYMMDD-NNN` (6pt Courier) — y = 31 mm
+- **Sol:** QR kod (36×36mm) — raw UUID string (scanner `{id}` JSON'u da kabul eder; payload kısaltıldı)
+- **Sağ (text alanı 18mm geniş, yukarıdan aşağı; tüm satırlarda `lineBreak: false` + `ellipsis: true` → tek satır, taşma ellipsis ile kesilir):**
+  - Product Name (9pt bold) — y = 4 mm
+  - Quantity+Unit (10pt bold, örn. "5 kg") — y = 11 mm
+  - Warehouse Name (6pt) — y = 20 mm
+  - `#productCode` (6pt) — y = 26 mm
+  - `YYYYMMDD-NNN` (6pt Courier, "Batch " prefiksi yok) — y = 32 mm
 
-QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. StockItem satırı zaten print sırasında oluşturulduğu için QR'ın metadata taşımasına gerek yok. v2.33.2'de `errorCorrectionLevel: 'H'` (30% damage recovery) + `margin: 2` (geniş quiet zone) — küçük thermal print'te kamera tespiti daha güvenilir.
+QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. v2.33.3'te raw UUID string'e geçildi (scanner her ikisini de kabul eder, parser `parseStockQr` UUID + `{id}` JSON ikisini de parse eder). QR ayarları: `errorCorrectionLevel: 'M'` + `margin: 4` (QR standart quiet zone). v2.33.2'deki `'H'` küçük 30mm canvas'ta modül boyutunu 0.81 mm'ye düşürerek scan başarısız olmuştu; M + raw UUID + 36mm canvas modülü 1.09 mm'ye çıkarır (phone scan rahatlar).
 
 Thermal printer 60×40mm continuous roll için kalibre edilmeli. Page size = label size olduğundan yazıcı her sayfa arasında otomatik kesim yapar. Kayma varsa `backend/src/services/stockService.ts`'teki `PADDING_PT` veya `lineY(mm)` değerlerine ufak offset ekle.
 
