@@ -145,6 +145,20 @@ async function nextBatchNumber(tenantId: string): Promise<string> {
   return `${prefix}-${next.toString().padStart(3, '0')}`
 }
 
+async function nextAdjustmentBatchNumber(tenantId: string): Promise<string> {
+  const prefix = `ADJ-${todayPrefix()}`
+  const todays = await prisma.stockItem.findMany({
+    where: { tenantId, batchNumber: { startsWith: prefix } },
+    select: { batchNumber: true },
+    distinct: ['batchNumber'],
+  })
+  const seqs = todays
+    .map((r) => parseInt(r.batchNumber.slice(prefix.length + 1), 10))
+    .filter((n) => Number.isFinite(n))
+  const next = (seqs.length ? Math.max(...seqs) : 0) + 1
+  return `${prefix}-${next.toString().padStart(3, '0')}`
+}
+
 // ─── Service Functions ────────────────────────────────────────────────────────
 
 export async function generateLabelsPdf(
@@ -404,6 +418,129 @@ function shapeItem(row: {
     status: row.status,
     warehouseId: row.warehouseId,
     warehouseName: row.warehouse.name,
+  }
+}
+
+// ─── Manual stock adjustment ─────────────────────────────────────────────────
+// ADMIN-only path that lets us add or remove boxes of an existing product at
+// a warehouse without going through the printed-label + scan flow. Used for
+// opening balances, reconciliations and other off-system corrections.
+// Reuses existing MovementType values (no schema change): ADD → IN, REMOVE →
+// USED. The batch number is prefixed with `ADJ-` so adjustment rows can be
+// distinguished from scanned-label rows when auditing history.
+
+export type AdjustmentOperation = 'ADD' | 'REMOVE'
+
+export interface AdjustStockInput {
+  productId: string
+  warehouseId: string
+  operation: AdjustmentOperation
+  unit: StockUnit
+  quantity: number  // qty per box; only used for ADD
+  boxes: number     // number of boxes to add or remove
+}
+
+export interface AdjustStockResult {
+  operation: AdjustmentOperation
+  productId: string
+  warehouseId: string
+  boxesApplied: number
+  batchNumber?: string
+}
+
+export async function adjustStock(
+  tenantId: string,
+  scannedById: string,
+  input: AdjustStockInput,
+): Promise<AdjustStockResult> {
+  if (!input.productId) throw new Error('Product is required')
+  if (!input.warehouseId) throw new Error('Warehouse is required')
+  if (input.boxes < 1 || input.boxes > 500) throw new Error('Box count must be between 1 and 500')
+  if (input.operation === 'ADD' && !(input.quantity > 0)) {
+    throw new Error('Quantity per box must be greater than 0')
+  }
+
+  const [product, warehouse] = await Promise.all([
+    prisma.product.findFirst({ where: { id: input.productId, tenantId }, select: { id: true } }),
+    prisma.warehouse.findFirst({ where: { id: input.warehouseId, tenantId }, select: { id: true } }),
+  ])
+  if (!product) throw new Error('Product not found')
+  if (!warehouse) throw new Error('Warehouse not found')
+
+  if (input.operation === 'ADD') {
+    const batchNumber = await nextAdjustmentBatchNumber(tenantId)
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < input.boxes; i++) {
+        const row = await tx.stockItem.create({
+          data: {
+            tenantId,
+            productId: product.id,
+            warehouseId: warehouse.id,
+            unit: input.unit,
+            quantity: input.quantity,
+            batchNumber,
+            status: 'IN_STOCK',
+          },
+          select: { id: true },
+        })
+        await tx.stockMovement.create({
+          data: {
+            stockItemId: row.id,
+            type: 'IN',
+            toWarehouseId: warehouse.id,
+            scannedById,
+          },
+        })
+      }
+    })
+    return {
+      operation: 'ADD',
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      boxesApplied: input.boxes,
+      batchNumber,
+    }
+  }
+
+  // REMOVE — pick the oldest N IN_STOCK rows at this warehouse for this
+  // product and mark them OUT_OF_STOCK. Errors if not enough rows.
+  const candidates = await prisma.stockItem.findMany({
+    where: {
+      tenantId,
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      status: 'IN_STOCK',
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: input.boxes,
+    select: { id: true },
+  })
+  if (candidates.length < input.boxes) {
+    throw new Error(
+      `Only ${candidates.length} box(es) in stock at this warehouse — cannot remove ${input.boxes}.`,
+    )
+  }
+  await prisma.$transaction(async (tx) => {
+    for (const c of candidates) {
+      await tx.stockItem.update({
+        where: { id: c.id },
+        data: { status: 'OUT_OF_STOCK' },
+      })
+      await tx.stockMovement.create({
+        data: {
+          stockItemId: c.id,
+          type: 'USED',
+          fromWarehouseId: input.warehouseId,
+          scannedById,
+        },
+      })
+    }
+  })
+  return {
+    operation: 'REMOVE',
+    productId: input.productId,
+    warehouseId: input.warehouseId,
+    boxesApplied: candidates.length,
   }
 }
 

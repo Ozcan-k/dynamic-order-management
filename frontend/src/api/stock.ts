@@ -108,6 +108,25 @@ export interface GenerateLabelsInput {
   count: number
 }
 
+export type AdjustmentOperation = 'ADD' | 'REMOVE'
+
+export interface AdjustStockInput {
+  productId: string
+  warehouseId: string
+  operation: AdjustmentOperation
+  unit: StockUnit
+  quantity?: number  // qty per box (required for ADD, ignored for REMOVE)
+  boxes: number
+}
+
+export interface AdjustStockResult {
+  operation: AdjustmentOperation
+  productId: string
+  warehouseId: string
+  boxesApplied: number
+  batchNumber?: string
+}
+
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 export function useStockItems(filters?: { status?: StockStatus; productId?: string; warehouseId?: string }) {
@@ -185,6 +204,22 @@ export function useDeleteStockItem() {
   return useMutation({
     mutationFn: async (itemId: string) => {
       const res = await api.delete(`/stock/items/${itemId}`)
+      return res.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock-items'] })
+      qc.invalidateQueries({ queryKey: ['stock-stats'] })
+      qc.invalidateQueries({ queryKey: ['stock-summary'] })
+      qc.invalidateQueries({ queryKey: ['stock-movements'] })
+    },
+  })
+}
+
+export function useAdjustStock() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: AdjustStockInput) => {
+      const res = await api.post<AdjustStockResult>('/stock/adjust', input)
       return res.data
     },
     onSuccess: () => {

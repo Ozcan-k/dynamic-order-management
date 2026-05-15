@@ -199,6 +199,7 @@ model StockMovement {
 | POST | `/labels` | `{ productId, warehouseId, unit, quantity, count }` | ADMIN | `count` adet `StockItem` oluşturur + PDF döner. Headers: `X-Labels-Generated`, `X-Batch-Number`. |
 | GET | `/items` | `?status&productId&warehouseId` | ADMIN | Filtreli liste, `take: 500`. Includes: `product` (with category), `warehouse`. |
 | POST | `/scan` | `{ id, warehouseId }` | ADMIN, STOCK_KEEPER | State machine (IN / USED / TRANSFER). Response: `{ item, type, fromWarehouse?, toWarehouse?, message }`. |
+| POST | `/adjust` | `{ productId, warehouseId, operation: 'ADD'\|'REMOVE', unit, quantity?, boxes }` | ADMIN | v2.34.0 manuel stok düzeltme. ADD: `boxes` adet `IN_STOCK` row yaratır, batch `ADJ-YYYYMMDD-NNN`; REMOVE: en eski N `IN_STOCK` row'u `OUT_OF_STOCK`'a flip eder. Movement type ADD→IN, REMOVE→USED (schema değişmeden). |
 | DELETE | `/items/:id` | — | ADMIN | Hard-delete + cascade movements. |
 | GET | `/movements` | `?limit&offset` | ADMIN | Hareket geçmişi. Includes: `fromWarehouse`, `toWarehouse`, `item.product`. |
 | GET | `/stats` | — | ADMIN | `{ totalProducts, totalInStock, totalOut, lowStockProducts, transfers30d, used30d, in30d }` |
