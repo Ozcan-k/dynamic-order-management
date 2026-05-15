@@ -40,6 +40,7 @@ export interface ScanResult {
   fromWarehouse?: string
   toWarehouse?: string
   message: string
+  noChange?: boolean
 }
 
 // ─── Thermal label roll layout (60 × 40 mm, 1 label / page) ──────────────────
@@ -57,6 +58,18 @@ interface LabelItem {
   batchNumber: string
   unit: StockUnit
   quantity: number
+}
+
+// PDFKit 0.18.0's `lineBreak: false` is unreliable when combined with an
+// explicit (x, y) position — the LineWrapper still kicks in and wraps long
+// product/warehouse names onto the next row. We truncate manually here.
+function fitText(doc: PDFKit.PDFDocument, text: string, maxWidth: number): string {
+  if (doc.widthOfString(text) <= maxWidth) return text
+  let s = text
+  while (s.length > 0 && doc.widthOfString(s + '…') > maxWidth) {
+    s = s.slice(0, -1).trimEnd()
+  }
+  return s + '…'
 }
 
 async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
@@ -87,17 +100,18 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
     const it = items[i]
     const qtyText = it.unit === 'KG' ? `${it.quantity} kg` : `${it.quantity} pcs`
 
-    const textOpts = { width: textW, ellipsis: true, lineBreak: false }
     doc.fontSize(9).font('Helvetica-Bold')
-       .text(it.productName, textX, lineY(4), textOpts)
+    doc.text(fitText(doc, it.productName, textW), textX, lineY(4))
+
     doc.fontSize(10).font('Helvetica-Bold')
-       .text(qtyText, textX, lineY(11), { width: textW, lineBreak: false })
+    doc.text(fitText(doc, qtyText, textW), textX, lineY(11))
+
     doc.fontSize(6).font('Helvetica')
-       .text(it.warehouseName, textX, lineY(20), textOpts)
-    doc.fontSize(6).font('Helvetica')
-       .text(`#${it.productCode}`, textX, lineY(26), textOpts)
+    doc.text(fitText(doc, it.warehouseName, textW), textX, lineY(20))
+    doc.text(fitText(doc, `#${it.productCode}`, textW), textX, lineY(26))
+
     doc.fontSize(6).font('Courier')
-       .text(it.batchNumber, textX, lineY(32), textOpts)
+    doc.text(fitText(doc, it.batchNumber, textW), textX, lineY(32))
   }
 
   doc.end()
@@ -246,7 +260,19 @@ export async function scanItem(
   // ─── Stock In ─────────────────────────────────────────────────────────────
   if (input.operation === 'IN') {
     if (existing.status === 'IN_STOCK') {
-      throw new Error(`Already in stock at ${existing.warehouse.name}`)
+      if (existing.warehouseId === scanWarehouse.id) {
+        // Re-scan of an already-stocked label at the same warehouse — no-op.
+        return {
+          item: shapeItem(existing),
+          type: 'IN',
+          toWarehouse: scanWarehouse.name,
+          message: `Already stocked at ${scanWarehouse.name} — no change`,
+          noChange: true,
+        }
+      }
+      throw new Error(
+        `Item is at ${existing.warehouse.name}. Use Transfer to move it to ${scanWarehouse.name}.`,
+      )
     }
     const [updated] = await prisma.$transaction([
       prisma.stockItem.update({
@@ -273,8 +299,17 @@ export async function scanItem(
 
   // ─── Stock Out ────────────────────────────────────────────────────────────
   if (input.operation === 'OUT') {
-    if (existing.status !== 'IN_STOCK') {
-      throw new Error('Item is not in stock — cannot mark as out')
+    if (existing.status === 'OUT_OF_STOCK') {
+      return {
+        item: shapeItem(existing),
+        type: 'USED',
+        fromWarehouse: existing.warehouse.name,
+        message: 'Already used / out — no change',
+        noChange: true,
+      }
+    }
+    if (existing.status === 'PENDING') {
+      throw new Error('This label has not been stocked in yet. Use Stock In first.')
     }
     const [updated] = await prisma.$transaction([
       prisma.stockItem.update({
@@ -311,7 +346,14 @@ export async function scanItem(
     })
     if (!target) throw new Error('Destination warehouse not found')
     if (existing.warehouseId === target.id) {
-      throw new Error(`Item is already at ${target.name}`)
+      return {
+        item: shapeItem(existing),
+        type: 'TRANSFER',
+        fromWarehouse: existing.warehouse.name,
+        toWarehouse: target.name,
+        message: `Already at ${target.name} — no change`,
+        noChange: true,
+      }
     }
     const fromName = existing.warehouse.name
     const [updated] = await prisma.$transaction([

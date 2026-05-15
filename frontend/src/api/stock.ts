@@ -88,6 +88,7 @@ export interface ScanResult {
   fromWarehouse?: string
   toWarehouse?: string
   message: string
+  noChange?: boolean
 }
 
 export type ScanOperation = 'IN' | 'OUT' | 'TRANSFER'

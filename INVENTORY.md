@@ -10,10 +10,10 @@
 
 1. **Auto Product ID** — Admin "+ Add Product"'a basınca Product ID girmez; backend `{CategoryPrefix3}-NNN` formatında üretir (örn. Nuts → `NUT-001`). Kategori prefiksi kategori adının ilk 3 ASCII harfi (uppercase); harf yetersizse `X` ile pad'lenir ya da `PRD` fallback'i devreye girer. Collision durumunda 5'e kadar retry yapılır.
 2. **PENDING label flow** — `POST /stock/labels` artık `StockItem` satırlarını **`PENDING`** status'unda yaratır. Bu satırlar `getSummary` / `getStats` / hover breakdown hesaplamalarında **görünmez**. Bir Stock Keeper QR'ı "Stock In" işlemiyle scan edince satır `IN_STOCK`'a flip olur ve envantere katılır.
-3. **Operation-driven scan** — `/stock/scan` body'si `{ id, operation: 'IN'|'OUT'|'TRANSFER', warehouseId, toWarehouseId? }` formatına geçti. Server artık state machine'i çıkarımla bulmaz; operatör seçer:
-   - **IN:** `PENDING`/`OUT_OF_STOCK` → `IN_STOCK` at `warehouseId`. `IN_STOCK` ise hata: "Already in stock at …".
-   - **OUT:** `IN_STOCK` → `OUT_OF_STOCK` (movement type `USED`). Diğer status'larda hata.
-   - **TRANSFER:** `IN_STOCK` + `warehouseId !== toWarehouseId` → taşı. Aksi halde hata.
+3. **Operation-driven scan** — `/stock/scan` body'si `{ id, operation: 'IN'|'OUT'|'TRANSFER', warehouseId, toWarehouseId? }` formatına geçti. Server artık state machine'i çıkarımla bulmaz; operatör seçer. v2.33.4'te no-op state'ler **soft success** ile döner (`noChange: true`) — kullanıcı sahada kırmızı hata yerine sarı "Already done" banner görür:
+   - **IN:** `PENDING`/`OUT_OF_STOCK` → `IN_STOCK` at `warehouseId`. Aynı warehouse'da zaten `IN_STOCK` ise no-op soft success ("Already stocked"). Farklı warehouse'da `IN_STOCK` ise hata + Transfer önerisi.
+   - **OUT:** `IN_STOCK` → `OUT_OF_STOCK` (movement type `USED`). `OUT_OF_STOCK` ise no-op soft success. `PENDING` ise hata ("Stock In first").
+   - **TRANSFER:** `IN_STOCK` + `warehouseId !== toWarehouseId` → taşı. Hedef zaten mevcut warehouse ise no-op soft success. `IN_STOCK` değilse hata.
 4. **Stock sayfası yeniden tasarım** —
    - Üst 4 KPI kartı (Products / Low stock / Transfers / Used) **kaldırıldı**.
    - Toolbar'a **search input** (product name + Product ID arar) eklendi; mevcut kategori dropdown ve Low-stock-only toggle korundu.
@@ -92,6 +92,8 @@ Inventory  ▼
 QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. v2.33.3'te raw UUID string'e geçildi (scanner her ikisini de kabul eder, parser `parseStockQr` UUID + `{id}` JSON ikisini de parse eder). QR ayarları: `errorCorrectionLevel: 'M'` + `margin: 4` (QR standart quiet zone). v2.33.2'deki `'H'` küçük 30mm canvas'ta modül boyutunu 0.81 mm'ye düşürerek scan başarısız olmuştu; M + raw UUID + 36mm canvas modülü 1.09 mm'ye çıkarır (phone scan rahatlar).
 
 Thermal printer 60×40mm continuous roll için kalibre edilmeli. Page size = label size olduğundan yazıcı her sayfa arasında otomatik kesim yapar. Kayma varsa `backend/src/services/stockService.ts`'teki `PADDING_PT` veya `lineY(mm)` değerlerine ufak offset ekle.
+
+> **PDFKit `lineBreak: false` 0.18.0 quirk:** Explicit `(x, y)` ile `text(..., { width, lineBreak: false })` çağrısı yapıldığında LineWrapper bazen yine devreye girip uzun string'i alta sarıyor. v2.33.4'ten beri `fitText(doc, text, maxWidth)` helper'ı kullanılıyor: `doc.widthOfString()` ile ölçüp string'i karakter karakter kısaltarak `…` ekliyor. Bu sayede PDFKit opsiyonel davranışına güvenmeden tek satır + ellipsis garanti altında.
 
 ---
 
