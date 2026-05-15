@@ -68,7 +68,7 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
   const qrPngs = await Promise.all(
     items.map((it) => QRCode.toBuffer(
       JSON.stringify({ id: it.id }),
-      { type: 'png', width: 600, margin: 1, errorCorrectionLevel: 'M' },
+      { type: 'png', width: 600, margin: 2, errorCorrectionLevel: 'H' },
     )),
   )
 

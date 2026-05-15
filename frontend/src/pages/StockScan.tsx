@@ -223,70 +223,6 @@ export default function StockScan() {
         >Sign Out</button>
       </header>
 
-      <div style={{ padding: '12px 14px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* Operation selector */}
-        <button
-          onClick={() => setShowOpPicker(true)}
-          style={{
-            padding: '12px 16px', borderRadius: 10,
-            background: `${opMeta.color}28`,
-            border: `1px solid ${opMeta.color}66`,
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 500 }}>OPERATION</span>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>{opMeta.label}</span>
-          </span>
-          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-        </button>
-
-        {/* Warehouse selector (source/current) */}
-        <button
-          onClick={() => setShowWhPicker('from')}
-          style={{
-            padding: '12px 16px', borderRadius: 10,
-            background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
-            border: `1px solid ${selectedWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
-            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-          }}
-        >
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 500 }}>
-              {needsToWarehouse ? 'FROM WAREHOUSE' : 'WAREHOUSE'}
-            </span>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>
-              {selectedWarehouse ? selectedWarehouse.name : 'Select warehouse'}
-            </span>
-          </span>
-          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-        </button>
-
-        {/* Destination warehouse (only for Transfer) */}
-        {needsToWarehouse && (
-          <button
-            onClick={() => setShowWhPicker('to')}
-            style={{
-              padding: '12px 16px', borderRadius: 10,
-              background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
-              border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
-              color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-            }}
-          >
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 11, opacity: 0.8, fontWeight: 500 }}>TO WAREHOUSE</span>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>
-                {destinationWarehouse ? destinationWarehouse.name : 'Select destination'}
-              </span>
-            </span>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-          </button>
-        )}
-      </div>
-
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#000' }}>
         {cameraOn ? (
           <>
@@ -337,7 +273,7 @@ export default function StockScan() {
         )}
       </div>
 
-      <div style={{ padding: '14px 18px', minHeight: 88, background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.15)' }}>
+      <div style={{ padding: '10px 16px', background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.15)' }}>
         {errorMessage ? (
           <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', color: '#fecaca', padding: 14, borderRadius: 10 }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>✗ {errorMessage}</div>
@@ -360,9 +296,73 @@ export default function StockScan() {
             )}
           </div>
         ) : (
-          <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '6px 0' }}>
             Last scan result will appear here.
           </div>
+        )}
+      </div>
+
+      <div style={{ padding: '8px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: '#0f172a', borderTop: '1px solid rgba(148,163,184,0.1)' }}>
+        {/* Operation selector */}
+        <button
+          onClick={() => setShowOpPicker(true)}
+          style={{
+            padding: '10px 14px', borderRadius: 10,
+            background: `${opMeta.color}28`,
+            border: `1px solid ${opMeta.color}66`,
+            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          }}
+        >
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>OPERATION</span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>{opMeta.label}</span>
+          </span>
+          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+        </button>
+
+        {/* Warehouse selector (source/current) */}
+        <button
+          onClick={() => setShowWhPicker('from')}
+          style={{
+            padding: '10px 14px', borderRadius: 10,
+            background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+            border: `1px solid ${selectedWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+            color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          }}
+        >
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>
+              {needsToWarehouse ? 'FROM WAREHOUSE' : 'WAREHOUSE'}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>
+              {selectedWarehouse ? selectedWarehouse.name : 'Select warehouse'}
+            </span>
+          </span>
+          <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+        </button>
+
+        {/* Destination warehouse (only for Transfer) */}
+        {needsToWarehouse && (
+          <button
+            onClick={() => setShowWhPicker('to')}
+            style={{
+              padding: '10px 14px', borderRadius: 10,
+              background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
+              border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
+              color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            }}
+          >
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>TO WAREHOUSE</span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>
+                {destinationWarehouse ? destinationWarehouse.name : 'Select destination'}
+              </span>
+            </span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+          </button>
         )}
       </div>
 

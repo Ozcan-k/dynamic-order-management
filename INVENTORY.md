@@ -89,7 +89,7 @@ Inventory  ▼
   - `#productCode` (6pt, ellipsis) — y = 25 mm
   - `Batch YYYYMMDD-NNN` (6pt Courier) — y = 31 mm
 
-QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. StockItem satırı zaten print sırasında oluşturulduğu için QR'ın metadata taşımasına gerek yok.
+QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. StockItem satırı zaten print sırasında oluşturulduğu için QR'ın metadata taşımasına gerek yok. v2.33.2'de `errorCorrectionLevel: 'H'` (30% damage recovery) + `margin: 2` (geniş quiet zone) — küçük thermal print'te kamera tespiti daha güvenilir.
 
 Thermal printer 60×40mm continuous roll için kalibre edilmeli. Page size = label size olduğundan yazıcı her sayfa arasında otomatik kesim yapar. Kayma varsa `backend/src/services/stockService.ts`'teki `PADDING_PT` veya `lineY(mm)` değerlerine ufak offset ekle.
 
