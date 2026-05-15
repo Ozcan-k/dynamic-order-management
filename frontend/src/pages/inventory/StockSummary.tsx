@@ -3,7 +3,13 @@ import PageShell from '../../components/shared/PageShell'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
-import { useStockSummary, type WarehouseBreakdown } from '../../api/stock'
+import {
+  useStockSummary,
+  useAdjustStock,
+  type WarehouseBreakdown,
+  type StockSummaryRow,
+  type AdjustmentOperation,
+} from '../../api/stock'
 import {
   useProductCategories,
   useUpdateProduct,
@@ -12,6 +18,7 @@ import {
   type Product,
   type ProductInput,
 } from '../../api/products'
+import { useWarehouses, type Warehouse } from '../../api/warehouses'
 import type { StockUnit } from '@dom/shared'
 
 const StockIcon = (
@@ -32,9 +39,11 @@ export default function StockSummary() {
   const { data: summary = [], isLoading } = useStockSummary()
   const { data: products = [] } = useProducts()
   const { data: categories = [] } = useProductCategories()
+  const { data: warehouses = [] } = useWarehouses()
 
   const updateProduct = useUpdateProduct()
   const deleteProduct = useDeleteProduct()
+  const adjustStock = useAdjustStock()
 
   const [categoryId, setCategoryId] = useState<string>('')
   const [lowStockOnly, setLowStockOnly] = useState(false)
@@ -170,8 +179,11 @@ export default function StockSummary() {
       {editTarget && (
         <EditProductModal
           product={editTarget}
+          summaryRow={summary.find((s) => s.productId === editTarget.id) ?? null}
+          warehouses={warehouses}
           categories={categories}
-          busy={updateProduct.isPending}
+          saveBusy={updateProduct.isPending}
+          adjustBusy={adjustStock.isPending}
           onSave={async (input) => {
             setActionError(null)
             try {
@@ -181,6 +193,9 @@ export default function StockSummary() {
               const e = err as { response?: { data?: { error?: string } }; message?: string }
               setActionError(e?.response?.data?.error ?? e?.message ?? 'Failed to save product')
             }
+          }}
+          onAdjust={async (input) => {
+            await adjustStock.mutateAsync(input)
           }}
           onCancel={() => setEditTarget(null)}
         />
@@ -228,12 +243,20 @@ function WarehouseTooltip({ rows, unit }: { rows: WarehouseBreakdown[]; unit: St
 }
 
 function EditProductModal({
-  product, categories, busy, onSave, onCancel,
+  product, summaryRow, warehouses, categories, saveBusy, adjustBusy, onSave, onAdjust, onCancel,
 }: {
   product: Product
+  summaryRow: StockSummaryRow | null
+  warehouses: Warehouse[]
   categories: { id: string; name: string }[]
-  busy: boolean
+  saveBusy: boolean
+  adjustBusy: boolean
   onSave: (input: Partial<ProductInput>) => Promise<void>
+  onAdjust: (input: {
+    productId: string; warehouseId: string;
+    operation: AdjustmentOperation; unit: StockUnit;
+    quantity?: number; boxes: number;
+  }) => Promise<void>
   onCancel: () => void
 }) {
   const [form, setForm] = useState<Required<Omit<ProductInput, 'productCode'>>>({
@@ -243,9 +266,50 @@ function EditProductModal({
     reservedThreshold: product.reservedThreshold,
   })
 
+  // Stock adjustment form state — independent of product form.
+  const [adjOp, setAdjOp] = useState<AdjustmentOperation>('ADD')
+  const [adjWarehouseId, setAdjWarehouseId] = useState<string>(() => {
+    return summaryRow?.byWarehouse[0]?.warehouseId ?? warehouses[0]?.id ?? ''
+  })
+  const [adjUnit, setAdjUnit] = useState<StockUnit>(product.defaultUnit)
+  const [adjQuantity, setAdjQuantity] = useState<string>('')
+  const [adjBoxes, setAdjBoxes] = useState<string>('1')
+  const [adjError, setAdjError] = useState<string | null>(null)
+  const [adjSuccess, setAdjSuccess] = useState<string | null>(null)
+
+  const unitLabel = product.defaultUnit === 'KG' ? 'kg' : 'pcs'
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     await onSave(form)
+  }
+
+  async function handleApplyAdjustment() {
+    setAdjError(null); setAdjSuccess(null)
+    const boxes = parseInt(adjBoxes, 10)
+    const qty = adjOp === 'ADD' ? parseFloat(adjQuantity) : undefined
+    if (!adjWarehouseId) { setAdjError('Pick a warehouse'); return }
+    if (!boxes || boxes < 1) { setAdjError('Box count must be at least 1'); return }
+    if (adjOp === 'ADD' && (!qty || qty <= 0)) { setAdjError('Quantity per box must be greater than 0'); return }
+    try {
+      await onAdjust({
+        productId: product.id,
+        warehouseId: adjWarehouseId,
+        operation: adjOp,
+        unit: adjUnit,
+        quantity: qty,
+        boxes,
+      })
+      const whName = warehouses.find((w) => w.id === adjWarehouseId)?.name ?? 'warehouse'
+      setAdjSuccess(adjOp === 'ADD'
+        ? `Added ${boxes} box${boxes > 1 ? 'es' : ''} (${qty} ${adjUnit === 'KG' ? 'kg' : 'pcs'} each) at ${whName}.`
+        : `Removed ${boxes} box${boxes > 1 ? 'es' : ''} from ${whName}.`)
+      setAdjBoxes('1')
+      setAdjQuantity('')
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string }
+      setAdjError(e?.response?.data?.error ?? e?.message ?? 'Adjustment failed')
+    }
   }
 
   return (
@@ -258,13 +322,18 @@ function EditProductModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+        style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
       >
         <div style={{ padding: '18px 24px', borderBottom: `1px solid ${colors.border}` }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: colors.textPrimary }}>Edit product</div>
           <div style={{ fontSize: 12, color: colors.textMuted, fontFamily: 'monospace', marginTop: 2 }}>{product.productCode}</div>
         </div>
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+        {/* ─── Section 1 · Product details (editable form) ──────────────── */}
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Product details
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={labelStyle}>Category</label>
@@ -305,16 +374,158 @@ function EditProductModal({
               />
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
-            <button type="button" onClick={onCancel} disabled={busy} style={{
-              padding: '9px 18px', border: `1px solid ${colors.border}`, background: '#fff',
-              borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer',
-            }}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={busy} style={{
-              padding: '9px 18px', fontSize: 13, fontWeight: 700, opacity: busy ? 0.7 : 1,
-            }}>{busy ? 'Saving…' : 'Save'}</button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button type="submit" disabled={saveBusy} className="btn btn-primary" style={{
+              padding: '9px 18px', fontSize: 13, fontWeight: 700, opacity: saveBusy ? 0.7 : 1,
+            }}>{saveBusy ? 'Saving…' : 'Save details'}</button>
           </div>
         </form>
+
+        <div style={{ height: 1, background: colors.border }} />
+
+        {/* ─── Section 2 · Current stock (read-only breakdown) ──────────── */}
+        <div style={{ padding: '20px 24px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Current stock
+          </div>
+          {summaryRow && summaryRow.byWarehouse.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: colors.textPrimary, padding: '6px 12px', background: '#f1f5f9', borderRadius: 8 }}>
+                <span>Total</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {summaryRow.boxCount} box · {summaryRow.inStockQuantity} {unitLabel}
+                </span>
+              </div>
+              {summaryRow.byWarehouse.map((b) => (
+                <div key={b.warehouseId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: colors.textSecondary, padding: '4px 12px' }}>
+                  <span>{b.warehouseName}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {b.boxes} box · {b.quantity} {unitLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: colors.textMuted, fontStyle: 'italic', padding: '4px 12px' }}>
+              No stock yet for this product.
+            </div>
+          )}
+        </div>
+
+        <div style={{ height: 1, background: colors.border }} />
+
+        {/* ─── Section 3 · Stock adjustment (write) ─────────────────────── */}
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Adjust stock
+            </div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
+              Manual override · logs as <code>ADJ-YYYYMMDD-NNN</code> batch
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['ADD', 'REMOVE'] as AdjustmentOperation[]).map((op) => (
+              <button
+                key={op} type="button" onClick={() => setAdjOp(op)}
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 8,
+                  border: `1.5px solid ${adjOp === op
+                    ? (op === 'ADD' ? '#16a34a' : '#dc2626')
+                    : colors.border}`,
+                  background: adjOp === op
+                    ? (op === 'ADD' ? '#dcfce7' : '#fee2e2')
+                    : '#fff',
+                  color: adjOp === op
+                    ? (op === 'ADD' ? '#15803d' : '#b91c1c')
+                    : colors.textSecondary,
+                  fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                }}
+              >{op === 'ADD' ? '+ Add boxes' : '− Remove boxes'}</button>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: adjOp === 'ADD' ? '1.4fr 1fr 0.8fr 1fr' : '1.4fr 1fr', gap: 12, alignItems: 'end' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={labelStyle}>Warehouse</label>
+              <select
+                value={adjWarehouseId}
+                onChange={(e) => setAdjWarehouseId(e.target.value)}
+                style={formInputStyle}
+              >
+                {warehouses.length === 0 && <option value="">No warehouses</option>}
+                {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={labelStyle}>Number of boxes</label>
+              <input
+                type="number" min={1} max={500} step={1}
+                value={adjBoxes}
+                onChange={(e) => setAdjBoxes(e.target.value)}
+                style={formInputStyle}
+              />
+            </div>
+
+            {adjOp === 'ADD' && (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={labelStyle}>Unit</label>
+                  <select
+                    value={adjUnit}
+                    onChange={(e) => setAdjUnit(e.target.value as StockUnit)}
+                    style={formInputStyle}
+                  >
+                    <option value="KG">KG</option>
+                    <option value="PCS">PCS</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={labelStyle}>Qty per box</label>
+                  <input
+                    type="number" min={0.01} step="any"
+                    value={adjQuantity}
+                    onChange={(e) => setAdjQuantity(e.target.value)}
+                    placeholder={adjUnit === 'KG' ? '5.0' : '24'}
+                    style={formInputStyle}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {adjError && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: colors.dangerLight, border: `1px solid ${colors.dangerBorder}`, fontSize: 12, color: '#dc2626' }}>
+              {adjError}
+            </div>
+          )}
+          {adjSuccess && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: '#dcfce7', border: '1px solid #86efac', fontSize: 12, color: '#166534' }}>
+              {adjSuccess}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button" onClick={handleApplyAdjustment} disabled={adjustBusy}
+              style={{
+                padding: '10px 20px', borderRadius: 8,
+                background: adjOp === 'ADD' ? '#16a34a' : '#dc2626',
+                color: '#fff', border: 'none', fontSize: 13, fontWeight: 700,
+                cursor: adjustBusy ? 'not-allowed' : 'pointer', opacity: adjustBusy ? 0.7 : 1,
+              }}
+            >{adjustBusy ? 'Applying…' : `Apply ${adjOp === 'ADD' ? 'addition' : 'removal'}`}</button>
+          </div>
+        </div>
+
+        <div style={{ padding: '14px 24px', borderTop: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onCancel} style={{
+            padding: '9px 18px', border: `1px solid ${colors.border}`, background: '#fff',
+            borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          }}>Close</button>
+        </div>
       </div>
     </div>
   )

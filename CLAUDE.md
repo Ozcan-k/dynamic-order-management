@@ -42,7 +42,7 @@ git push origin main --tags
 | Yeni özellik, phase tamamlandı | MINOR → v1.1.0 |
 | Büyük mimari değişiklik | MAJOR → v2.0.0 |
 
-**Mevcut versiyon:** `v2.33.6`
+**Mevcut versiyon:** `v2.34.0`
 
 ### Kesinlikle commit edilmeyecekler:
 - `.env`

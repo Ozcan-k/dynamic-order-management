@@ -10,6 +10,7 @@ import {
   listMovements,
   getStats,
   getSummary,
+  adjustStock,
 } from '../services/stockService'
 
 const GenerateLabelsSchema = z.object({
@@ -31,6 +32,18 @@ const ScanSchema = z.object({
   operation: z.enum(['IN', 'OUT', 'TRANSFER']),
   warehouseId: z.string().uuid(),
   toWarehouseId: z.string().uuid().optional(),
+})
+
+const AdjustSchema = z.object({
+  productId: z.string().uuid(),
+  warehouseId: z.string().uuid(),
+  operation: z.enum(['ADD', 'REMOVE']),
+  unit: z.enum(['KG', 'PCS']),
+  quantity: z.number().positive().max(10000).optional(),
+  boxes: z.number().int().min(1).max(500),
+}).refine((v) => v.operation === 'REMOVE' || (v.quantity !== undefined && v.quantity > 0), {
+  message: 'quantity is required when operation is ADD',
+  path: ['quantity'],
 })
 
 const MovementsQuerySchema = z.object({
@@ -102,6 +115,35 @@ export default async function stockRoutes(fastify: FastifyInstance) {
         return reply.send(scanResult)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Scan failed'
+        return reply.code(400).send({ error: msg })
+      }
+    },
+  )
+
+  // POST /stock/adjust — ADMIN: manual stock adjustment (add or remove boxes
+  // at a warehouse without using scanned labels). Records IN/USED movements
+  // with an ADJ-prefixed batch number so they are auditable.
+  fastify.post(
+    '/adjust',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    async (request, reply) => {
+      const result = AdjustSchema.safeParse(request.body)
+      if (!result.success) {
+        return reply.code(400).send({ error: 'Invalid request body', details: result.error.flatten() })
+      }
+      const { tenantId, userId } = request.user as JWTPayload
+      try {
+        const adjResult = await adjustStock(tenantId, userId, {
+          productId: result.data.productId,
+          warehouseId: result.data.warehouseId,
+          operation: result.data.operation,
+          unit: result.data.unit,
+          quantity: result.data.quantity ?? 0,
+          boxes: result.data.boxes,
+        })
+        return reply.send(adjResult)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Adjustment failed'
         return reply.code(400).send({ error: msg })
       }
     },
