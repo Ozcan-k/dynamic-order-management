@@ -47,7 +47,7 @@ const PT_PER_MM = 2.83465
 const LABEL_W_PT = 60 * PT_PER_MM
 const LABEL_H_PT = 40 * PT_PER_MM
 const PADDING_PT = 2 * PT_PER_MM
-const QR_SIZE_PT = 30 * PT_PER_MM
+const QR_SIZE_PT = 36 * PT_PER_MM
 
 interface LabelItem {
   id: string
@@ -67,8 +67,8 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
 
   const qrPngs = await Promise.all(
     items.map((it) => QRCode.toBuffer(
-      JSON.stringify({ id: it.id }),
-      { type: 'png', width: 600, margin: 2, errorCorrectionLevel: 'H' },
+      it.id,
+      { type: 'png', width: 600, margin: 4, errorCorrectionLevel: 'M' },
     )),
   )
 
@@ -87,16 +87,17 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
     const it = items[i]
     const qtyText = it.unit === 'KG' ? `${it.quantity} kg` : `${it.quantity} pcs`
 
+    const textOpts = { width: textW, ellipsis: true, lineBreak: false }
     doc.fontSize(9).font('Helvetica-Bold')
-       .text(it.productName, textX, lineY(5), { width: textW, ellipsis: true })
-    doc.fontSize(11).font('Helvetica-Bold')
-       .text(qtyText, textX, lineY(11), { width: textW })
-    doc.fontSize(7).font('Helvetica')
-       .text(it.warehouseName, textX, lineY(19), { width: textW, ellipsis: true })
+       .text(it.productName, textX, lineY(4), textOpts)
+    doc.fontSize(10).font('Helvetica-Bold')
+       .text(qtyText, textX, lineY(11), { width: textW, lineBreak: false })
     doc.fontSize(6).font('Helvetica')
-       .text(`#${it.productCode}`, textX, lineY(25), { width: textW, ellipsis: true })
+       .text(it.warehouseName, textX, lineY(20), textOpts)
+    doc.fontSize(6).font('Helvetica')
+       .text(`#${it.productCode}`, textX, lineY(26), textOpts)
     doc.fontSize(6).font('Courier')
-       .text(`Batch ${it.batchNumber}`, textX, lineY(31), { width: textW, ellipsis: true })
+       .text(it.batchNumber, textX, lineY(32), textOpts)
   }
 
   doc.end()
