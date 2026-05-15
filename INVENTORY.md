@@ -1,7 +1,7 @@
 # Inventory Module
 
 > **Status:** ✅ LIVE on https://domwarehouse.com (v2.33.0, 2026-05-10). Schema sync via `prisma db push`. v2.33.0 introduces operation-driven scan (Stock In / Stock Out / Stock Transfer), `StockStatus.PENDING` for unscanned printed labels (QR generation no longer inflates inventory), auto-generated Product IDs (`{CAT3}-NNN`), enriched per-warehouse stock breakdown with hover tooltip, search bar on the Stock page, and a unified `ConfirmModal` replacing all native `window.confirm` dialogs.
-> **Sticker standard:** Avery L7173 / J8173 (A4, 10 stickers/sheet, 99.1 × 57 mm)
+> **Sticker standard:** Thermal label roll · 60 × 40 mm · 1 label per page (direct thermal printer)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
 
 ---
@@ -69,25 +69,29 @@ Inventory  ▼
 
 ---
 
-## Sticker Layout — Avery L7173 / J8173
+## Sticker Layout — Thermal Label Roll (60 × 40 mm)
 
 | Boyut | mm | PDFKit pt (1mm = 2.83465pt) |
 |---|---|---|
-| Kağıt (A4) | 210 × 297 | 595.28 × 841.89 |
-| Sticker | 99.1 × 57.0 | 280.85 × 161.54 |
-| Üst kenar boşluk | 13.5 | 38.27 |
-| Sol kenar boşluk | 4.5 | 12.76 |
-| Sticker arası yatay | 2.5 | 7.09 |
-| Sticker arası dikey | 0 | 0 |
-| Layout | 2 sütun × 5 satır | 10 sticker/sayfa |
+| Label (page size) | 60 × 40 | 170.08 × 113.39 |
+| Sayfa marjı | 0 | 0 |
+| Padding | 2 | 5.67 |
+| QR kod | 30 × 30 | 85.04 × 85.04 |
+| QR konumu | sol, dikey ortalı (y = 5 mm) | x = 5.67, y = 14.17 |
+| Layout | 1 label/sayfa (roll) | N adet label → N sayfalı PDF |
 
-**Hücre içeriği (her sticker):**
-- **Sol:** QR kod (40×40mm) — JSON kodlanmış: `{ id }` (sadece UUID; backend lookup yapar)
-- **Sağ (yukarıdan aşağı):** Product Name (11pt bold) · `#productCode` (8pt) · Quantity+Unit (9pt bold, örn. "5 kg" veya "24 pcs") · Warehouse Name (8pt) · `Batch YYYYMMDD-NNN` (7pt mono) · UUID ilk 8 hane (6pt gri)
+**Hücre içeriği (her label):**
+- **Sol:** QR kod (30×30mm) — JSON kodlanmış: `{ id }` (sadece UUID; backend lookup yapar)
+- **Sağ (text alanı 24mm geniş, yukarıdan aşağı):**
+  - Product Name (9pt bold, ellipsis) — y = 5 mm
+  - Quantity+Unit (11pt bold, örn. "5 kg") — y = 11 mm
+  - Warehouse Name (7pt, ellipsis) — y = 19 mm
+  - `#productCode` (6pt, ellipsis) — y = 25 mm
+  - `Batch YYYYMMDD-NNN` (6pt Courier) — y = 31 mm
 
 QR payload v2.30.0'da `{id, p, c, w}` idi; v2.31.0'da `{id}`'ye sadeleşti. StockItem satırı zaten print sırasında oluşturulduğu için QR'ın metadata taşımasına gerek yok.
 
-Sticker baskıdan önce ölçüleri cetvelle doğrula. Kayma varsa `backend/src/services/stockService.ts`'teki `MARGIN_LEFT_PT` / `MARGIN_TOP_PT` değerlerine ufak offset ekle.
+Thermal printer 60×40mm continuous roll için kalibre edilmeli. Page size = label size olduğundan yazıcı her sayfa arasında otomatik kesim yapar. Kayma varsa `backend/src/services/stockService.ts`'teki `PADDING_PT` veya `lineY(mm)` değerlerine ufak offset ekle.
 
 ---
 

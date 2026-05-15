@@ -42,16 +42,12 @@ export interface ScanResult {
   message: string
 }
 
-// ─── Avery L7173 / J8173 sticker layout (A4, 2×5 = 10 stickers/sheet) ────────
+// ─── Thermal label roll layout (60 × 40 mm, 1 label / page) ──────────────────
 const PT_PER_MM = 2.83465
-const A4_W_PT = 210 * PT_PER_MM
-const STICKER_W_PT = 99.1 * PT_PER_MM
-const STICKER_H_PT = 57 * PT_PER_MM
-const MARGIN_LEFT_PT = 4.5 * PT_PER_MM
-const MARGIN_TOP_PT = 13.5 * PT_PER_MM
-const GAP_X_PT = (A4_W_PT - 2 * MARGIN_LEFT_PT - 2 * STICKER_W_PT)
-const QR_SIZE_PT = 40 * PT_PER_MM
-const PADDING_PT = 4 * PT_PER_MM
+const LABEL_W_PT = 60 * PT_PER_MM
+const LABEL_H_PT = 40 * PT_PER_MM
+const PADDING_PT = 2 * PT_PER_MM
+const QR_SIZE_PT = 30 * PT_PER_MM
 
 interface LabelItem {
   id: string
@@ -64,7 +60,8 @@ interface LabelItem {
 }
 
 async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
-  const doc = new PDFDocument({ size: 'A4', margin: 0 })
+  const pageOpts = { size: [LABEL_W_PT, LABEL_H_PT] as [number, number], margin: 0 }
+  const doc = new PDFDocument(pageOpts)
   const chunks: Buffer[] = []
   doc.on('data', (c: Buffer) => chunks.push(c))
 
@@ -75,38 +72,31 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
     )),
   )
 
+  const lineY = (mm: number) => mm * PT_PER_MM
+
   for (let i = 0; i < items.length; i++) {
-    const onPageIdx = i % 10
-    if (i > 0 && onPageIdx === 0) doc.addPage()
+    if (i > 0) doc.addPage(pageOpts)
 
-    const col = onPageIdx % 2
-    const row = Math.floor(onPageIdx / 2)
-    const x = MARGIN_LEFT_PT + col * (STICKER_W_PT + GAP_X_PT)
-    const y = MARGIN_TOP_PT + row * STICKER_H_PT
+    const qrX = PADDING_PT
+    const qrY = (LABEL_H_PT - QR_SIZE_PT) / 2
+    doc.image(qrPngs[i], qrX, qrY, { width: QR_SIZE_PT, height: QR_SIZE_PT })
 
-    const qrY = y + (STICKER_H_PT - QR_SIZE_PT) / 2
-    doc.image(qrPngs[i], x + PADDING_PT, qrY, { width: QR_SIZE_PT, height: QR_SIZE_PT })
-
-    const textX = x + PADDING_PT + QR_SIZE_PT + PADDING_PT
-    const textW = STICKER_W_PT - PADDING_PT - QR_SIZE_PT - PADDING_PT - PADDING_PT
-    const textTop = y + PADDING_PT + 4
+    const textX = qrX + QR_SIZE_PT + PADDING_PT
+    const textW = LABEL_W_PT - textX - PADDING_PT
 
     const it = items[i]
     const qtyText = it.unit === 'KG' ? `${it.quantity} kg` : `${it.quantity} pcs`
 
-    doc.fontSize(11).font('Helvetica-Bold')
-       .text(it.productName, textX, textTop, { width: textW, ellipsis: true })
-    doc.fontSize(8).font('Helvetica')
-       .text(`#${it.productCode}`, textX, textTop + 16, { width: textW, ellipsis: true })
     doc.fontSize(9).font('Helvetica-Bold')
-       .text(qtyText, textX, textTop + 30, { width: textW })
-    doc.fontSize(8).font('Helvetica')
-       .text(it.warehouseName, textX, textTop + 44, { width: textW, ellipsis: true })
-    doc.fontSize(7).font('Courier')
-       .text(`Batch ${it.batchNumber}`, textX, textTop + 58, { width: textW, ellipsis: true })
-    doc.fontSize(6).font('Courier').fillColor('#888')
-       .text(it.id.slice(0, 8), textX, textTop + 70, { width: textW })
-    doc.fillColor('#000')
+       .text(it.productName, textX, lineY(5), { width: textW, ellipsis: true })
+    doc.fontSize(11).font('Helvetica-Bold')
+       .text(qtyText, textX, lineY(11), { width: textW })
+    doc.fontSize(7).font('Helvetica')
+       .text(it.warehouseName, textX, lineY(19), { width: textW, ellipsis: true })
+    doc.fontSize(6).font('Helvetica')
+       .text(`#${it.productCode}`, textX, lineY(25), { width: textW, ellipsis: true })
+    doc.fontSize(6).font('Courier')
+       .text(`Batch ${it.batchNumber}`, textX, lineY(31), { width: textW, ellipsis: true })
   }
 
   doc.end()
