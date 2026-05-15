@@ -109,7 +109,7 @@ export default function InventoryItems() {
       <div style={{ ...cardStyle, maxWidth: 720, margin: '0 auto' }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700 }}>Generate QR Labels</h3>
         <p style={{ margin: '0 0 8px', fontSize: 13, color: colors.textSecondary }}>
-          Each printed label corresponds to one physical box. Avery L7173 / J8173 (A4, 10 per sheet).
+          Each printed label corresponds to one physical box. Thermal label roll · 60 × 40 mm · 1 label per page.
         </p>
         <p style={{ margin: '0 0 18px', fontSize: 12, color: colors.textMuted, fontStyle: 'italic' }}>
           Printed labels are pending until a Stock Keeper scans them into a warehouse.
