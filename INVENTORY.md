@@ -1,8 +1,26 @@
 # Inventory Module
 
-> **Status:** ✅ LIVE on https://domwarehouse.com (v2.33.0, 2026-05-10). Schema sync via `prisma db push`. v2.33.0 introduces operation-driven scan (Stock In / Stock Out / Stock Transfer), `StockStatus.PENDING` for unscanned printed labels (QR generation no longer inflates inventory), auto-generated Product IDs (`{CAT3}-NNN`), enriched per-warehouse stock breakdown with hover tooltip, search bar on the Stock page, and a unified `ConfirmModal` replacing all native `window.confirm` dialogs.
+> **Status:** ✅ LIVE on https://domwarehouse.com (v2.34.2, 2026-05-15). Schema unchanged since v2.33.0 — all subsequent work is application/UI/render-side. v2.33.x dialed in the thermal-label format (60 × 40 mm, single-page roll, QR 36 mm, EC=M margin 4, raw UUID payload, `fitText` manual truncation) and the mobile scan UX (Single / Bulk mode toggle, fullscreen camera, floating chip top bar, in-overlay close button, vibrate + beep on detect, Confirm-scan bottom sheet in Single mode, running log + counter in Bulk mode, explicit operation-pick guard). v2.34.0 added a manual stock-adjustment endpoint + Edit-modal section on the Stock page (ADMIN can ADD/REMOVE boxes per warehouse without scanning labels, batch-numbered `ADJ-YYYYMMDD-NNN`). v2.34.1 hard-blocks re-IN of an already-stocked label (use Transfer / Stock Out instead). v2.34.2 dropped the warehouse-name row from the printed sticker and widened the remaining text (product name 10pt, qty 12pt, code/batch 7pt).
 > **Sticker standard:** Thermal label roll · 60 × 40 mm · 1 label per page (direct thermal printer)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
+
+---
+
+## v2.33.1 – v2.34.2 değişiklik özeti (2026-05-14 – 2026-05-15)
+
+Bu aralıkta sadece application/UI/render değişikliği yapıldı; Prisma şeması ve API contract'larda kırıcı değişiklik yok. Hızlı liste (her satır kendi commit'i, hepsi `cf69ea5` ve öncesi merge'lerde live):
+
+| Ver | Özet |
+|---|---|
+| **v2.33.1** | Avery A4 (10 sticker/sheet) → Thermal label roll 60×40mm, 1 label/page. PDFKit `page size = label size`. |
+| **v2.33.2** | QR scan reliability ilk turu (EC=H, margin=2) + scan ekranı layout flip (camera üstte, selectors altta). *Not: EC=H küçük canvas'ta tam ters etki yaptı, v2.33.3'te geri alındı.* |
+| **v2.33.3** | QR settings tekrar ayarlandı (EC=M, margin=4, **raw UUID payload**, canvas 30→36mm — modül boyutu 0.81→1.09 mm) + text rows yeni layout. |
+| **v2.33.4** | Scan state machine no-op'larda `noChange: true` soft success + frontend sarı "⚠ Already done" banner; PDFKit `lineBreak: false` 0.18.0 quirk için `fitText` helper. *Not: IN soft success v2.34.1'de strict'e döndü.* |
+| **v2.33.5** | QR detect sonrası **"Confirm scan"** bottom-sheet modal eklendi (single mode). Detect: titreşim + bip + modal. Confirm: ikinci titreşim + bip + result banner. Cancel: modal kapanır, kamera devam eder. |
+| **v2.33.6** | Vibrate pattern'leri güçlendirildi (detect `[80,60,140]`, success `[200,60,80,60,80]`, error `[100,60,100,60,100]`). Header padding küçültüldü; camera açıkken stacked selectors → compact chip row. iOS Safari `navigator.vibrate` desteklemediğinden orada sessiz no-op. |
+| **v2.34.0** | **Manual stock adjustment** — `POST /stock/adjust` (ADMIN-only). Stock page Edit modali'na 3 bölüm: Product details · Current stock (per-warehouse breakdown) · Adjust stock (ADD/REMOVE form). Batch number `ADJ-YYYYMMDD-NNN`. Schema değişmedi (MovementType ADD→IN, REMOVE→USED yeniden kullanıldı). REMOVE FIFO mantığıyla en eski IN_STOCK satırlarını OUT_OF_STOCK'a flip eder. |
+| **v2.34.1** | (a) Operation seçimi zorunlu — `localStorage.stock-scan-op-picked` flag'i `'1'` olana kadar "Open Camera" Op picker'ı açar. (b) Açık kamerada × close butonu (sağ üstte). (c) **Strict re-IN block**: bir label bir kez stock-in'lendiyse (`IN_STOCK` veya `OUT_OF_STOCK`) tekrar IN denenmesi sert hata döner — Transfer veya OUT kullanılmalı. v2.33.4'teki "Already done" soft success geri alındı. |
+| **v2.34.2** | (a) **Single / Bulk scan modes** — InboundScan/PickerAdminScan pattern'i StockScan'e taşındı. Single = confirmation modal (mevcut). Bulk = otomatik commit + alt log + counter `BULK · N done · M errors`, 800ms debounce. Mode `localStorage.stock-scan-mode`. (b) **Tam ekran kamera** — `position: fixed, inset: 0` overlay; top gradient bar (× + Op + WH + toWH + Mode toggle); bottom gradient bar (result/log). (c) **Warehouse satırı PDF'den kaldırıldı** — depo bilgisi DB+scan UI'da var, sticker'da gürültüydü. Product name 9→10pt, qty 10→12pt, code/batch 6→7pt. |
 
 ---
 
@@ -158,8 +176,8 @@ model StockMovement {
 | `pages/inventory/Products.tsx` | `/inventory/products` | ADMIN | 2 tab: **Categories** (liste + Add/Delete) ve **Products** (Category \| Name \| Product ID \| Unit \| Reserved tablo + Add/Edit/Delete modal) |
 | `pages/inventory/InventoryItems.tsx` | `/inventory/items` | ADMIN | Label üretim formu: Product dropdown · KG/PCS toggle · Quantity per label · Warehouse dropdown · Label count · Batch preview (server üretir). Sağ tarafta "Recent Batches" tablosu. |
 | `pages/inventory/Warehouses.tsx` | `/inventory/warehouses` | ADMIN | Tablo: Name \| Address \| In-stock items count \| Actions. Add/Edit/Delete modal. |
-| `pages/inventory/StockSummary.tsx` | `/inventory/stock` | ADMIN | 4 KPI kartı + ürün başına özet tablosu. Filtre: kategori dropdown + Low stock only checkbox. Low stock satırlar kırmızı tint + ⚠️ icon + "Low Stock" badge. |
-| `pages/StockScan.tsx` | `/stock/scan` | ADMIN, STOCK_KEEPER | Mobile dark UI, sidebar yok. Üstte warehouse selector (bottom sheet açılır). Scan sonucu: IN yeşil "Stocked" / USED kırmızı "Used / Out" / TRANSFER mavi "Transferred X → Y". Selection localStorage'da persist eder. |
+| `pages/inventory/StockSummary.tsx` | `/inventory/stock` | ADMIN | Ürün başına özet tablosu (KPI kartları v2.33.0'da kaldırıldı). Search input + kategori dropdown + Low-stock-only checkbox. In Stock hücresi hover → per-warehouse breakdown tooltip. Edit modali (v2.34.0+) 3 bölüm: Product details · Current stock breakdown · Adjust stock (ADD/REMOVE per warehouse). Delete = ConfirmModal. |
+| `pages/StockScan.tsx` | `/stock/scan` | ADMIN, STOCK_KEEPER | Mobile dark UI, sidebar yok. v2.34.2'den itibaren kamera **tam ekran fixed overlay**: üstte floating chip bar (× close + Op + WH + toWH + Single/Bulk toggle), altta sonuç stripi (single = renkli banner, bulk = log + counter). Op + WH explicit pick zorunlu (v2.34.1). Single mode QR detect → titreşim + bip + Confirm bottom-sheet → mutation. Bulk mode QR detect → otomatik mutation + log entry. Tüm tercihler `localStorage`'da persist. |
 
 ### Eski sayfalar (silindi)
 - `pages/StockDashboard.tsx` — yerini `StockSummary.tsx` aldı.
