@@ -272,22 +272,19 @@ export async function scanItem(
   }
 
   // ─── Stock In ─────────────────────────────────────────────────────────────
+  // Strict rule (v2.34.1): a label can only be stocked-in once. Once it has
+  // become IN_STOCK or OUT_OF_STOCK, re-running Stock In is rejected — the
+  // operator should use Transfer or Stock Out, or generate a fresh label.
   if (input.operation === 'IN') {
     if (existing.status === 'IN_STOCK') {
-      if (existing.warehouseId === scanWarehouse.id) {
-        // Re-scan of an already-stocked label at the same warehouse — no-op.
-        return {
-          item: shapeItem(existing),
-          type: 'IN',
-          toWarehouse: scanWarehouse.name,
-          message: `Already stocked at ${scanWarehouse.name} — no change`,
-          noChange: true,
-        }
-      }
       throw new Error(
-        `Item is at ${existing.warehouse.name}. Use Transfer to move it to ${scanWarehouse.name}.`,
+        `Already stocked at ${existing.warehouse.name}. Use Transfer to move it or Stock Out to remove.`,
       )
     }
+    if (existing.status === 'OUT_OF_STOCK') {
+      throw new Error('This label has already been used. A used label cannot be stocked back in.')
+    }
+    // status === 'PENDING' → proceed to stock in
     const [updated] = await prisma.$transaction([
       prisma.stockItem.update({
         where: { id: existing.id },

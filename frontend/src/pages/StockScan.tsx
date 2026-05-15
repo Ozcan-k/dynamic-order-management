@@ -61,6 +61,7 @@ function parseStockQr(text: string): string | null {
 
 const WH_KEY = 'stock-scan-warehouseId'
 const OP_KEY = 'stock-scan-operation'
+const OP_PICKED_KEY = 'stock-scan-op-picked'
 
 const OPERATIONS: { value: ScanOperation; label: string; subtitle: string; color: string }[] = [
   { value: 'IN',       label: 'Stock In',       subtitle: 'Receive into warehouse', color: '#22c55e' },
@@ -83,6 +84,11 @@ export default function StockScan() {
     const stored = localStorage.getItem(OP_KEY) as ScanOperation | null
     return stored && ['IN', 'OUT', 'TRANSFER'].includes(stored) ? stored : 'IN'
   })
+  // Whether the operator has explicitly confirmed an Operation choice in
+  // this device. We persist a separate flag (not just the operation value)
+  // so a fresh device — where localStorage defaults the value to 'IN' —
+  // still forces the operator through the picker before the camera opens.
+  const [opPicked, setOpPicked] = useState<boolean>(() => localStorage.getItem(OP_PICKED_KEY) === '1')
   const [warehouseId, setWarehouseId] = useState<string>(() => localStorage.getItem(WH_KEY) ?? '')
   const [toWarehouseId, setToWarehouseId] = useState<string>('')
   const [showOpPicker, setShowOpPicker] = useState(false)
@@ -106,6 +112,9 @@ export default function StockScan() {
   useEffect(() => {
     localStorage.setItem(OP_KEY, operation)
   }, [operation])
+  useEffect(() => {
+    localStorage.setItem(OP_PICKED_KEY, opPicked ? '1' : '0')
+  }, [opPicked])
 
   useEffect(() => {
     if (!warehouseId && warehouses.length === 1) setWarehouseId(warehouses[0].id)
@@ -128,6 +137,7 @@ export default function StockScan() {
 
   const startCamera = useCallback(async () => {
     setCameraError(null); setErrorMessage(null)
+    if (!opPicked) { setShowOpPicker(true); return }
     if (!warehouseId) { setShowWhPicker('from'); return }
     if (needsToWarehouse && !toWarehouseId) { setShowWhPicker('to'); return }
     if (needsToWarehouse && warehouseId === toWarehouseId) {
@@ -148,7 +158,7 @@ export default function StockScan() {
         'Could not open camera.',
       )
     }
-  }, [warehouseId, toWarehouseId, needsToWarehouse])
+  }, [warehouseId, toWarehouseId, needsToWarehouse, opPicked])
 
   useEffect(() => {
     if (!cameraOn || !videoRef.current || !streamRef.current) return
@@ -254,6 +264,19 @@ export default function StockScan() {
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
               <div style={{ width: '70%', maxWidth: 280, aspectRatio: '1/1', border: `3px solid ${opMeta.color}d9`, borderRadius: 14, boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)' }} />
             </div>
+            <button
+              onClick={stopCamera}
+              aria-label="Close camera"
+              style={{
+                position: 'absolute', top: 10, right: 10, zIndex: 10,
+                width: 44, height: 44, borderRadius: 22,
+                background: 'rgba(15,23,42,0.85)', border: '1px solid rgba(255,255,255,0.25)',
+                color: '#fff', fontSize: 22, fontWeight: 700, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+                paddingBottom: 4,
+              }}
+            >×</button>
             {showDebug && debugRaw && (
               <div style={{
                 position: 'absolute', left: 12, right: 12, bottom: 12,
@@ -339,11 +362,12 @@ export default function StockScan() {
             onClick={() => setShowOpPicker(true)}
             style={{
               flex: 1, padding: '8px 10px', borderRadius: 10,
-              background: `${opMeta.color}28`, border: `1px solid ${opMeta.color}66`,
+              background: opPicked ? `${opMeta.color}28` : 'rgba(250,204,21,0.2)',
+              border: `1px solid ${opPicked ? `${opMeta.color}66` : 'rgba(250,204,21,0.7)'}`,
               color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}
-          >{opMeta.label}</button>
+          >{opPicked ? opMeta.label : 'Pick operation'}</button>
           <button
             onClick={() => setShowWhPicker('from')}
             style={{
@@ -374,17 +398,17 @@ export default function StockScan() {
             onClick={() => setShowOpPicker(true)}
             style={{
               padding: '10px 14px', borderRadius: 10,
-              background: `${opMeta.color}28`,
-              border: `1px solid ${opMeta.color}66`,
+              background: opPicked ? `${opMeta.color}28` : 'rgba(250,204,21,0.2)',
+              border: `1px solid ${opPicked ? `${opMeta.color}66` : 'rgba(250,204,21,0.7)'}`,
               color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
             }}
           >
             <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>OPERATION</span>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>{opMeta.label}</span>
+              <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>OPERATION{opPicked ? '' : ' — required'}</span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{opPicked ? opMeta.label : 'Pick operation'}</span>
             </span>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>{opPicked ? 'change ›' : 'pick ›'}</span>
           </button>
 
           {/* Warehouse selector (source/current) */}
@@ -445,7 +469,7 @@ export default function StockScan() {
               {OPERATIONS.map((o) => (
                 <button
                   key={o.value}
-                  onClick={() => { setOperation(o.value); setShowOpPicker(false); if (o.value !== 'TRANSFER') setToWarehouseId('') }}
+                  onClick={() => { setOperation(o.value); setOpPicked(true); setShowOpPicker(false); if (o.value !== 'TRANSFER') setToWarehouseId('') }}
                   style={{
                     padding: '12px 14px', textAlign: 'left', borderRadius: 10,
                     background: operation === o.value ? `${o.color}33` : 'rgba(255,255,255,0.05)',
