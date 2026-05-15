@@ -172,14 +172,14 @@ export default function StockScan() {
         scanMutation.mutate(payload, {
           onSuccess: (data) => {
             setLastResult(data); setErrorMessage(null)
-            window.setTimeout(() => { lockedRef.current = false }, 1500)
+            window.setTimeout(() => { lockedRef.current = false }, 2500)
           },
           onError: (err: unknown) => {
             const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
               ?? 'Scan failed'
             setErrorMessage(msg); setLastResult(null)
             playBeep(false); vibrate([80, 60, 80])
-            window.setTimeout(() => { lockedRef.current = false }, 1500)
+            window.setTimeout(() => { lockedRef.current = false }, 2500)
           },
         })
       }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
@@ -204,7 +204,7 @@ export default function StockScan() {
     navigate('/scan', { replace: true })
   }
 
-  const resultStyle = resultToneStyle(lastResult?.type)
+  const resultStyle = resultToneStyle(lastResult)
 
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: '#0f172a', color: '#fff' }}>
@@ -285,6 +285,9 @@ export default function StockScan() {
             padding: 14, borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 4,
           }}>
             <div style={{ fontWeight: 800, fontSize: 15 }}>{resultStyle.title}</div>
+            {lastResult.message && (
+              <div style={{ fontSize: 12, opacity: 0.85 }}>{lastResult.message}</div>
+            )}
             <div style={{ fontSize: 13 }}>
               {lastResult.item.productName} · {lastResult.item.quantity}{' '}
               {lastResult.item.unit === 'KG' ? 'kg' : 'pcs'} · Batch {lastResult.item.batchNumber}
@@ -440,11 +443,14 @@ export default function StockScan() {
   )
 }
 
-function resultToneStyle(type: ScanResult['type'] | undefined) {
-  if (type === 'USED') {
+function resultToneStyle(result: ScanResult | null) {
+  if (result?.noChange) {
+    return { bg: 'rgba(250,204,21,0.18)', border: 'rgba(250,204,21,0.5)', text: '#fef9c3', title: '⚠ Already done' }
+  }
+  if (result?.type === 'USED') {
     return { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.45)', text: '#fecaca', title: '↑ Used / Out' }
   }
-  if (type === 'TRANSFER') {
+  if (result?.type === 'TRANSFER') {
     return { bg: 'rgba(59,130,246,0.18)', border: 'rgba(59,130,246,0.5)', text: '#bfdbfe', title: '⇄ Transferred' }
   }
   // IN
