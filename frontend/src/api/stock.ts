@@ -102,7 +102,7 @@ export interface ScanPayload {
 
 export interface GenerateLabelsInput {
   productId: string
-  warehouseId: string
+  warehouseId?: string
   unit: StockUnit
   quantity: number
   count: number

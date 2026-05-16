@@ -7,7 +7,7 @@ import { prisma } from '../lib/prisma'
 
 export interface GenerateLabelsInput {
   productId: string
-  warehouseId: string
+  warehouseId?: string
   unit: StockUnit
   quantity: number
   count: number
@@ -168,23 +168,37 @@ export async function generateLabelsPdf(
   input: GenerateLabelsInput,
 ): Promise<{ count: number; batchNumber: string; pdf: Buffer }> {
   if (!input.productId) throw new Error('Product is required')
-  if (!input.warehouseId) throw new Error('Warehouse is required')
   if (input.unit !== 'KG' && input.unit !== 'PCS') throw new Error('Unit must be KG or PCS')
   if (!(input.quantity > 0)) throw new Error('Quantity must be greater than 0')
   if (input.count < 1 || input.count > 500) throw new Error('Label count must be between 1 and 500')
 
-  const [product, warehouse] = await Promise.all([
-    prisma.product.findFirst({
-      where: { id: input.productId, tenantId },
-      select: { id: true, productCode: true, name: true },
-    }),
-    prisma.warehouse.findFirst({
-      where: { id: input.warehouseId, tenantId },
-      select: { id: true, name: true },
-    }),
-  ])
+  // Labels are created PENDING; the real destination warehouse is set when a
+  // Stock Keeper scans IN. The PENDING row still needs a warehouseId because
+  // the DB column is NOT NULL — pick the caller-supplied one when given,
+  // otherwise fall back to the tenant's first warehouse as a placeholder.
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, tenantId },
+    select: { id: true, productCode: true, name: true },
+  })
   if (!product) throw new Error('Product not found')
-  if (!warehouse) throw new Error('Warehouse not found')
+
+  const warehouse = input.warehouseId
+    ? await prisma.warehouse.findFirst({
+        where: { id: input.warehouseId, tenantId },
+        select: { id: true, name: true },
+      })
+    : await prisma.warehouse.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true },
+      })
+  if (!warehouse) {
+    throw new Error(
+      input.warehouseId
+        ? 'Warehouse not found'
+        : 'No warehouses exist yet — create a warehouse before generating labels',
+    )
+  }
 
   const batchNumber = await nextBatchNumber(tenantId)
 

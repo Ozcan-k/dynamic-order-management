@@ -15,7 +15,7 @@ import {
 
 const GenerateLabelsSchema = z.object({
   productId: z.string().uuid(),
-  warehouseId: z.string().uuid(),
+  warehouseId: z.string().uuid().optional(),
   unit: z.enum(['KG', 'PCS']),
   quantity: z.number().positive().max(10000),
   count: z.number().int().min(1).max(500),
