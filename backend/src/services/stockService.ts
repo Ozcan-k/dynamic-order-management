@@ -239,6 +239,32 @@ export async function generateLabelsPdf(
   return { count: labels.length, batchNumber, pdf }
 }
 
+// Read-only lookup used by Bulk Scan to preview a label before the operator
+// confirms a batch commit. Returns the same shape we'd give back after a real
+// scan but does NOT mutate status / warehouseId.
+export async function lookupItemById(tenantId: string, id: string) {
+  const item = await prisma.stockItem.findFirst({
+    where: { id, tenantId },
+    include: {
+      product: { select: { id: true, name: true, productCode: true } },
+      warehouse: { select: { id: true, name: true } },
+    },
+  })
+  if (!item) throw new Error('Unknown label — no stock record found for this QR code')
+  return {
+    id: item.id,
+    productId: item.productId,
+    productName: item.product.name,
+    productCode: item.product.productCode,
+    unit: item.unit,
+    quantity: item.quantity,
+    batchNumber: item.batchNumber,
+    status: item.status,
+    warehouseId: item.warehouseId,
+    warehouseName: item.warehouse.name,
+  }
+}
+
 export async function listItems(
   tenantId: string,
   filters?: { status?: StockStatus; productId?: string; warehouseId?: string },
