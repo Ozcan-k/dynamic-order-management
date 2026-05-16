@@ -4,9 +4,11 @@ import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { disconnectSocket } from '../lib/socket'
-import { useScanStock } from '../api/stock'
+import { useScanStock, lookupStockItem } from '../api/stock'
 import { useWarehouses } from '../api/warehouses'
 import type { ScanResult, ScanPayload, ScanOperation } from '../api/stock'
+
+const RESULT_TOAST_MS = 7000
 
 function playBeep(success: boolean) {
   try {
@@ -77,7 +79,21 @@ const SCAN_MODE_KEY = 'stock-scan-mode'
 
 type ScanMode = 'single' | 'bulk'
 
-interface BulkEntry {
+// Bulk Scan v2: scans accumulate in a local queue (lookup-only, status not
+// touched on the backend) until the operator presses "Confirm All". The
+// confirm popup shows total boxes + total kg/pcs aggregated from queue items.
+// On confirm, each queued item fires a real /stock/scan mutation and the
+// result is appended to the post-commit log.
+interface BulkQueueEntry {
+  ts: number
+  id: string
+  productName: string
+  productCode: string
+  qty: number
+  unit: 'KG' | 'PCS'
+}
+
+interface BulkResultEntry {
   ts: number
   id: string
   productName?: string
@@ -131,16 +147,47 @@ export default function StockScan() {
     return stored === 'bulk' ? 'bulk' : 'single'
   })
   const scanModeRef = useRef<ScanMode>(scanMode)
-  const [bulkLog, setBulkLog] = useState<BulkEntry[]>([])
+  const [bulkQueue, setBulkQueue] = useState<BulkQueueEntry[]>([])
+  const bulkQueueRef = useRef<BulkQueueEntry[]>([])
+  const [bulkResults, setBulkResults] = useState<BulkResultEntry[]>([])
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const [isCommittingBulk, setIsCommittingBulk] = useState(false)
 
   useEffect(() => { pendingRef.current = pendingScan }, [pendingScan])
   useEffect(() => { scanModeRef.current = scanMode }, [scanMode])
   useEffect(() => { localStorage.setItem(SCAN_MODE_KEY, scanMode) }, [scanMode])
+  useEffect(() => { bulkQueueRef.current = bulkQueue }, [bulkQueue])
 
   const scanMutation = useScanStock()
 
-  const bulkSuccess = useMemo(() => bulkLog.filter((e) => !e.error).length, [bulkLog])
-  const bulkErrors = useMemo(() => bulkLog.filter((e) => e.error).length, [bulkLog])
+  // Auto-dismiss the single-mode result / error banner after 7s so the bottom
+  // strip doesn't stay occupied between scans. Bulk mode keeps its log
+  // persistent because the operator may need to review what happened.
+  useEffect(() => {
+    if (!lastResult && !errorMessage) return
+    const t = window.setTimeout(() => {
+      setLastResult(null); setErrorMessage(null)
+    }, RESULT_TOAST_MS)
+    return () => window.clearTimeout(t)
+  }, [lastResult, errorMessage])
+
+  const bulkBoxCount = bulkQueue.length
+  const bulkKgTotal = useMemo(
+    () => bulkQueue.filter((q) => q.unit === 'KG').reduce((s, q) => s + q.qty, 0),
+    [bulkQueue],
+  )
+  const bulkPcsTotal = useMemo(
+    () => bulkQueue.filter((q) => q.unit === 'PCS').reduce((s, q) => s + q.qty, 0),
+    [bulkQueue],
+  )
+  const bulkTotalsText = useMemo(() => {
+    const parts: string[] = []
+    if (bulkKgTotal > 0) parts.push(`${formatQty(bulkKgTotal)} kg`)
+    if (bulkPcsTotal > 0) parts.push(`${formatQty(bulkPcsTotal)} pcs`)
+    return parts.join(' + ')
+  }, [bulkKgTotal, bulkPcsTotal])
+  const bulkResultSuccess = useMemo(() => bulkResults.filter((e) => !e.error).length, [bulkResults])
+  const bulkResultErrors = useMemo(() => bulkResults.filter((e) => e.error).length, [bulkResults])
 
   useEffect(() => {
     if (warehouseId) localStorage.setItem(WH_KEY, warehouseId)
@@ -221,35 +268,35 @@ export default function StockScan() {
           return
         }
         if (scanModeRef.current === 'bulk') {
-          // Bulk mode — no confirmation, just fire the mutation immediately
-          // and append to the running log. lockedRef debounces re-detection
-          // of the same frame for ~800ms.
+          // Bulk mode — preview only. Look up the label so we can show
+          // accurate qty/unit in the confirm popup, queue it, and wait for
+          // the operator to press "Confirm All" before any mutation runs.
+          if (bulkQueueRef.current.some((q) => q.id === id)) {
+            // Same QR already queued — debounce silently to avoid noise.
+            lockedRef.current = true
+            window.setTimeout(() => { lockedRef.current = false }, 800)
+            return
+          }
           lockedRef.current = true
           playBeep(true); vibrate([60, 40, 80])
-          const payload: ScanPayload = {
-            id, operation, warehouseId,
-            ...(needsToWarehouse ? { toWarehouseId } : {}),
-          }
-          scanMutation.mutate(payload, {
-            onSuccess: (data) => {
-              setBulkLog((prev) => [{
+          lookupStockItem(id).then((item) => {
+            setBulkQueue((prev) => {
+              if (prev.some((q) => q.id === id)) return prev
+              return [{
                 ts: Date.now(), id,
-                productName: data.item.productName,
-                qty: data.item.quantity,
-                unit: data.item.unit,
-                type: data.type,
-                noChange: data.noChange,
-              }, ...prev].slice(0, 50))
-              playBeep(true); vibrate(120)
-              window.setTimeout(() => { lockedRef.current = false }, 800)
-            },
-            onError: (err: unknown) => {
-              const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-                ?? 'Scan failed'
-              setBulkLog((prev) => [{ ts: Date.now(), id, error: msg }, ...prev].slice(0, 50))
-              playBeep(false); vibrate([80, 60, 80])
-              window.setTimeout(() => { lockedRef.current = false }, 800)
-            },
+                productName: item.productName,
+                productCode: item.productCode,
+                qty: item.quantity,
+                unit: item.unit,
+              }, ...prev]
+            })
+            window.setTimeout(() => { lockedRef.current = false }, 800)
+          }).catch((err: unknown) => {
+            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+              ?? 'Unknown label'
+            setErrorMessage(msg)
+            playBeep(false); vibrate([80, 60, 80])
+            window.setTimeout(() => { lockedRef.current = false }, 800)
           })
           return
         }
@@ -297,6 +344,50 @@ export default function StockScan() {
         playBeep(false); vibrate([100, 60, 100, 60, 100])
       },
     })
+  }
+
+  async function commitBulkQueue() {
+    if (bulkQueue.length === 0 || isCommittingBulk) return
+    setIsCommittingBulk(true)
+    setShowBulkConfirm(false)
+    const queueSnapshot = [...bulkQueue]
+    // Commit oldest first so the result log reads in scan order.
+    const ordered = queueSnapshot.slice().reverse()
+    const newResults: BulkResultEntry[] = []
+    for (const item of ordered) {
+      const payload: ScanPayload = {
+        id: item.id, operation, warehouseId,
+        ...(needsToWarehouse ? { toWarehouseId } : {}),
+      }
+      try {
+        const data = await scanMutation.mutateAsync(payload)
+        newResults.unshift({
+          ts: Date.now(), id: item.id,
+          productName: data.item.productName,
+          qty: data.item.quantity,
+          unit: data.item.unit,
+          type: data.type,
+          noChange: data.noChange,
+        })
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+          ?? 'Scan failed'
+        newResults.unshift({
+          ts: Date.now(), id: item.id,
+          productName: item.productName,
+          qty: item.qty,
+          unit: item.unit,
+          error: msg,
+        })
+      }
+    }
+    setBulkResults((prev) => [...newResults, ...prev].slice(0, 100))
+    setBulkQueue([])
+    setIsCommittingBulk(false)
+    const ok = newResults.filter((r) => !r.error).length
+    const bad = newResults.length - ok
+    if (bad === 0) { playBeep(true); vibrate([200, 60, 80, 60, 80]) }
+    else { playBeep(false); vibrate([100, 60, 100, 60, 100]) }
   }
 
   async function handleLogout() {
@@ -375,7 +466,7 @@ export default function StockScan() {
                 {(['single', 'bulk'] as ScanMode[]).map((m) => (
                   <button
                     key={m}
-                    onClick={() => { setScanMode(m); if (m === 'single') setBulkLog([]) }}
+                    onClick={() => { setScanMode(m); if (m === 'single') { setBulkQueue([]); setBulkResults([]) } }}
                     style={{
                       flex: 1, padding: '7px 0', borderRadius: 8, border: 'none',
                       background: scanMode === m ? opMeta.color : 'transparent',
@@ -396,16 +487,43 @@ export default function StockScan() {
             }}>
               {scanMode === 'bulk' ? (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', color: '#cbd5e1' }}>
-                      BULK · {bulkSuccess} done{bulkErrors > 0 ? ` · ${bulkErrors} error${bulkErrors > 1 ? 's' : ''}` : ''}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', gap: 8 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', color: '#cbd5e1' }}>
+                        QUEUE · {bulkBoxCount} {bulkBoxCount === 1 ? 'box' : 'boxes'}
+                        {bulkTotalsText && <> · {bulkTotalsText}</>}
+                      </div>
+                      {bulkResults.length > 0 && (
+                        <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                          Last batch: {bulkResultSuccess} done{bulkResultErrors > 0 ? ` · ${bulkResultErrors} error${bulkResultErrors > 1 ? 's' : ''}` : ''}
+                        </div>
+                      )}
                     </div>
-                    {bulkLog.length > 0 && (
-                      <button onClick={() => setBulkLog([])} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+                    {(bulkQueue.length > 0 || bulkResults.length > 0) && (
+                      <button
+                        onClick={() => { setBulkQueue([]); setBulkResults([]); setErrorMessage(null) }}
+                        disabled={isCommittingBulk}
+                        style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}
+                      >Clear</button>
                     )}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
-                    {bulkLog.slice(0, 5).map((e) => (
+
+                  {errorMessage && (
+                    <div style={{ background: 'rgba(239,68,68,0.22)', border: '1px solid rgba(239,68,68,0.5)', color: '#fecaca', padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                      ✗ {errorMessage}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+                    {bulkQueue.slice(0, 5).map((e) => (
+                      <div key={e.ts} style={{
+                        padding: '6px 10px', borderRadius: 8, fontSize: 12, color: '#fff',
+                        background: 'rgba(148,163,184,0.18)', border: '1px solid rgba(148,163,184,0.4)',
+                      }}>
+                        + {e.productName} · {formatQty(e.qty)} {e.unit === 'KG' ? 'kg' : 'pcs'}
+                      </div>
+                    ))}
+                    {bulkQueue.length === 0 && bulkResults.length > 0 && bulkResults.slice(0, 5).map((e) => (
                       <div key={e.ts} style={{
                         padding: '6px 10px', borderRadius: 8, fontSize: 12, color: '#fff',
                         background: e.error
@@ -416,17 +534,35 @@ export default function StockScan() {
                         border: `1px solid ${e.error ? 'rgba(239,68,68,0.45)' : e.noChange ? 'rgba(250,204,21,0.5)' : 'rgba(34,197,94,0.45)'}`,
                       }}>
                         {e.error
-                          ? <>✗ {e.error}</>
-                          : <>✓ {e.productName ?? e.id.slice(0, 8)} · {e.qty}{' '}{e.unit === 'KG' ? 'kg' : 'pcs'}{e.noChange ? ' · no change' : ''}</>
+                          ? <>✗ {e.productName ?? e.id.slice(0, 8)} · {e.error}</>
+                          : <>✓ {e.productName ?? e.id.slice(0, 8)} · {e.qty && formatQty(e.qty)}{' '}{e.unit === 'KG' ? 'kg' : 'pcs'}{e.noChange ? ' · no change' : ''}</>
                         }
                       </div>
                     ))}
-                    {bulkLog.length === 0 && (
+                    {bulkQueue.length === 0 && bulkResults.length === 0 && (
                       <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '8px 0' }}>
-                        Scan boxes one after another — results stack here.
+                        Scan boxes one after another — they queue here. Press Confirm when done.
                       </div>
                     )}
                   </div>
+
+                  {bulkQueue.length > 0 && (
+                    <button
+                      onClick={() => setShowBulkConfirm(true)}
+                      disabled={isCommittingBulk}
+                      style={{
+                        marginTop: 4, padding: '12px 14px', borderRadius: 12,
+                        background: `linear-gradient(135deg, ${opMeta.color}, ${opMeta.color}dd)`,
+                        border: 'none', color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer',
+                        boxShadow: `0 4px 16px ${opMeta.color}66`,
+                        opacity: isCommittingBulk ? 0.6 : 1,
+                      }}
+                    >
+                      {isCommittingBulk
+                        ? 'Working…'
+                        : `Confirm ${opMeta.label} · ${bulkBoxCount} ${bulkBoxCount === 1 ? 'box' : 'boxes'}`}
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -529,7 +665,7 @@ export default function StockScan() {
               {(['single', 'bulk'] as ScanMode[]).map((m) => (
                 <button
                   key={m}
-                  onClick={() => { setScanMode(m); if (m === 'single') setBulkLog([]) }}
+                  onClick={() => { setScanMode(m); if (m === 'single') { setBulkQueue([]); setBulkResults([]) } }}
                   style={{
                     flex: 1, padding: '9px 0', borderRadius: 8, border: 'none',
                     background: scanMode === m ? opMeta.color : 'transparent',
@@ -731,8 +867,73 @@ export default function StockScan() {
           </div>
         </div>
       )}
+
+      {/* Bulk confirm popup — shown when operator presses "Confirm All" in
+          bulk mode. Displays the aggregate totals before committing. */}
+      {showBulkConfirm && (
+        <div
+          onClick={() => { if (!isCommittingBulk) setShowBulkConfirm(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 70, display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', background: '#0f172a', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 19, background: `${opMeta.color}33`, border: `1px solid ${opMeta.color}88`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📦</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>Confirm batch</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>Are you sure? Review the totals below.</div>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Row label="Operation" value={opMeta.label} valueColor={opMeta.color} />
+              {needsToWarehouse ? (
+                <>
+                  <Row label="From" value={selectedWarehouse?.name ?? '—'} />
+                  <Row label="To" value={destinationWarehouse?.name ?? '—'} />
+                </>
+              ) : (
+                <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
+              )}
+              <Row label="Boxes" value={`${bulkBoxCount} ${bulkBoxCount === 1 ? 'box' : 'boxes'}`} />
+              {bulkKgTotal > 0 && <Row label="Total weight" value={`${formatQty(bulkKgTotal)} kg`} />}
+              {bulkPcsTotal > 0 && <Row label="Total count" value={`${formatQty(bulkPcsTotal)} pcs`} />}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowBulkConfirm(false)}
+                disabled={isCommittingBulk}
+                style={{
+                  flex: 1, padding: '14px 12px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#e2e8f0', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+                  opacity: isCommittingBulk ? 0.5 : 1,
+                }}
+              >Cancel</button>
+              <button
+                onClick={commitBulkQueue}
+                disabled={isCommittingBulk}
+                style={{
+                  flex: 2, padding: '14px 12px', borderRadius: 12,
+                  background: `linear-gradient(135deg, ${opMeta.color}, ${opMeta.color}dd)`,
+                  border: 'none', color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer',
+                  boxShadow: `0 4px 16px ${opMeta.color}66`,
+                  opacity: isCommittingBulk ? 0.7 : 1,
+                }}
+              >{isCommittingBulk ? 'Working…' : `Confirm ${bulkBoxCount}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+// Format a number for display — strip trailing zeros from the .0 fraction so
+// integers render as "5" instead of "5.0" but decimals keep up to 2 places.
+function formatQty(n: number): string {
+  if (Number.isInteger(n)) return n.toString()
+  return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
 function Row({ label, value, mono, valueColor }: { label: string; value: string; mono?: boolean; valueColor?: string }) {

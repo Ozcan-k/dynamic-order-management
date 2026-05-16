@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbac'
 import {
   generateLabelsPdf,
   listItems,
+  lookupItemById,
   scanItem,
   deleteItem,
   listMovements,
@@ -12,6 +13,8 @@ import {
   getSummary,
   adjustStock,
 } from '../services/stockService'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const GenerateLabelsSchema = z.object({
   productId: z.string().uuid(),
@@ -94,6 +97,28 @@ export default async function stockRoutes(fastify: FastifyInstance) {
       const { tenantId } = request.user as JWTPayload
       const items = await listItems(tenantId, result.data)
       return reply.send({ items })
+    },
+  )
+
+  // GET /stock/lookup/:id — ADMIN + STOCK_KEEPER. Read-only label preview
+  // used by Bulk Scan to populate the queue with productName/qty/unit before
+  // the operator confirms the batch commit. Does not mutate status.
+  fastify.get(
+    '/lookup/:id',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    async (request, reply) => {
+      const id = (request.params as { id: string }).id
+      if (!UUID_RE.test(id)) {
+        return reply.code(400).send({ error: 'Invalid id' })
+      }
+      const { tenantId } = request.user as JWTPayload
+      try {
+        const item = await lookupItemById(tenantId, id)
+        return reply.send({ item })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Lookup failed'
+        return reply.code(404).send({ error: msg })
+      }
     },
   )
 

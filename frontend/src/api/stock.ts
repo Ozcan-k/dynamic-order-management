@@ -82,6 +82,24 @@ export interface ScanResultItem {
   warehouseName: string
 }
 
+export interface StockLookupItem {
+  id: string
+  productId: string
+  productName: string
+  productCode: string
+  unit: StockUnit
+  quantity: number
+  batchNumber: string
+  status: StockStatus
+  warehouseId: string
+  warehouseName: string
+}
+
+export async function lookupStockItem(id: string): Promise<StockLookupItem> {
+  const res = await api.get<{ item: StockLookupItem }>(`/stock/lookup/${id}`)
+  return res.data.item
+}
+
 export interface ScanResult {
   item: ScanResultItem
   type: MovementType
