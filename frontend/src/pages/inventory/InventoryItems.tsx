@@ -1,10 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
 import { useGenerateLabels } from '../../api/stock'
-import { useProducts } from '../../api/products'
-import { useWarehouses } from '../../api/warehouses'
+import { useProducts, useProductCategories } from '../../api/products'
 import type { StockUnit } from '@dom/shared'
 
 const StockIcon = (
@@ -38,11 +37,11 @@ function todayBatchPreview(): string {
 
 export default function InventoryItems() {
   const user = useAuthStore((s) => s.user)
+  const { data: categories = [] } = useProductCategories()
   const { data: products = [] } = useProducts()
-  const { data: warehouses = [] } = useWarehouses()
 
+  const [categoryId, setCategoryId] = useState('')
   const [productId, setProductId] = useState('')
-  const [warehouseId, setWarehouseId] = useState('')
   const [unit, setUnit] = useState<StockUnit>('KG')
   const [quantity, setQuantity] = useState('')
   const [count, setCount] = useState('10')
@@ -51,12 +50,25 @@ export default function InventoryItems() {
 
   const mutation = useGenerateLabels()
 
+  const filteredProducts = useMemo(
+    () => (categoryId ? products.filter((p) => p.categoryId === categoryId) : []),
+    [products, categoryId],
+  )
+
   useEffect(() => {
-    if (!productId && products.length) setProductId(products[0].id)
-  }, [products, productId])
+    if (!categoryId && categories.length) setCategoryId(categories[0].id)
+  }, [categories, categoryId])
+
   useEffect(() => {
-    if (!warehouseId && warehouses.length) setWarehouseId(warehouses[0].id)
-  }, [warehouses, warehouseId])
+    if (filteredProducts.length === 0) {
+      setProductId('')
+      return
+    }
+    if (!filteredProducts.some((p) => p.id === productId)) {
+      setProductId(filteredProducts[0].id)
+    }
+  }, [filteredProducts, productId])
+
   useEffect(() => {
     const product = products.find((p) => p.id === productId)
     if (product) setUnit(product.defaultUnit)
@@ -67,7 +79,7 @@ export default function InventoryItems() {
     setError(null); setSuccess(null)
     try {
       const { blob, count: created, batchNumber } = await mutation.mutateAsync({
-        productId, warehouseId, unit,
+        productId, unit,
         quantity: parseFloat(quantity),
         count: parseInt(count, 10),
       })
@@ -81,20 +93,11 @@ export default function InventoryItems() {
     }
   }
 
-  if (products.length === 0) {
+  if (categories.length === 0 || products.length === 0) {
     return (
       <PageShell icon={StockIcon} title="Inventory — Create Labels" subtitle={`${user?.username}`}>
         <div style={{ ...cardStyle, color: colors.textSecondary }}>
-          You need at least one product before creating labels. Go to <strong>Inventory → Product</strong> first.
-        </div>
-      </PageShell>
-    )
-  }
-  if (warehouses.length === 0) {
-    return (
-      <PageShell icon={StockIcon} title="Inventory — Create Labels" subtitle={`${user?.username}`}>
-        <div style={{ ...cardStyle, color: colors.textSecondary }}>
-          You need at least one warehouse before creating labels. Go to <strong>Inventory → Warehouse</strong> first.
+          You need at least one category and one product before creating labels. Go to <strong>Inventory → Product</strong> first.
         </div>
       </PageShell>
     )
@@ -116,11 +119,29 @@ export default function InventoryItems() {
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Product">
-            <select value={productId} onChange={(e) => setProductId(e.target.value)} required style={inputStyle}>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} — {p.category.name} (#{p.productCode})</option>
+          <Field label="Category">
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required style={inputStyle}>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
+            </select>
+          </Field>
+
+          <Field label="Product">
+            <select
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              required
+              disabled={filteredProducts.length === 0}
+              style={inputStyle}
+            >
+              {filteredProducts.length === 0 ? (
+                <option value="">No products in this category</option>
+              ) : (
+                filteredProducts.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name} (#{p.productCode})</option>
+                ))
+              )}
             </select>
           </Field>
 
@@ -150,12 +171,6 @@ export default function InventoryItems() {
             </Field>
           </div>
 
-          <Field label="Warehouse (printed on label — destination)">
-            <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required style={inputStyle}>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </Field>
-
           <Field label="Number of labels">
             <input
               type="number" value={count} onChange={(e) => setCount(e.target.value)}
@@ -182,9 +197,13 @@ export default function InventoryItems() {
             </div>
           )}
 
-          <button type="submit" className="btn btn-primary" disabled={mutation.isPending}
+          <button
+            type="submit" className="btn btn-primary"
+            disabled={mutation.isPending || !productId}
             style={{ marginTop: 4, padding: '12px 18px', fontWeight: 700,
-              opacity: mutation.isPending ? 0.7 : 1, cursor: mutation.isPending ? 'not-allowed' : 'pointer' }}>
+              opacity: (mutation.isPending || !productId) ? 0.7 : 1,
+              cursor: (mutation.isPending || !productId) ? 'not-allowed' : 'pointer' }}
+          >
             {mutation.isPending ? 'Generating PDF…' : 'Generate Labels PDF'}
           </button>
         </form>

@@ -1,12 +1,14 @@
 # Inventory Module
 
-> **Status:** ✅ LIVE on https://domwarehouse.com (v2.34.2, 2026-05-15). Schema unchanged since v2.33.0 — all subsequent work is application/UI/render-side. v2.33.x dialed in the thermal-label format (60 × 40 mm, single-page roll, QR 36 mm, EC=M margin 4, raw UUID payload, `fitText` manual truncation) and the mobile scan UX (Single / Bulk mode toggle, fullscreen camera, floating chip top bar, in-overlay close button, vibrate + beep on detect, Confirm-scan bottom sheet in Single mode, running log + counter in Bulk mode, explicit operation-pick guard). v2.34.0 added a manual stock-adjustment endpoint + Edit-modal section on the Stock page (ADMIN can ADD/REMOVE boxes per warehouse without scanning labels, batch-numbered `ADJ-YYYYMMDD-NNN`). v2.34.1 hard-blocks re-IN of an already-stocked label (use Transfer / Stock Out instead). v2.34.2 dropped the warehouse-name row from the printed sticker and widened the remaining text (product name 10pt, qty 12pt, code/batch 7pt).
+> **Status:** ✅ LIVE on https://domwarehouse.com (v2.34.4, 2026-05-15). Schema unchanged since v2.33.0 — all subsequent work is application/UI/render-side. v2.33.x dialed in the thermal-label format (60 × 40 mm, single-page roll, QR 36 mm, EC=M margin 4, raw UUID payload, `fitText` manual truncation) and the mobile scan UX (Single / Bulk mode toggle, fullscreen camera, floating chip top bar, in-overlay close button, vibrate + beep on detect, Confirm-scan bottom sheet in Single mode, running log + counter in Bulk mode, explicit operation-pick guard). v2.34.0 added a manual stock-adjustment endpoint + Edit-modal section on the Stock page (ADMIN can ADD/REMOVE boxes per warehouse without scanning labels, batch-numbered `ADJ-YYYYMMDD-NNN`). v2.34.1 hard-blocks re-IN of an already-stocked label (use Transfer / Stock Out instead). v2.34.2 dropped the warehouse-name row from the printed sticker and widened the remaining text (product name 10pt, qty 12pt, code/batch 7pt). v2.34.4 reworked the Inventory label-generation form: Category → Product cascade dropdowns and the warehouse selector was removed — the destination warehouse is now picked at Stock-In scan time (backend `warehouseId` is optional on `POST /stock/labels`; PENDING rows fall back to the tenant's first warehouse as a placeholder until scanned).
 > **Sticker standard:** Thermal label roll · 60 × 40 mm · 1 label per page (direct thermal printer)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
 
 ---
 
-## v2.33.1 – v2.34.2 değişiklik özeti (2026-05-14 – 2026-05-15)
+## v2.33.1 – v2.34.4 değişiklik özeti (2026-05-14 – 2026-05-15)
+
+(v2.34.3 was a docs-only sync — no functional change.)
 
 Bu aralıkta sadece application/UI/render değişikliği yapıldı; Prisma şeması ve API contract'larda kırıcı değişiklik yok. Hızlı liste (her satır kendi commit'i, hepsi `cf69ea5` ve öncesi merge'lerde live):
 
@@ -21,6 +23,7 @@ Bu aralıkta sadece application/UI/render değişikliği yapıldı; Prisma şema
 | **v2.34.0** | **Manual stock adjustment** — `POST /stock/adjust` (ADMIN-only). Stock page Edit modali'na 3 bölüm: Product details · Current stock (per-warehouse breakdown) · Adjust stock (ADD/REMOVE form). Batch number `ADJ-YYYYMMDD-NNN`. Schema değişmedi (MovementType ADD→IN, REMOVE→USED yeniden kullanıldı). REMOVE FIFO mantığıyla en eski IN_STOCK satırlarını OUT_OF_STOCK'a flip eder. |
 | **v2.34.1** | (a) Operation seçimi zorunlu — `localStorage.stock-scan-op-picked` flag'i `'1'` olana kadar "Open Camera" Op picker'ı açar. (b) Açık kamerada × close butonu (sağ üstte). (c) **Strict re-IN block**: bir label bir kez stock-in'lendiyse (`IN_STOCK` veya `OUT_OF_STOCK`) tekrar IN denenmesi sert hata döner — Transfer veya OUT kullanılmalı. v2.33.4'teki "Already done" soft success geri alındı. |
 | **v2.34.2** | (a) **Single / Bulk scan modes** — InboundScan/PickerAdminScan pattern'i StockScan'e taşındı. Single = confirmation modal (mevcut). Bulk = otomatik commit + alt log + counter `BULK · N done · M errors`, 800ms debounce. Mode `localStorage.stock-scan-mode`. (b) **Tam ekran kamera** — `position: fixed, inset: 0` overlay; top gradient bar (× + Op + WH + toWH + Mode toggle); bottom gradient bar (result/log). (c) **Warehouse satırı PDF'den kaldırıldı** — depo bilgisi DB+scan UI'da var, sticker'da gürültüydü. Product name 9→10pt, qty 10→12pt, code/batch 6→7pt. |
+| **v2.34.4** | **Inventory label form yeniden düzeni** — (a) **Category → Product cascade**: önce Category dropdown, ardından sadece o kategorideki ürünleri listeleyen Product dropdown. Kategori değişince Product seçimi ilk eşleşene reset. (b) **Warehouse selector kaldırıldı** — hedef depo zaten Stock In scan'inde belirleniyor (v2.34.1+). Backend `POST /stock/labels` `warehouseId` artık opsiyonel; verilmezse tenant'ın en eski warehouse'u PENDING satırlara placeholder olarak yazılır, gerçek depo IN scan'inde overwrite edilir. DB şeması değişmedi. |
 
 ---
 
@@ -64,7 +67,7 @@ Inventory  ▼
 **Akış:**
 1. ADMIN **Product** sayfasında kategori + ürün master data tanımlar (Category, Product Name, Product ID, Default Unit KG/PCS, Reserved threshold).
 2. ADMIN **Warehouse** sayfasında depoları tanımlar (Name, Address).
-3. ADMIN **Inventory** sayfasında label üretir: Product dropdown'dan seçer, KG/PCS toggle yapar, miktar + warehouse + label sayısı girer → **Generate Labels PDF**. Backend bu sırada `count` adet `StockItem` satırı oluşturur (her biri seçilen warehouse'da, status `IN_STOCK`). Batch number sunucu üretir: `YYYYMMDD-NNN`. PDF iner.
+3. ADMIN **Inventory** sayfasında label üretir: önce **Category** seçer, ardından o kategoriye filtrelenmiş **Product** dropdown'undan ürün seçer, KG/PCS toggle yapar, miktar + label sayısı girer → **Generate Labels PDF**. (v2.34.4'ten itibaren warehouse selector kaldırıldı — hedef depo Stock In scan'inde belirleniyor.) Backend `count` adet `StockItem` satırı oluşturur (status `PENDING`, warehouseId placeholder olarak tenant'ın en eski warehouse'u). Batch number sunucu üretir: `YYYYMMDD-NNN`. PDF iner.
 4. ADMIN PDF'i Avery L7173 sticker kağıdına basar → kutulara yapıştırır.
 5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → **Scan Mode** (Single / Bulk) + Operation + Warehouse seçer → kamera açılır. **v2.34.2+:** Kamera tam ekran fixed overlay (`position: fixed, inset: 0`), üstte floating chip bar (× kapatma + Op + WH + Mode toggle), altta result/log strip — viewfinder maksimum alan kullanır. **v2.34.1+:** Operation seçimi açıkça yapılana kadar Open Camera Op picker'ı açar. **Modes:**
    - **Single Scan:** QR algılandığında titreşim + bip + **"Confirm scan"** bottom-sheet modali. Operatör Confirm'e basana kadar mutation tetiklenmez. Onaylanırsa ikinci titreşim + bip + result banner.
@@ -174,7 +177,7 @@ model StockMovement {
 | Sayfa | Path | Roller | İçerik |
 |---|---|---|---|
 | `pages/inventory/Products.tsx` | `/inventory/products` | ADMIN | 2 tab: **Categories** (liste + Add/Delete) ve **Products** (Category \| Name \| Product ID \| Unit \| Reserved tablo + Add/Edit/Delete modal) |
-| `pages/inventory/InventoryItems.tsx` | `/inventory/items` | ADMIN | Label üretim formu: Product dropdown · KG/PCS toggle · Quantity per label · Warehouse dropdown · Label count · Batch preview (server üretir). Sağ tarafta "Recent Batches" tablosu. |
+| `pages/inventory/InventoryItems.tsx` | `/inventory/items` | ADMIN | Label üretim formu (v2.34.4+): **Category** dropdown → **Product** dropdown (kategoriye filtrelenmiş) · KG/PCS toggle · Quantity per label · Label count · Batch preview (server üretir). Warehouse selector v2.34.4'te kaldırıldı. |
 | `pages/inventory/Warehouses.tsx` | `/inventory/warehouses` | ADMIN | Tablo: Name \| Address \| In-stock items count \| Actions. Add/Edit/Delete modal. |
 | `pages/inventory/StockSummary.tsx` | `/inventory/stock` | ADMIN | Ürün başına özet tablosu (KPI kartları v2.33.0'da kaldırıldı). Search input + kategori dropdown + Low-stock-only checkbox. In Stock hücresi hover → per-warehouse breakdown tooltip. Edit modali (v2.34.0+) 3 bölüm: Product details · Current stock breakdown · Adjust stock (ADD/REMOVE per warehouse). Delete = ConfirmModal. |
 | `pages/StockScan.tsx` | `/stock/scan` | ADMIN, STOCK_KEEPER | Mobile dark UI, sidebar yok. v2.34.2'den itibaren kamera **tam ekran fixed overlay**: üstte floating chip bar (× close + Op + WH + toWH + Single/Bulk toggle), altta sonuç stripi (single = renkli banner, bulk = log + counter). Op + WH explicit pick zorunlu (v2.34.1). Single mode QR detect → titreşim + bip + Confirm bottom-sheet → mutation. Bulk mode QR detect → otomatik mutation + log entry. Tüm tercihler `localStorage`'da persist. |
@@ -216,7 +219,7 @@ model StockMovement {
 
 | Method | Path | Body / Query | Roles | Davranış |
 |---|---|---|---|---|
-| POST | `/labels` | `{ productId, warehouseId, unit, quantity, count }` | ADMIN | `count` adet `StockItem` oluşturur + PDF döner. Headers: `X-Labels-Generated`, `X-Batch-Number`. |
+| POST | `/labels` | `{ productId, unit, quantity, count, warehouseId? }` | ADMIN | `count` adet `StockItem` oluşturur (status `PENDING`) + PDF döner. v2.34.4'ten itibaren `warehouseId` opsiyonel — verilmezse tenant'ın en eski warehouse'u placeholder olarak kullanılır (gerçek depo Stock In scan'inde set edilir). Headers: `X-Labels-Generated`, `X-Batch-Number`. |
 | GET | `/items` | `?status&productId&warehouseId` | ADMIN | Filtreli liste, `take: 500`. Includes: `product` (with category), `warehouse`. |
 | POST | `/scan` | `{ id, warehouseId }` | ADMIN, STOCK_KEEPER | State machine (IN / USED / TRANSFER). Response: `{ item, type, fromWarehouse?, toWarehouse?, message }`. |
 | POST | `/adjust` | `{ productId, warehouseId, operation: 'ADD'\|'REMOVE', unit, quantity?, boxes }` | ADMIN | v2.34.0 manuel stok düzeltme. ADD: `boxes` adet `IN_STOCK` row yaratır, batch `ADJ-YYYYMMDD-NNN`; REMOVE: en eski N `IN_STOCK` row'u `OUT_OF_STOCK`'a flip eder. Movement type ADD→IN, REMOVE→USED (schema değişmeden). |
