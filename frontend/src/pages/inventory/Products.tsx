@@ -1,6 +1,7 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import Pagination from '../../components/shared/Pagination'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
 import {
@@ -39,6 +40,13 @@ const tabStyle = (active: boolean): React.CSSProperties => ({
   background: active ? colors.primary : 'transparent',
   color: active ? '#fff' : colors.textSecondary,
 })
+const toolbarInputStyle: React.CSSProperties = {
+  padding: '8px 14px', borderRadius: 8,
+  border: `1.5px solid ${colors.border}`, fontSize: 13,
+  background: '#f8fafc', color: colors.textPrimary, outline: 'none',
+}
+
+const PAGE_SIZE = 30
 
 export default function Products() {
   const user = useAuthStore((s) => s.user)
@@ -162,6 +170,28 @@ function ProductsTab() {
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
+  const [filterCategoryId, setFilterCategoryId] = useState('')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return products.filter((p) => {
+      if (filterCategoryId && p.categoryId !== filterCategoryId) return false
+      if (q) {
+        const haystack = `${p.name} ${p.productCode} ${p.category.name}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+  }, [products, filterCategoryId, search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  useEffect(() => { setPage(1) }, [filterCategoryId, search])
+  useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
+
+  const pageStart = (page - 1) * PAGE_SIZE
+  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   const blankInput: ProductInput = {
     categoryId: categories[0]?.id ?? '',
@@ -222,11 +252,28 @@ function ProductsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
-          Products ({products.length})
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <select
+          value={filterCategoryId}
+          onChange={(e) => setFilterCategoryId(e.target.value)}
+          style={toolbarInputStyle}
+        >
+          <option value="">All categories</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search product name or ID…"
+          style={{ ...toolbarInputStyle, minWidth: 240, flex: '1 1 240px' }}
+        />
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: colors.textSecondary }}>
+          {filtered.length} / {products.length} products
         </h3>
-        <button className="btn btn-primary" onClick={startNew}>+ Add Product</button>
+        <div style={{ marginLeft: 'auto' }}>
+          <button className="btn btn-primary" onClick={startNew}>+ Add Product</button>
+        </div>
       </div>
 
       {error && <ErrorBox message={error} />}
@@ -308,10 +355,12 @@ function ProductsTab() {
               </tr>
             </thead>
             <tbody>
-              {products.length === 0 && (
-                <tr><td colSpan={6} style={{ ...td, color: colors.textMuted }}>No products yet.</td></tr>
+              {filtered.length === 0 && (
+                <tr><td colSpan={6} style={{ ...td, color: colors.textMuted, textAlign: 'center' }}>
+                  {products.length === 0 ? 'No products yet.' : 'No products match the current filters.'}
+                </td></tr>
               )}
-              {products.map((p) => (
+              {paged.map((p) => (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <td style={td}>{p.category.name}</td>
                   <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
@@ -328,6 +377,17 @@ function ProductsTab() {
           </table>
         )}
       </div>
+
+      {filtered.length > 0 && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={filtered.length}
+          pageStart={pageStart}
+          pageEnd={Math.min(pageStart + PAGE_SIZE, filtered.length)}
+          onChange={setPage}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmModal
