@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { colors } from '../../theme'
@@ -29,6 +29,8 @@ const StockIcon = (
   </svg>
 )
 
+const PAGE_SIZE = 30
+
 const cardStyle: React.CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${colors.border}`, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }
 const inputStyle: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${colors.border}`, fontSize: 13, background: '#f8fafc', color: colors.textPrimary, outline: 'none' }
 const formInputStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: 8, border: `1.5px solid ${colors.border}`, fontSize: 14, outline: 'none', color: colors.textPrimary, background: '#f8fafc', boxSizing: 'border-box', width: '100%' }
@@ -52,6 +54,7 @@ export default function StockSummary() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; productCode: string; category: string } | null>(null)
   const [hoverProductId, setHoverProductId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
 
@@ -67,6 +70,16 @@ export default function StockSummary() {
       return true
     })
   }, [summary, categoryId, lowStockOnly, search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+
+  useEffect(() => { setPage(1) }, [categoryId, lowStockOnly, search])
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const pageStart = (page - 1) * PAGE_SIZE
+  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   async function confirmDelete() {
     if (!deleteTarget) return
@@ -115,6 +128,7 @@ export default function StockSummary() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>
+                  <th style={{ ...th, width: 44, textAlign: 'right' }}>#</th>
                   <th style={th}>Category</th>
                   <th style={th}>Product</th>
                   <th style={th}>Product ID</th>
@@ -127,15 +141,16 @@ export default function StockSummary() {
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={8} style={{ ...td, color: colors.textMuted, textAlign: 'center' }}>
+                  <tr><td colSpan={9} style={{ ...td, color: colors.textMuted, textAlign: 'center' }}>
                     {summary.length === 0 ? 'No products yet.' : 'No products match the current filters.'}
                   </td></tr>
                 )}
-                {filtered.map((row) => (
+                {paged.map((row, i) => (
                   <tr key={row.productId} style={{
                     borderBottom: `1px solid ${colors.border}`,
                     background: row.lowStock ? '#fef2f2' : 'transparent',
                   }}>
+                    <td style={{ ...td, textAlign: 'right', color: colors.textMuted, fontVariantNumeric: 'tabular-nums' }}>{pageStart + i + 1}</td>
                     <td style={td}>{row.categoryName}</td>
                     <td style={{ ...td, fontWeight: 600 }}>
                       {row.productName}
@@ -174,6 +189,17 @@ export default function StockSummary() {
             </table>
           )}
         </div>
+
+        {filtered.length > 0 && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={filtered.length}
+            pageStart={pageStart}
+            pageEnd={Math.min(pageStart + PAGE_SIZE, filtered.length)}
+            onChange={setPage}
+          />
+        )}
       </div>
 
       {editTarget && (
@@ -543,3 +569,67 @@ function Badge({ color, bg, children }: { color: string; bg: string; children: R
 const th: React.CSSProperties = { padding: '10px 8px', fontWeight: 700, color: colors.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }
 const td: React.CSSProperties = { padding: '10px 8px', color: colors.textPrimary }
 const btnLink: React.CSSProperties = { background: 'transparent', border: 'none', color: colors.primary, cursor: 'pointer', fontWeight: 600, fontSize: 12, padding: '4px 8px' }
+
+function Pagination({
+  page, totalPages, totalCount, pageStart, pageEnd, onChange,
+}: {
+  page: number; totalPages: number; totalCount: number
+  pageStart: number; pageEnd: number
+  onChange: (p: number) => void
+}) {
+  const pages = buildPageList(page, totalPages)
+  const baseBtn: React.CSSProperties = {
+    minWidth: 32, height: 32, padding: '0 10px',
+    border: `1px solid ${colors.border}`, background: '#fff',
+    borderRadius: 8, fontSize: 13, fontWeight: 600, color: colors.textSecondary,
+    cursor: 'pointer',
+  }
+  const activeBtn: React.CSSProperties = {
+    ...baseBtn, background: colors.primary, color: '#fff',
+    borderColor: colors.primary,
+  }
+  const disabledBtn: React.CSSProperties = { ...baseBtn, opacity: 0.4, cursor: 'not-allowed' }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: 12, flexWrap: 'wrap', padding: '0 4px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button
+          type="button" disabled={page <= 1} onClick={() => onChange(page - 1)}
+          style={page <= 1 ? disabledBtn : baseBtn}
+        >Prev</button>
+        {pages.map((p, i) =>
+          p === '…' ? (
+            <span key={`gap-${i}`} style={{ color: colors.textMuted, padding: '0 4px' }}>…</span>
+          ) : (
+            <button
+              key={p} type="button" onClick={() => onChange(p)}
+              style={p === page ? activeBtn : baseBtn}
+            >{p}</button>
+          ),
+        )}
+        <button
+          type="button" disabled={page >= totalPages} onClick={() => onChange(page + 1)}
+          style={page >= totalPages ? disabledBtn : baseBtn}
+        >Next</button>
+      </div>
+      <div style={{ fontSize: 12, color: colors.textMuted }}>
+        {pageStart + 1}–{pageEnd} of {totalCount} · Page {page} / {totalPages}
+      </div>
+    </div>
+  )
+}
+
+function buildPageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const out: (number | '…')[] = [1]
+  const left = Math.max(2, current - 1)
+  const right = Math.min(total - 1, current + 1)
+  if (left > 2) out.push('…')
+  for (let p = left; p <= right; p++) out.push(p)
+  if (right < total - 1) out.push('…')
+  out.push(total)
+  return out
+}
