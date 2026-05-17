@@ -127,6 +127,12 @@ const CloseIcon = () => (
   </svg>
 )
 
+const ChevronDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)
+
 const DomLogo = () => (
   <svg width="26" height="26" viewBox="0 0 72 72" fill="none">
     <path d="M36 14 L54 24 L36 34 L18 24 Z"
@@ -321,24 +327,40 @@ export default function Sidebar() {
                   onClick={() => toggle(item.path)}
                   className={['sidebar-link', isActiveParent ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')}
                   style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                  aria-expanded={isOpenParent}
                 >
                   <span className="sidebar-link-icon">{item.icon}</span>
                   <span className="sidebar-link-label" style={{ flex: 1 }}>{item.label}</span>
-                  <span style={{ fontSize: 10, opacity: 0.7, transform: isOpenParent ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▾</span>
-                </button>
-                {isOpenParent && visibleChildren.map((child) => (
-                  <NavLink
-                    key={child.path}
-                    to={child.path}
-                    onClick={close}
-                    className={({ isActive }) =>
-                      ['sidebar-link', 'sidebar-link--child', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
-                    }
-                    style={{ paddingLeft: 36 }}
+                  <span
+                    aria-hidden
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 22, height: 22, borderRadius: 6,
+                      background: isOpenParent ? 'rgba(96,165,250,0.18)' : 'rgba(255,255,255,0.08)',
+                      color: isOpenParent ? '#60a5fa' : '#cbd5e1',
+                      transform: isOpenParent ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.18s, background 0.18s, color 0.18s',
+                    }}
                   >
-                    <span className="sidebar-link-label">{child.label}</span>
-                  </NavLink>
-                ))}
+                    <ChevronDownIcon />
+                  </span>
+                </button>
+                {isOpenParent && (
+                  <div className="sidebar-submenu">
+                    {visibleChildren.map((child) => (
+                      <NavLink
+                        key={child.path}
+                        to={child.path}
+                        onClick={close}
+                        className={({ isActive }) =>
+                          ['sidebar-link', 'sidebar-link--child', isActive ? 'sidebar-link--active' : ''].filter(Boolean).join(' ')
+                        }
+                      >
+                        <span className="sidebar-link-label">{child.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           }

@@ -176,6 +176,36 @@ button {
   white-space: nowrap;
 }
 
+.sidebar-submenu {
+  position: relative;
+  margin: 4px 0 6px 22px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(96, 165, 250, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-link--child {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.sidebar-link--child:hover {
+  background: rgba(96, 165, 250, 0.10);
+  color: #ffffff;
+}
+
+.sidebar-link--child.sidebar-link--active {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+.sidebar-link--child.sidebar-link--active::before {
+  display: none;
+}
+
 .sidebar-footer {
   padding: 14px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
