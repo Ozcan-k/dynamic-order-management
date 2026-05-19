@@ -57,11 +57,11 @@ Previous (v2.29.0, deployed 2026-05-02, merge commit `13fb7c2`) — Packer flow 
      Outbound ← SLA countdown ends
         │  [Historical view] Date navigator shows past days' carrier/shop reports
         │
-11:00  Archive job runs: all OUTBOUND orders → archived_at set
+23:30  Archive job runs: all OUTBOUND orders → archived_at set
         │  Active panels show 0 OUTBOUND rows
         │  Incomplete orders carry over to next day (CARRY badge)
         ▼
-11:10  Nightly report email + hard-delete of orders > 180 days archived
+23:40  Nightly report email + hard-delete of orders > 180 days archived
 ```
 
 **Carryover:** Orders not completed by end of shift remain active the next day. They are shown with an amber **CARRY** badge in all admin panels so supervisors can prioritize them.
@@ -118,8 +118,8 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
 │  │  BullMQ Job Queue                                                    │ │
-│  │  → Archive job 11:00 AM PHT (03:00 UTC): OUTBOUND orders archived    │ │
-│  │  → Nightly 11:10 AM PHT (03:10 UTC): email + hard-delete expired    │ │
+│  │  → Archive job 23:30 PHT (15:30 UTC): OUTBOUND orders archived     │ │
+│  │  → Nightly 23:40 PHT (15:40 UTC): email + hard-delete expired      │ │
 │  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
 │  │  → D4 supervisor alert email (triggered by sweep)                    │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
@@ -156,13 +156,18 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │      ▼                                                              │ │
 │  [PICKER_COMPLETE]                                                  │ │
 │      │  Picker marks as complete (on handheld)                      │ │
-│      │  Order automatically appears in Packer Admin queue           │ │
+│      │  Order appears in Packer Admin staging area                  │ │
 │      ▼                                                              │ │
-│  ─ ─ ─ ─ ─ Packer Admin Panel ─ ─ ─ ─ ─                           │ │
-│  │  Packer scans waybill on handheld → [PACKER_COMPLETE]            │ │
-│  │  OR: Packer Admin manually completes → [PACKER_COMPLETE]         │ │
-│  │  OR: Packer Admin removes → auto-reassigns to original picker ───┘ │
-│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                           │
+│  [PACKER_ASSIGNED]  ←─────────────────────────────────────────────┐ │ │
+│      │  Packer Admin assigns to a specific Packer (Scan & Stage)  │ │ │
+│      │  Order pushed to assigned packer's handheld queue          │ │ │
+│      ▼                                                            │ │ │
+│  ─ ─ ─ ─ ─ Packer scans waybill on handheld ─ ─ ─ ─ ─             │ │ │
+│  │  Only the assigned packer can complete (race-protected)        │ │ │
+│  │  OR: Packer Admin manually completes the assignment            │ │ │
+│  │  OR: Packer Admin removes → reverts to PICKER_ASSIGNED ────────┼─┘ │
+│  │  OR: Packer Admin unassigns → reverts to PICKER_COMPLETE ──────┘   │
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                              │
 │      ▼                                                                │
 │  [PACKER_COMPLETE]                                                    │
 │      │  Packer completes packing                                      │
@@ -174,7 +179,7 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-> **Note:** `PACKER_ASSIGNED` and `PACKING` statuses exist in the enum for future use but are **not used** in the current implementation. The packing flow goes directly PICKER_COMPLETE → PACKER_COMPLETE. No pre-assignment step is required for packers.
+> **Note:** `PACKER_ASSIGNED` is active since **v2.29.0** — Packer Admin pre-assigns orders to specific packers (mirroring the picker flow); the assigned packer then scans on their handheld to mark the order PACKER_COMPLETE. `PACKING` remains in the `OrderStatus` enum but is not currently used — the live flow goes `PICKER_COMPLETE → PACKER_ASSIGNED → PACKER_COMPLETE` with no intermediate PACKING state.
 
 > **Important:** The SLA D-level escalates based on wall-clock time since scan — it is **independent of status**. An order can be at D2 while still in PICKING. Status and D-level are two separate dimensions.
 
@@ -325,7 +330,7 @@ orders ──< packer_assignments >── users (packers)
 | created_by | UUID FK | → users (admin who created) |
 | created_at | TIMESTAMPTZ | |
 
-**Role ENUM values:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `PICKER`, `PACKER`
+**Role ENUM values:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `PICKER`, `PACKER`, `SALES_AGENT` (v2.23.1), `STOCK_KEEPER` (v2.30.0)
 
 #### `orders`
 | Column | Type | Notes |
@@ -343,7 +348,7 @@ orders ──< packer_assignments >── users (packers)
 | sla_completed_at | TIMESTAMPTZ NULLABLE | Set when status → OUTBOUND; null = SLA still active |
 | d4_notified_at | TIMESTAMPTZ NULLABLE | Set when D4 supervisor alert is sent; prevents duplicate alerts |
 | work_date | TIMESTAMPTZ | Start of the day the order was scanned (set explicitly at scan time, not derived from created_at) |
-| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 11:00 AM PHT daily. |
+| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 23:30 PHT daily. |
 | scanned_by | UUID FK | → users (inbound admin) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -392,6 +397,79 @@ Append-only audit log of every D-level transition. Never updated or deleted.
 | to_level | INTEGER | 0–4 |
 | triggered_at | TIMESTAMPTZ | When escalation occurred |
 | trigger_source | VARCHAR | `SCAN` (initial), `JOB` (auto escalation) |
+
+#### Inventory module tables (v2.30.0 – v2.33.0)
+
+> Independent of the order pipeline. Detailed spec in `INVENTORY.md`.
+
+**`product_categories`** — admin-defined categories per tenant. `(tenant_id, name)` unique.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| name | VARCHAR | e.g. "Nuts", "Spices" |
+| created_at | TIMESTAMPTZ | |
+
+**`products`** — product master data. `productCode` auto-generated `{CAT3}-NNN` since v2.33.0.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| category_id | UUID FK | → product_categories |
+| product_code | VARCHAR | `(tenant_id, product_code)` unique |
+| name | VARCHAR | |
+| default_unit | ENUM | `KG`, `PCS` |
+| reserved_threshold | INT | low-stock trigger threshold |
+
+**`warehouses`** — physical locations. `(tenant_id, name)` unique.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| name | VARCHAR | |
+| address | TEXT | |
+| created_at, updated_at | TIMESTAMPTZ | |
+
+**`stock_items`** — one row per printed label / physical box.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | embedded in QR code (raw UUID payload since v2.33.3) |
+| tenant_id | UUID FK | → tenants |
+| product_id | UUID FK | → products |
+| warehouse_id | UUID FK | → warehouses (current location) |
+| unit | ENUM | `KG`, `PCS` |
+| quantity | NUMERIC | |
+| batch_number | VARCHAR | server-generated `YYYYMMDD-NNN` or `ADJ-YYYYMMDD-NNN` (v2.34.0 manual adjustments) |
+| status | ENUM | `PENDING` (label printed, not yet scanned), `IN_STOCK`, `OUT_OF_STOCK`. PENDING added v2.33.0 |
+
+**`stock_movements`** — scan event log (append-only).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| stock_item_id | UUID FK | → stock_items (cascade) |
+| type | ENUM | `IN`, `USED`, `TRANSFER`. Replaces pre-v2.31.0 `MovementDirection` |
+| from_warehouse_id | UUID FK NULLABLE | → warehouses (set on TRANSFER) |
+| to_warehouse_id | UUID FK NULLABLE | → warehouses (set on TRANSFER) |
+| scanned_by_id | UUID FK | → users |
+| scanned_at | TIMESTAMPTZ | |
+
+#### Sales module tables (v2.23.1 — agents-only, not tied to orders)
+
+> Tracks SALES_AGENT daily activities. Detailed spec is in the v2.23.1 patch entry of this doc + `MEMORY.md`. All tables are `tenant_id`-scoped with RLS, same isolation rules as the order tables.
+
+| Table | Purpose |
+|---|---|
+| `sales_daily_activities` | One row per agent per day — wrapper that owns the child rows for that date |
+| `sales_content_posts` | Content posts logged by the agent (Reels, TikTok, Shopee Live thumbnails, etc.); enum `ContentPostType` |
+| `sales_live_selling_metrics` | Per-live-session metrics: platform (`SalesPlatform`), viewers, orders count |
+| `sales_marketplace_reports` | Shopee/Lazada/TikTok per-day report rows (revenue, orders, returns) |
+| `sales_direct_orders` | Direct in-house orders captured by the agent; channel = `SaleChannel` enum |
+| `sales_direct_order_items` | Line items for `sales_direct_orders` (product, qty, unit price) |
 
 ### Indexes
 ```sql
@@ -504,7 +582,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 - **Picker Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **Packer Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **SLA Summary Card:** Live D-level breakdown bar (D0 / D1 / D2 / D3 / D4 counts); D4 count highlighted in red; updates via Socket.io `sla:escalated` event
-- **Nightly Report:** Automated email sent at **11:10 AM PHT** (03:10 UTC) daily to all Admin users
+- **Nightly Report:** Automated email sent at **23:40 PHT** (15:40 UTC) daily to all Admin users
 
 ---
 
@@ -730,21 +808,56 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 
 ---
 
-### 7.5 Packer Admin Panel ✅ Built (Phase 5 + 7)
+### 7.5 Packer Admin Panel ✅ Built (Phase 5 + 7 + v2.29.0 packer pre-assignment)
 **Visible to:** Admin, Packer Admin  
 **Route:** `/packer-admin`
 
-Orders appear here **automatically** when a picker marks an order PICKER_COMPLETE — no manual assignment step required.
+Since **v2.29.0** the panel mirrors the Picker Admin pattern: Packer Admin **explicitly assigns** PICKER_COMPLETE orders to specific packers (Scan & Stage section), and only the assigned packer can scan to complete on their handheld. The shared-queue model was replaced — `PACKER_ASSIGNED` is now an active status in the order lifecycle.
 
 **Carryover:** Orders from a previous day (`work_date < today`) appear with an amber **CARRY** badge in the order table. The section header shows a carryover count with an amber clock icon.
 
-**Header Stats Bar:** Waiting to Pack | Total Packed | Returned to Picker | Packers count | Sync indicator
+**Header Stats Bar:** Waiting to Pack (PICKER_COMPLETE, unassigned) | Assigned (PACKER_ASSIGNED, all packers) | Total Packed | Returned to Picker | Packers count | Sync indicator
 
-> **Returned to Picker** stat: counts orders currently back in PICKER_ASSIGNED state (returned by packer admin). Updates every 5 seconds.
+> **Returned to Picker** stat: counts orders currently back in PICKER_ASSIGNED state (returned by packer admin via Remove). Updates every 5 seconds.
 
 ---
 
-#### Order Queue (top section)
+#### Scan & Stage Flow (primary assignment method, v2.29.0)
+
+Mirrors PickerAdmin's Scan & Stage. The top section of the panel is designed for a Packer Admin with a stack of printed waybills (already pick-completed) and a handheld barcode scanner.
+
+**Flow:**
+1. Packer Admin scans a waybill → system looks up the order by tracking number
+2. If found and PICKER_COMPLETE: order is added to the **staging list** (client-side, no DB write yet)
+3. Admin scans more waybills one by one — staging list grows
+4. Admin selects a Packer from the dropdown
+5. Clicks **"Assign N Staged Orders →"** → all staged orders bulk-assigned to that packer in one request (status flips PICKER_COMPLETE → PACKER_ASSIGNED)
+6. Staging list clears; order table updates automatically
+
+**Handheld Scan Flow — Packer Admin Phone (`/packer-admin-scan`):**
+
+```
+Phone (/packer-admin-scan)                Desktop (Packer Admin Panel)
+──────────────────────────                ────────────────────────────
+Single Scan mode:
+  Camera scans barcode
+  → POST /packer-admin/scan
+    (validates order is PICKER_COMPLETE)
+    → emits order:staged ─────────────→ Order auto-appears in Staging area
+                                          Admin selects Packer from dropdown
+                                          → Assign Staged Orders
+
+Bulk Scan mode:
+  Camera scans multiple barcodes
+  → accumulate list on phone
+  → POST /packer-admin/handheld-bulk-scan
+    → emits order:staged per valid TN → Orders added to Staging area
+                                          Admin selects Packer → Assign all
+```
+
+---
+
+#### Order Queue (below Scan & Stage)
 
 **Tracking Number Search:**
 - Input above the order table — type partial or full tracking number to filter the list in real time
@@ -752,22 +865,23 @@ Orders appear here **automatically** when a picker marks an order PICKER_COMPLET
 - Cleared automatically after a successful Complete or Remove action
 
 **Order Table:**
-- Source: all orders with status = PICKER_COMPLETE (shared queue — no pre-assignment to packers)
-- Columns: Checkbox | # | Tracking Number | Platform | Delay | Picked By (avatar) | Arrived At | Priority | Actions
+- Source: PICKER_COMPLETE (waiting) + PACKER_ASSIGNED (staged to a packer); each row carries a PACKER_ASSIGNED badge with the assigned packer name when applicable
+- Columns: Checkbox | # | Tracking Number | Platform | Delay | Picked By (avatar) | Arrived At | Status badge (PICKER_COMPLETE / PACKER_ASSIGNED → name) | Priority | Actions
 - Sort: priority DESC → delayLevel DESC → createdAt ASC
 - Pagination: 10 per page, resets on search
-- Row tinting: D2 = amber, D3/D4 = red; selected = blue
+- Row tinting: D2 = amber, D3/D4 = red; selected = blue; staged = green tint + STAGED pill
 
 **Actions per row:**
-- **Complete** → green confirmation dialog → `POST /packer-admin/complete` → order → PACKER_COMPLETE
-- **Remove** → red confirmation dialog "Are you sure?" → `POST /packer-admin/remove` → order auto-reassigned to original picker (PICKER_ASSIGNED); falls back to INBOUND if no previous picker
+- **Complete** → green confirmation dialog → `POST /packer-admin/complete` → order → PACKER_COMPLETE (works whether the row is PICKER_COMPLETE or PACKER_ASSIGNED)
+- **Remove** → red confirmation dialog → `POST /packer-admin/remove` → order back to PICKER_ASSIGNED (auto-reassigned to original picker); falls back to INBOUND if no previous picker
+- **Unassign** (only for PACKER_ASSIGNED rows) → `POST /packer-admin/unassign` → clears PackerAssignment, status reverts to PICKER_COMPLETE so a different packer can be staged
 
 **Remove behavior (important):**
 When admin removes an order, the backend:
 1. Finds the most recent completed PickerAssignment for the order
 2. Resets that assignment's `completedAt` → `null` (no new assignment created)
 3. Sets order status → PICKER_ASSIGNED
-4. Logs PICKER_COMPLETE → PICKER_ASSIGNED in orderStatusHistory
+4. Logs the transition in orderStatusHistory (fromStatus is the order's current status — PICKER_COMPLETE, PACKER_ASSIGNED, or PACKER_COMPLETE)
 
 Side effects of step 2:
 - Picker's "Total Completed" count decreases (assignment is no longer counted as done)
@@ -777,23 +891,29 @@ Side effects of step 2:
 
 **Backend endpoints:**
 ```
-GET  /packer-admin/orders                  → PICKER_COMPLETE orders (sorted)
-GET  /packer-admin/stats                   → { stats[], totalCompleted, returnedCount }
-POST /packer-admin/complete { orderId }    → PACKER_COMPLETE
-POST /packer-admin/remove   { orderId }    → PICKER_ASSIGNED (auto-reassign) or INBOUND
+POST /packer-admin/scan { trackingNumber }                  → staging lookup
+POST /packer-admin/handheld-bulk-scan { trackingNumbers[] } → bulk staging lookup
+GET  /packer-admin/pending-staged                           → currently staged-but-not-yet-assigned
+POST /packer-admin/assign     { orderId, packerId }         → PICKER_COMPLETE → PACKER_ASSIGNED
+POST /packer-admin/bulk-assign{ orderIds[], packerId }      → bulk assign
+POST /packer-admin/unassign   { orderId }                   → PACKER_ASSIGNED → PICKER_COMPLETE
+GET  /packer-admin/orders                                   → PICKER_COMPLETE + PACKER_ASSIGNED (sorted)
+GET  /packer-admin/stats                                    → { stats[], totalCompleted, returnedCount }
+POST /packer-admin/complete { orderId }                     → PACKER_COMPLETE
+POST /packer-admin/remove   { orderId }                     → PICKER_ASSIGNED (auto-reassign) or INBOUND
 ```
 
 ---
 
-#### Packer Workload Section (bottom)
+#### Packer Workload Section (bottom, v2.31.4)
 
-- Grid of packer cards (auto-fill, min 220px)
-- Each card: Avatar | username | `X packed` | Done chip
-- **Click card → Order Detail Modal:** table of that packer's completed orders (Tracking | Platform | Delay | Completed At)
+- Grid of packer cards (auto-fill, min 220px) — mirrors PickerStatCard layout
+- Each card: Avatar | username | header "X active · Y packed today" | blue **Assigned** chip + green **Done Today** chip | two-segment progress bar
+- **Click card → Order Detail Modal:** table of that packer's active assignments + completed orders
 - **Backend endpoints:**
 ```
 GET  /packer-admin/packers                         → active PACKER users
-GET  /packer-admin/packer/:packerId/orders         → packer's completed orders (last 50)
+GET  /packer-admin/packer/:packerId/orders         → packer's active + completed orders (last 50)
 ```
 
 ---
@@ -810,22 +930,23 @@ GET  /packer-admin/packer/:packerId/orders         → packer's completed orders
 - After login, automatically redirected to `/packer` (role-based routing)
 - Session persists via JWT cookie — device reopened without re-entering credentials
 
-**Order queue (shared — all packers see the same list):**
-- All PICKER_COMPLETE orders (not pre-assigned; first packer to scan completes it)
+**Order queue (per-packer assigned list, v2.29.0):**
+- Orders in **PACKER_ASSIGNED** status assigned to this specific packer (`PackerAssignment.completedAt IS NULL` + order in PACKER_ASSIGNED). Replaces the pre-v2.29.0 shared queue.
 - Auto-refreshes every 15 seconds
 - List sorted by priority DESC → delayLevel DESC → createdAt ASC
 - Left border color: red (D3+), amber (D1–D2), blue (D0)
+- Empty state if Packer Admin hasn't staged any orders to this packer yet
 
 **Waybill scan → complete flow:**
 1. Packer picks up physical package → scans waybill barcode
-2. Tracking number matched against the shared PICKER_COMPLETE list
+2. Tracking number matched against this packer's own PACKER_ASSIGNED list
 3. Match found → **Confirm Complete** bottom sheet slides up (tracking + platform + delay)
-4. Packer taps **Confirm ✓** → `POST /packer/complete { trackingNumber }` → PACKER_COMPLETE
-5. Order disappears from all packers' lists within 15 seconds
-6. Race condition protection: if two packers scan simultaneously, one gets success, the other gets "Order already completed"
+4. Packer taps **Confirm ✓** → `POST /packer/complete { trackingNumber }` → PACKER_COMPLETE; assignment `completedAt` set
+5. Order disappears from this packer's list within 15 seconds
+6. No match → "not found in your assigned orders" (the order may belong to a different packer or hasn't been assigned yet)
 
 **API endpoints (PACKER role only):**
-- `GET /packer/orders` — all PICKER_COMPLETE orders (shared queue)
+- `GET /packer/orders` — orders in PACKER_ASSIGNED state assigned to this packer
 - `POST /packer/complete { trackingNumber }` — complete by tracking number scan
 
 ---
@@ -889,7 +1010,7 @@ The Archive Panel gives admins full visibility into soft-archived orders and con
 | Expiring in 30d | Archived orders whose `archived_at + 180 days <= now + 30 days` | Amber |
 | Expiring in 7d | Archived orders whose `archived_at + 180 days <= now + 7 days` | Red |
 
-**"Archive OUTBOUND Now" button** — appears alongside the stat cards. Opens a confirmation dialog: *"This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 7:00 PM. Proceed?"* On confirm: calls `POST /archive/trigger`.
+**"Archive OUTBOUND Now" button** — appears alongside the stat cards. Opens a confirmation dialog: *"This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 11:30 PM (Manila time). Proceed?"* On confirm: calls `POST /archive/trigger`.
 
 #### Filter Bar
 | Filter | Type | Behavior |
@@ -927,12 +1048,12 @@ A **"Clear filters"** button appears when any filter is active.
 
 #### Archive Job
 - **Queue:** `archiveOutbound` (BullMQ)
-- **Schedule:** `0 3 * * *` (UTC) — every day at **11:00 AM PHT** (Asia/Manila)
+- **Schedule:** `'30 23 * * *', tz: 'Asia/Manila'` — every day at **23:30 PHT** (11:30 PM Manila time, 15:30 UTC). Single source of truth: `backend/src/index.ts:158`. SOLUTIONS.md [2026-04-18] / [2026-04-17] document the earlier mis-cron clean-up.
 - **Action:** Sets `archived_at = NOW()` on all `status=OUTBOUND, archived_at IS NULL` orders (all tenants)
 - **Manual trigger:** `POST /archive/trigger` → calls archive synchronously for the requester's tenant, then enqueues for background processing
 
 #### Retention (6-Month Policy)
-- **Hard-delete job** piggybacks on `nightlyReport` at **11:10 PHT (03:10 UTC)**
+- **Hard-delete job** piggybacks on `nightlyReport` at **23:40 PHT (15:40 UTC)** — 11:40 PM Manila time, ~10 minutes after the archive job above
 - Deletes orders where `archived_at <= NOW() - 180 days`
 - Cascade-deletes all child records (`picker_assignments`, `packer_assignments`, `order_status_history`, `sla_escalations`)
 - Per-tenant, per-order error catch — one failure does not abort the sweep
@@ -1049,44 +1170,69 @@ PENDING and OUT_OF_STOCK rows are excluded from every aggregate above. Frontend 
 frontend/
 ├── src/
 │   ├── pages/
-│   │   ├── Login.tsx
-│   │   ├── Inbound.tsx            ← /dashboard — Phase 2 ✅ (pagination 25/page, delay sort)
-│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 ✅ (scan+stage, bulk assign,
-│   │   │                              workload cards, order detail modal, remove/complete,
-│   │   │                              "Returned from Packer" stat, ↩ badge on picker cards)
-│   │   ├── PickerMobile.tsx       ← /picker ✅ PIN auth + shared order list + scan complete
-│   │   ├── PackerAdmin.tsx        ← /packer-admin ✅ (PICKER_COMPLETE queue, tracking search,
-│   │   │                              complete/remove dialogs, auto-reassign on remove,
-│   │   │                              packer workload cards, PIN management,
-│   │   │                              "Returned to Picker" + "Total Packed" stats)
-│   │   ├── PackerMobile.tsx       ← /packer ✅ PIN auth + shared queue + scan complete (green theme)
-│   │   ├── Outbound.tsx           ← /outbound ✅ Phase 8 (dispatch queue, comparison report, stuck orders)
-│   │   ├── Archive.tsx            ← /archive ✅ v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
-│   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
+│   │   ├── Login.tsx              ← username/password login; role-aware redirect via getDefaultRoute
+│   │   ├── ScanLogin.tsx          ← /scan — handheld URL entry; redirects each role to their own scan/list page
+│   │   ├── Dashboard.tsx          ← / for ADMIN/INBOUND_ADMIN (Phase 11) — pipeline KPIs + SLA summary
+│   │   ├── Inbound.tsx            ← /dashboard — Phase 2 (Single + Bulk scan modal, pagination 25/page)
+│   │   ├── InboundScan.tsx        ← /inbound-scan — phase 10b handheld camera scan, single + bulk modes
+│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 + scan+stage + workload cards
+│   │   ├── PickerAdminScan.tsx    ← /picker-admin-scan — phone scan station (relays via socket)
+│   │   ├── PickerMobile.tsx       ← /picker — login + own PICKER_ASSIGNED orders + scan complete
+│   │   ├── PackerAdmin.tsx        ← /packer-admin — v2.29.0 scan & stage + per-packer assignment + workload
+│   │   ├── PackerAdminScan.tsx    ← /packer-admin-scan — v2.29.0 phone scan station (green theme)
+│   │   ├── PackerMobile.tsx       ← /packer — v2.29.0 own PACKER_ASSIGNED list + scan complete (green theme)
+│   │   ├── Outbound.tsx           ← /outbound — Phase 8 (dispatch queue, comparison report, stuck orders)
+│   │   ├── Archive.tsx            ← /archive — v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
+│   │   ├── Reports.tsx            ← /reports — 4 tabs: Live Performance, Performance, SLA Analytics, Order Timeline
+│   │   ├── Settings.tsx           ← admin user management + sales-agent + stock-keeper creation
+│   │   ├── Users.tsx              ← legacy placeholder (Settings replaced most functionality)
+│   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
+│   │   ├── SalesEntry.tsx         ← /sales/entry — daily activity form (content posts + live selling + marketplace + direct orders)
+│   │   ├── SalesOrders.tsx        ← /sales/orders — agent's own direct-order history with edit/delete (v2.28.0)
+│   │   ├── MarketingReport.tsx    ← /marketing-report — admin + sales-agent leaderboard + 5 comparison charts + AgentDetailPanel
+│   │   ├── StockScan.tsx          ← /stock/scan — STOCK_KEEPER mobile camera, Single/Bulk modes, operation-driven (v2.33.0)
+│   │   └── inventory/
+│   │       ├── Products.tsx       ← /inventory/products — Categories + Products CRUD (v2.31.0)
+│   │       ├── InventoryItems.tsx ← /inventory/items — label generation PDF (v2.31.0 → v2.34.4 form rework)
+│   │       ├── Warehouses.tsx     ← /inventory/warehouses — Warehouse CRUD
+│   │       └── StockSummary.tsx   ← /inventory/stock — per-product table + manual adjust modal (v2.34.0)
 │   ├── components/
 │   │   ├── ScanInput.tsx          ← HID barcode scanner input (desktop inbound only)
+│   │   ├── ProtectedRoute.tsx     ← role-gated route wrapper; redirects to /login or /unauthorized
 │   │   ├── OrderTable.tsx         ← desktop table; includes DelayBadge column; D2+ rows tinted
 │   │   ├── OrderCard.tsx          ← Phase 4: mobile card, touch-friendly, large tap targets
 │   │   ├── ConfirmDialog.tsx      ← reusable confirmation modal
 │   │   ├── DelayBadge.tsx         ← D-level badge: D0=none, D1=yellow, D2=orange, D3=red, D4=red+pulse
 │   │   ├── SlaAlertBanner.tsx     ← Phase 9: dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
+│   │   ├── SlaHistoryModal.tsx    ← per-order SLA escalation timeline modal
+│   │   ├── BulkScanModal.tsx      ← Phase 10 bulk staging + carrier/shop selector
+│   │   ├── QuickScanModal.tsx     ← Phase 10b single-scan carrier/shop prompt (phone → desktop)
 │   │   └── shared/
 │   │       ├── AppLayout.tsx      ← desktop layout wrapper (Sidebar + content area)
-│   │       ├── Sidebar.tsx        ← role-based nav with SVG icons; desktop only
+│   │       ├── Sidebar.tsx        ← role-based nav; v2.31.0 gained `children?` for Inventory parent menu
 │   │       ├── MobileHeader.tsx   ← Phase 4: handheld layout header (name + time, no nav)
 │   │       ├── PageShell.tsx      ← sticky header + scrollable body for each panel
 │   │       ├── Avatar.tsx         ← initials avatar component
 │   │       ├── PlatformBadge.tsx  ← color-coded platform label (Shopee/Lazada/TikTok)
-│   │       ├── StatCard.tsx       ← stat number card used in panel headers (supports optional subtitle prop)
-│   │       └── SectionHeader.tsx  ← section title + count badge
+│   │       ├── StatCard.tsx       ← stat number card used in panel headers
+│   │       ├── SectionHeader.tsx  ← section title + count badge
+│   │       ├── ConfirmModal.tsx   ← v2.33.0 — createPortal modal replacing window.confirm() in Inventory
+│   │       ├── Pagination.tsx     ← v2.35.1 — shared Prev/Next + numbered footer (StockSummary + Products)
+│   │       └── DateNavigator.tsx  ← v2.27.0 — extracted from Outbound; prev/next + Today + date picker; minDate prop
 │   ├── stores/                    ← Zustand global state
 │   │   ├── authStore.ts
-│   │   └── notificationStore.ts   ← Phase 9: d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   ├── notificationStore.ts   ← Phase 9: d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   └── mobileSidebar.tsx      ← context for mobile sidebar open/close (handheld)
 │   ├── api/                       ← TanStack Query hooks
 │   │   ├── orders.ts
 │   │   ├── assignments.ts
 │   │   ├── users.ts
-│   │   └── reports.ts
+│   │   ├── reports.ts
+│   │   ├── sales.ts               ← v2.23.1 — agent calendar + day-detail + direct order CRUD
+│   │   ├── marketing.ts           ← v2.23.1 — leaderboard + drill-down
+│   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD hooks
+│   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD hooks
+│   │   └── stock.ts               ← v2.31.0 + v2.33.0 — useStockSummary, useScanStock, useGenerateLabels
 │   ├── lib/
 │   │   ├── platformDetect.ts      ← tracking number → platform logic
 │   │   ├── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
@@ -1119,29 +1265,50 @@ backend/
 ├── src/
 │   ├── routes/
 │   │   ├── auth.ts
-│   │   ├── orders.ts
-│   │   ├── assignments.ts
+│   │   ├── orders.ts              ← scan + bulk-scan + shops + handheld scan endpoints
+│   │   ├── assignments.ts         ← /assign/picker, /assign/packer (legacy single-shot)
+│   │   ├── picker-admin.ts        ← v2.x — scan-and-stage, assign, bulk-assign, stats, complete, unassign
+│   │   ├── packer-admin.ts        ← v2.29.0 — scan-and-stage, assign, bulk-assign, stats, complete, remove, unassign
+│   │   ├── picker.ts              ← PICKER handheld endpoints (own orders, complete)
+│   │   ├── packer.ts              ← PACKER handheld endpoints (own assigned orders, complete)
+│   │   ├── outbound.ts            ← dispatch single + bulk, stats, stuck list
 │   │   ├── users.ts
-│   │   ├── reports.ts
-│   │   └── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
+│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance, /reports/order-timeline (+ PDF/CSV)
+│   │   ├── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
+│   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD (admin + read for STOCK_KEEPER)
+│   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD (admin + read for STOCK_KEEPER)
+│   │   ├── stock.ts               ← v2.31.0 + v2.33.0 rewrites — /labels, /scan (operation-driven), /summary, /stats, /items, /lookup/:id, /adjust, /movements
+│   │   ├── sales.ts               ← v2.23.1 — agent daily activity + own direct-order CRUD
+│   │   └── marketing.ts           ← v2.23.1 — admin leaderboard + drill-down (audit-logged)
 │   ├── plugins/
 │   │   ├── auth.ts                ← JWT verification plugin
 │   │   ├── cors.ts
 │   │   ├── rateLimit.ts
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
+│   ├── middleware/
+│   │   ├── rbac.ts                ← role-based access control
+│   │   └── auditLog.ts            ← v2.26.0 — logs marketing-report reads/writes (userId, role, tenantId, method, url, ts)
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
-│   │   ├── nightlyReport.ts       ← BullMQ job: 11:10 AM email + hardDeleteExpiredOrders() call
-│   │   ├── archiveOutbound.ts     ← BullMQ job: 11:00 AM daily, sets archived_at on OUTBOUND orders
+│   │   ├── nightlyReport.ts       ← BullMQ job: 23:40 PHT email + hardDeleteExpiredOrders() call
+│   │   ├── archiveOutbound.ts     ← BullMQ job: 23:30 PHT daily, sets archived_at on OUTBOUND orders
 │   │   ├── slaEscalation.ts       ← BullMQ job: every 15min sweep, D0→D4 escalation + priority boost
 │   │   └── slaD4Email.ts          ← BullMQ job: supervisor alert email when order hits D4
 │   ├── services/
 │   │   ├── orderService.ts
 │   │   ├── assignmentService.ts
+│   │   ├── pickerAdminService.ts  ← v2.32.0 perf rewrite — getPickerStats batched (6 queries, was 4N+2)
+│   │   ├── packerAdminService.ts  ← v2.29.0 + v2.31.4 — getPackerStats with Assigned + Done Today
 │   │   ├── reportService.ts
 │   │   ├── emailService.ts
 │   │   ├── archiveService.ts      ← archiveOutboundOrders(), getArchivedOrders(), bulkDeleteArchivedOrders(), hardDeleteExpiredOrders()
-│   │   └── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
+│   │   ├── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
+│   │   ├── productService.ts      ← v2.31.0 + v2.33.0 — Product/Category CRUD + auto productCode generation
+│   │   ├── warehouseService.ts    ← v2.31.0 — Warehouse CRUD + in-stock item count
+│   │   ├── stockService.ts        ← v2.31.0 rewrite + v2.33.0 operation-driven scan state machine + v2.34.0 manual adjust + v2.34.5 bulk lookup
+│   │   ├── salesActivityService.ts        ← v2.23.1 — calendar + day-detail + activity CRUD
+│   │   ├── salesDirectOrderService.ts     ← v2.28.0 — direct order edit/delete (transactional item replace, cascade delete)
+│   │   └── marketingReportService.ts      ← v2.23.1 + v2.28.x — leaderboard + comparison charts + agent drill-down
 │   ├── lib/
 │   │   └── manila.ts              ← getManilaStartOfToday(), getManilaDateString() — pure UTC+8 arithmetic, no deps
 │   └── middleware/
@@ -1240,7 +1407,7 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 ## 13. Reporting
 
 ### Automated
-- **Nightly email at 9:00 PM PHT** (13:00 UTC) to all Admin users
+- **Nightly email at 23:40 PHT** (15:40 UTC) — 11:40 PM Manila time, to all Admin users
 - Contains: Inbound count, Outbound count, Remaining count, Picker & Packer summaries, **SLA data: D4 orders reached today (resolved vs still open), avg time-to-OUTBOUND, D-level breakdown at 9pm snapshot**
 
 ### On-Demand (in-app)
@@ -1369,8 +1536,8 @@ On push to main branch:
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
-| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 7 PM PHT; CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
-| **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | ✅ Done | Live stats update via Socket.io (`sla:escalated`, `order:stats_changed`); nightly HTML email with SLA breakdown sent at 11:10 AM PHT; Dashboard shows pipeline, picker/packer summary, outbound summary, SLA D0–D4 |
+| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (23:30 PHT daily — was 19:00 PHT in early DC drafts, moved to 23:30 in v2.13.x per SOLUTIONS.md [2026-04-18]); `hardDeleteExpiredOrders` in nightly report (23:40 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 23:30 PHT (11:30 PM Manila time); CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
+| **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | ✅ Done | Live stats update via Socket.io (`sla:escalated`, `order:stats_changed`); nightly HTML email with SLA breakdown sent at 23:40 PHT (11:40 PM Manila time); Dashboard shows pipeline, picker/packer summary, outbound summary, SLA D0–D4 |
 | **SALES** | **Sales Agent Module (v2.23.1)** — new `SALES_AGENT` role (`UserRole` enum); 6 new Prisma models (`SalesDailyActivity`, `SalesContentPost`, `SalesLiveSellingMetric`, `SalesMarketplaceReport`, `SalesDirectOrder`, `SalesDirectOrderItem`) + 3 enums (`SalesPlatform`, `ContentPostType`, `SaleChannel`); backend routes `/sales` + `/marketing`; services `salesActivityService`, `salesDirectOrderService`, `marketingReportService`; agent-facing UI: `/sales` month calendar dashboard, day-entry form (content posts + live selling + marketplace + direct orders), day-detail modal, own history; admin-facing UI: `/marketing-report` leaderboard + 4 comparison charts + `AgentDetailPanel` (per-agent calendar drill-down); admin-only `Settings → Sales Agents` creation; Vite proxy extended for `/sales` + `/marketing` | ✅ Done (v2.23.1) | Agent logs in → `/sales` opens, calendar renders, daily entry saves + persists across refresh; admin `/marketing-report` shows leaderboard + charts + per-agent drill-down; existing picker/packer/inbound/outbound flows unaffected; **deploy note:** requires manual `prisma db push` on Vultr after CD (workflow runs `migrate deploy || true` — no migrations in repo yet, see SOLUTIONS.md 2026-04-20) |
 | **12** | Reporting & Analytics + CSV/PDF export | 🟡 Partial | CSV/PDF exports for Performance + SLA (done). **Live Performance tab added (v2.25.0 + v2.25.1)**: intraday per-role KPIs, grouped hourly bar chart (Recharts `BarChart`, Pickers/Packers side-by-side), per-worker live tables with hourly sparklines; socket-driven updates via `order:stats_changed` + 30s polling fallback; Live/Polling status pill. Order Timeline tab (per-order lifecycle audit) also shipped. **Historical mode (v2.27.0)**: `DateNavigator` on Live Performance tab, up to 90 days back, per-worker stacked hourly bar charts, inactive-user inclusion in historical view. **Remaining:** CSV/PDF export for Live Performance (deferred), additional cross-period comparative analytics |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |

@@ -55,6 +55,6 @@ git push origin main --tags
 ## Geliştirme Kuralları
 
 - Değişiklik yapmadan önce kullanıcıdan izin al.
-- Phase'leri sırayla yap: Phase 1 → 2 → ... → 11 (ARCHITECTURE.md Section 15).
+- Phase'leri sırayla yap: Phase 1 → 2 → ... → 14, ek olarak DC + 10b + SALES (ARCHITECTURE.md Section 15). Şu an Phase 12 partial, 13-14 henüz başlanmadı.
 - Her phase kodu önce `test`'e gider, kullanıcı onayı sonrası `main`'e geçer.
 - Her push öncesi `git pull origin <branch> --rebase` ile remote'u kontrol et.

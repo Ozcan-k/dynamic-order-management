@@ -40,14 +40,14 @@
 | Environment | Where | Cost | Purpose |
 |---|---|---|---|
 | **Development** | Localhost | Free | Local development |
-| **Production** | Vultr Manila PH | 2/month | Live system |
+| **Production** | Vultr Manila PH | `$12/month` | Live system |
 
 > No staging environment — features are developed on localhost and deployed directly to production once approved.
 
 ### Why Vultr Manila
 - Closest datacenter to the Philippines (~5–10ms latency)
 - Instant response for barcode scanning is critical — high latency is unacceptable
-- 2/month handles 2,000–10,000 orders/day comfortably
+- `$12/month` handles 2,000–10,000 orders/day comfortably
 
 ---
 
@@ -73,7 +73,7 @@
 | RAM | 4 GB |
 | Disk | 80 GB SSD |
 | Bandwidth | 3 TB/month |
-| Cost | **2/month** |
+| Cost | **`$12/month`** |
 
 At 2,000 orders/day the server runs at **~20–25% capacity**.
 
@@ -85,8 +85,12 @@ At 2,000 orders/day the server runs at **~20–25% capacity**.
 [Vultr Manila VPS]
 │
 ├── Nginx (reverse proxy + SSL — Let's Encrypt)
-│       ├── /          → React static build
-│       └── /api       → Node.js Fastify (backend)
+│       ├── /              → Vite dev server (port 5173) — runs dev mode in prod
+│       │                    (volume-mounted src/ — git pull = live update;
+│       │                     see SOLUTIONS.md [2026-05-19] + v2.36.0 roadmap to
+│       │                     migrate to `vite build` + static serve)
+│       ├── /api/          → Node.js Fastify (backend, port 3000)
+│       └── /socket.io/    → Fastify Socket.io WS upgrade (port 3000)
 │               ├── PostgreSQL 16
 │               ├── Redis
 │               └── BullMQ workers
@@ -96,20 +100,26 @@ At 2,000 orders/day the server runs at **~20–25% capacity**.
 
 ## Branching Model
 
+Per `CLAUDE.md`:
+
 ```
-feature/xxx  →  main branch
-                     │
-              git tag v1.x.x
-                     │
-              docker build + push
-                     │
-              Deploy to Vultr
+work on  test  branch        ←  every change starts here
+        │
+        │  user reviews + approves
+        ▼
+merge into  main  branch     ←  triggers CD → Vultr deploy
+        │
+   git tag vX.Y.Z-test       ←  tag created on test, kept after main merge
+        │
+        ▼
+   CD pulls + rebuilds containers
 ```
 
 ### Versioning
-- Semantic versioning: `v1.0.0`, `v1.1.0`, `v1.2.0`
-- Every production deploy is tagged in git
-- Rollback: re-deploy the previous Docker image
+- Semantic versioning: `vX.Y.Z` where X = major (architectural breakage), Y = minor (new phase / feature), Z = patch (bugfix or small UI tweak)
+- Tag convention: `vX.Y.Z-test` (tag is cut on the `test` branch before the main merge; the same tag is kept after merging into main — there is no separate "release" tag)
+- Every production deploy corresponds to a tag in git
+- Rollback: re-deploy from the previous tag via `git checkout vX.Y.Z-test` on Vultr + `docker compose up -d --build`
 
 ---
 
@@ -172,8 +182,8 @@ SSH uses **password authentication** (not key-based). No SSH key is required on 
 |---|---|---|
 | SLA Escalation Sweep | Every 15 minutes | Escalates D0→D1→D2→D3→D4 based on elapsed time since scan |
 | D4 Supervisor Alert | Triggered by sweep | Sends email alert when order reaches D4 |
-| Archive Outbound | 11:00 AM daily (03:00 UTC) | Marks all OUTBOUND orders as archived — resets daily totals |
-| Nightly Report | 11:10 AM daily (03:10 UTC) | Sends summary email to all Admin users + hard-deletes orders > 180 days |
+| Archive Outbound | 23:30 PHT daily (15:30 UTC) | Marks all OUTBOUND orders as archived — resets daily totals |
+| Nightly Report | 23:40 PHT daily (15:40 UTC) | Sends summary email to all Admin users + hard-deletes orders > 180 days |
 
 ---
 

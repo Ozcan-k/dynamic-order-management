@@ -11,7 +11,7 @@
 2. **Always import tokens from `frontend/src/theme.ts`.** Never hardcode hex values or sizes in components.
 3. **Every panel page must use the `PageShell` component** (or the `panel-root / panel-header / panel-body` CSS class structure).
 4. **Use shared components** from `frontend/src/components/shared/` instead of re-implementing them.
-5. **Do not touch backend files** (`backend/`, `packages/shared/`).
+5. **Do not touch backend files** (`backend/`, `shared/`). The shared package is at `shared/` (npm scope `@dom/shared`); there is no `packages/` directory in this monorepo.
 
 ---
 
