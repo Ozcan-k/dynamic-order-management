@@ -35,6 +35,26 @@ const queryClient = new QueryClient({
   },
 })
 
+// Role-aware root route: ADMIN/INBOUND_ADMIN see the Dashboard at `/`,
+// every other role gets sent to their own home so they don't dead-end on
+// `/unauthorized` when an active session lands on the bare domain.
+function RootRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === UserRole.ADMIN || user.role === UserRole.INBOUND_ADMIN) {
+    return <AppLayout><Dashboard /></AppLayout>
+  }
+  const homeByRole: Record<string, string> = {
+    [UserRole.PICKER_ADMIN]: '/picker-admin',
+    [UserRole.PACKER_ADMIN]: '/packer-admin',
+    [UserRole.PICKER]: '/picker',
+    [UserRole.PACKER]: '/packer',
+    [UserRole.SALES_AGENT]: '/sales',
+    [UserRole.STOCK_KEEPER]: '/stock/scan',
+  }
+  return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
+}
+
 // Placeholder pages — will be replaced in later phases
 function PlaceholderPage({ title }: { title: string }) {
   const user = useAuthStore((s) => s.user)
@@ -259,14 +279,7 @@ export default function App() {
             path="/unauthorized"
             element={<PlaceholderPage title="403 — Forbidden" />}
           />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
-                <AppLayout><Dashboard /></AppLayout>
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<RootRoute />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>

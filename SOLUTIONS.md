@@ -5,6 +5,72 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-19] SALES_AGENT (and any non-admin role) sees "403 — Coming Soon" when hitting bare `/`
+
+### Problem
+Operator logged in to https://domwarehouse.com as `agent1` (SALES_AGENT role). Going to the bare domain (`https://domwarehouse.com/`) — typed in the address bar or via a stale bookmark — rendered the `PlaceholderPage title="403 — Forbidden"` with the "Coming Soon · This page is under construction" empty state. The session was valid (cookie present, `/auth/me` returned the user), but there was no obvious recovery path: no link to `/sales`, no logout-and-relogin needed (relogin doesn't help — the cookie is fine), no sidebar visible. Operator was effectively locked out of the app even though `/sales` worked when typed explicitly.
+
+### Root cause
+`frontend/src/App.tsx` had `/` wrapped in `<ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>`. When any other role landed on `/`:
+1. `ProtectedRoute` saw a valid user, but `user.role` not in `allowedRoles`.
+2. Non-scan routes redirect to `/unauthorized`.
+3. `/unauthorized` is rendered by `PlaceholderPage` — a leftover from very early phases when restricted pages stubbed out their UI. It shows "Coming Soon — This section will be available in a future release", which is misleading: the user actually has *less* access than that page implies, and the recovery path (go to your own home) is not surfaced.
+
+The login flow itself was fine: `Login.tsx:285` `getDefaultRoute('SALES_AGENT')` returns `/sales`, so a fresh `/login` submission redirects correctly. The bug only manifests for **already-authenticated** sessions that navigate to `/` directly — bookmarks, address-bar typing, a `<a href="/">` link, or a `Navigate to="/"` somewhere. The `?next=/` query that `ProtectedRoute` would have set isn't consulted on the post-redirect side because there's no login step in this flow.
+
+The same shape of bug affects every non-`/` route the role can't access, but `/` is by far the most common landing point — every operator types the bare domain at some point. STOCK_KEEPER also fell through `getDefaultRoute`'s default branch to `/dashboard` (which they can't access either), making this a latent footgun for them too.
+
+### Fix (v2.35.3)
+Replace the `/` route's `<ProtectedRoute>` wrapper with a new `RootRoute` component that branches on role:
+
+```tsx
+function RootRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === UserRole.ADMIN || user.role === UserRole.INBOUND_ADMIN) {
+    return <AppLayout><Dashboard /></AppLayout>
+  }
+  const homeByRole: Record<string, string> = {
+    [UserRole.PICKER_ADMIN]: '/picker-admin',
+    [UserRole.PACKER_ADMIN]: '/packer-admin',
+    [UserRole.PICKER]: '/picker',
+    [UserRole.PACKER]: '/packer',
+    [UserRole.SALES_AGENT]: '/sales',
+    [UserRole.STOCK_KEEPER]: '/stock/scan',
+  }
+  return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
+}
+```
+
+And:
+```tsx
+<Route path="/" element={<RootRoute />} />
+```
+
+The map mirrors the role-coverage table in `ARCHITECTURE.md §6`. Every value is a route the listed role can actually access (checked against each `<Route allowedRoles>` declaration in `App.tsx`), so no infinite redirect cycle is possible. Unknown roles fall through to `/login` — defensive default, current `UserRole` enum has no entries that aren't mapped.
+
+### Why not also fix `/unauthorized`?
+`PlaceholderPage` is still useful for **explicit** role-mismatch hits — e.g., an ADMIN clicks a deep link that was scoped to a different role. The "Coming Soon" framing is wrong for that case too, but the immediate bug was the implicit landing on `/`, not the placeholder itself. A follow-up could rework the unauthorized page to show "You don't have access; go to <home>" with a button. Not in scope for v2.35.3.
+
+### Verification path (post-deploy)
+1. Log in to live as `agent1` (or any SALES_AGENT). Sidebar should show only Sales-relevant items; landing page should be `/sales`.
+2. While logged in, type `https://domwarehouse.com/` in the address bar and hit Enter. Expected: instant redirect to `/sales` (no 403 flash if `Navigate` is fast enough; if you see a flash, it'll be the redirect itself, not the placeholder).
+3. Repeat for PICKER_ADMIN → `/picker-admin`, PACKER_ADMIN → `/packer-admin`, PICKER → `/picker`, PACKER → `/packer`, STOCK_KEEPER → `/stock/scan`.
+4. Regression check: log in as ADMIN, go to `/`. Should still see the Dashboard exactly as before — no extra redirect, same layout.
+
+### Rule
+When `<ProtectedRoute>` rejects a role, redirecting to `/unauthorized` is acceptable for *explicit* deep links the user shouldn't have followed. But for **landing routes** — `/`, the brand domain, anywhere a user could plausibly arrive without intent — the failure mode should be "route to your home", not "show a dead-end placeholder". The placeholder erodes trust: the operator can't tell whether the app is broken, their access was revoked, or it's just a stale UI artifact. Always make role-aware landing routes return the user to a page they own.
+
+Also: when adding a new role to `UserRole`, audit every `getDefaultRoute`-style function and every `/` / index route — these places encode "where does this role live by default", and the wrong default silently sends users to a 403 page.
+
+### Files affected
+- `frontend/src/App.tsx` — `RootRoute` component added (lines 39-56), `/` route swapped from `<ProtectedRoute>` wrapper to `<RootRoute />`.
+- `CLAUDE.md` — version `v2.35.2` → `v2.35.3`.
+- `ARCHITECTURE.md` — header status replaced with v2.35.3 fix note.
+- (Live verification, post-deploy) `agent1` login → `/` → `/sales` confirmed.
+
+---
+
 ## [2026-05-19] Console noise on live — Vite HMR `wss://` retry loop + React Router v7 future-flag warnings
 
 > **Status (post-deploy, 2026-05-19):** **PARTIAL FIX.** React Router future-flag warnings successfully silenced (deploy alone, no env var needed). Vite HMR `wss://` retries **persist** even with `VITE_DISABLE_HMR=true` set on Vultr — `server.hmr: false` only disables the server-side WS endpoint, but Vite dev mode still injects `/@vite/client` into every page, and that client unconditionally attempts a WebSocket connection. So one half of v2.35.2 worked, the other half does not actually achieve what the original entry below claimed. See the addendum at the bottom of this entry for the verified behavior and the recommended path forward (`vite build` migration, planned as v2.36.0).
