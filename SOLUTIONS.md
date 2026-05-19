@@ -7,6 +7,8 @@ When the same issue appears again, check here first.
 
 ## [2026-05-19] Console noise on live — Vite HMR `wss://` retry loop + React Router v7 future-flag warnings
 
+> **Status (post-deploy, 2026-05-19):** **PARTIAL FIX.** React Router future-flag warnings successfully silenced (deploy alone, no env var needed). Vite HMR `wss://` retries **persist** even with `VITE_DISABLE_HMR=true` set on Vultr — `server.hmr: false` only disables the server-side WS endpoint, but Vite dev mode still injects `/@vite/client` into every page, and that client unconditionally attempts a WebSocket connection. So one half of v2.35.2 worked, the other half does not actually achieve what the original entry below claimed. See the addendum at the bottom of this entry for the verified behavior and the recommended path forward (`vite build` migration, planned as v2.36.0).
+
 ### Problem
 Loading any page on https://domwarehouse.com printed a chain of warnings in the browser console on every refresh:
 
@@ -69,7 +71,56 @@ For React Router, always set `future` flags explicitly even if you don't intend 
 - `frontend/src/App.tsx` — `<BrowserRouter>` `future` prop.
 - `CLAUDE.md` — version `v2.35.1` → `v2.35.2`.
 - `ARCHITECTURE.md` — header status + new v2.35.2 paragraph.
-- (Pending on live) `.env` on Vultr — add `VITE_DISABLE_HMR=true`.
+- (Applied on live) `.env` on Vultr — `VITE_DISABLE_HMR=true` added; `docker compose up -d --build frontend` ran clean.
+
+### Addendum (2026-05-19, post-deploy verification)
+
+After the v2.35.2 deploy and the `.env` activation step on Vultr, two of the three claims in the original entry held; one did not. Recording the verified behavior so the next person doesn't repeat the analysis.
+
+**Verified on live (Vite 5.4.21):**
+
+1. ✅ **React Router warnings silenced.** The `future={{ v7_startTransition, v7_relativeSplatPath }}` prop on `<BrowserRouter>` immediately silenced both warnings on every page. No runtime regressions observed (splat route is a single `Navigate`, no Suspense boundaries in route tree, no visible timing change).
+
+2. ✅ **Env passthrough works end-to-end.** Inside `dom_frontend`:
+   - `docker exec dom_frontend grep VITE_DISABLE_HMR /app/frontend/vite.config.ts` → returns the gated line as committed.
+   - `docker exec dom_frontend printenv VITE_DISABLE_HMR` → `true`.
+   - Vite startup log (`docker logs dom_frontend`) shows clean boot, no errors. So `process.env.VITE_DISABLE_HMR === 'true'` was true at `vite.config.ts` evaluation time, and Vite ran with `server.hmr: false`.
+
+3. ❌ **`hmr: false` does NOT silence the `wss://` retry loop.** Browser console on live still showed:
+   ```
+   client:536 WebSocket connection to 'wss://domwarehouse.com/?token=…' failed:
+   client:536 WebSocket connection to 'wss://localhost:5173/?token=…' failed:
+   client:512 [vite] failed to connect to websocket.
+   ```
+   Same in incognito (cache busted). The original entry's claim that `server.hmr: false` "disables the HMR client entirely" was **wrong**.
+
+**Why `hmr: false` is insufficient.** `server.hmr: false` only disables the server-side WS upgrade handler. The `/@vite/client.js` script is **still injected into every page in dev mode** and unconditionally attempts a WS connection on load. With the server handler off, the connection just fails — and the client retries the fallback (`wss://localhost:5173`) before giving up. So `hmr: false` removes the option to actually use HMR, without removing the client's noise. Net effect on console: zero improvement.
+
+**Why we didn't pursue an nginx WS-upgrade workaround.** Adding `proxy_http_version 1.1` + `Upgrade` headers to the nginx `/` location would let Vite HMR actually work in prod — silencing the noise as a side effect. But `docker-compose.yml` mounts `./frontend/src` and `./shared/src` into the running frontend container (volumes, not COPY), so a `git pull` on Vultr propagates file changes live without a rebuild. If HMR were working in prod, every CD-triggered `git pull` would auto-reload **every live user's browser session mid-shift**. That's a strictly worse outcome than the cosmetic console noise. Option rejected.
+
+**Why we didn't strip `@vite/client` via plugin.** A custom Vite plugin could `transformIndexHtml` to remove the `/@vite/client` script tag. `import.meta.hot` is not referenced anywhere in the codebase (`grep -r 'import\.meta\.hot' frontend/src` → empty), so user code wouldn't break. But `@vitejs/plugin-react` injects React Refresh transforms into every component — those transforms emit `import.meta.hot.accept(...)` calls in the transformed module output. Without `@vite/client` loaded, `import.meta.hot` is `undefined` and those calls throw `Cannot read properties of undefined`. The whole React tree would fail to mount. Option rejected without a much larger plugin that also no-ops react-refresh, which is too much surface area for a console-cleanup.
+
+**Real fix — deferred to v2.36.0.** The root cause is that we run Vite **dev mode** in production. The proper fix is to switch to `vite build` + nginx (or another static server) serving the built `dist/`. That removes:
+- The `@vite/client` injection (no more WS retries).
+- The volume-mount auto-reload risk (changes only apply after a CD-triggered container rebuild).
+- The `proxyRoutes` array in `vite.config.ts` (per-prefix routing moves to nginx config).
+
+Scope of v2.36.0:
+- `frontend/Dockerfile` — multi-stage build: `vite build` in builder, then a small `nginx:alpine` (or `serve`) stage that serves `/app/frontend/dist`.
+- `docker-compose.yml` — remove the `./frontend/src` and `./shared/src` volume mounts on the frontend service (or only keep them in a dev compose override).
+- `nginx` site config on Vultr — extend with per-prefix routing currently handled by Vite (`/orders`, `/auth`, `/picker-admin`, `/packer-admin`, `/picker`, `/packer`, `/outbound`, `/archive`, `/sales`, `/marketing`, `/stock`, `/products`, `/warehouses`, `/users`, `/reports`, `/health`, `/assign`, `/api`, `/socket.io`).
+- CD workflow — frontend image build is now slow, document the new minute-or-two CD time.
+- Smoke test plan — every panel, role-based redirects, scan flows, socket.io rooms.
+
+Estimated effort: 2-3 hours of focused work + careful staging-equivalent dry run on local.
+
+**Current state on live (v2.35.2):**
+- React Router warnings: gone ✓
+- Vite HMR `wss://` errors: still present (cosmetic, app fully functional, real Socket.io connects fine: `[socket] connected, id: …`)
+- `VITE_DISABLE_HMR=true` left in `/opt/dom/.env` — harmless, no-op, kept as a forward-compatible toggle if Vite ever fully respects it.
+- New unrelated console warning surfaced during verification: `SlaSummaryCard.tsx:26` mixes `border` and `borderLeft` shorthand — React style warning, separate small fix, tracked as a TODO.
+
+**Rule (updated).** When a config option claims to "disable" a feature, verify on a live page that the client-side artifacts (script tags, network requests) are also gone — not just that the server-side handler is off. Dev-server features in particular often inject runtime code that ignores the server-side setting. The signal to look for is whether the failed network call disappears, not just whether the server log goes quiet.
 
 ---
 
