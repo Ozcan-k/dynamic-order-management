@@ -57,11 +57,11 @@ Previous (v2.29.0, deployed 2026-05-02, merge commit `13fb7c2`) — Packer flow 
      Outbound ← SLA countdown ends
         │  [Historical view] Date navigator shows past days' carrier/shop reports
         │
-11:00  Archive job runs: all OUTBOUND orders → archived_at set
+23:30  Archive job runs: all OUTBOUND orders → archived_at set
         │  Active panels show 0 OUTBOUND rows
         │  Incomplete orders carry over to next day (CARRY badge)
         ▼
-11:10  Nightly report email + hard-delete of orders > 180 days archived
+23:40  Nightly report email + hard-delete of orders > 180 days archived
 ```
 
 **Carryover:** Orders not completed by end of shift remain active the next day. They are shown with an amber **CARRY** badge in all admin panels so supervisors can prioritize them.
@@ -118,8 +118,8 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
 │  │  BullMQ Job Queue                                                    │ │
-│  │  → Archive job 11:00 AM PHT (03:00 UTC): OUTBOUND orders archived    │ │
-│  │  → Nightly 11:10 AM PHT (03:10 UTC): email + hard-delete expired    │ │
+│  │  → Archive job 23:30 PHT (15:30 UTC): OUTBOUND orders archived     │ │
+│  │  → Nightly 23:40 PHT (15:40 UTC): email + hard-delete expired      │ │
 │  │  → SLA sweep every 15 min: D0→D1→D2→D3→D4 escalation                │ │
 │  │  → D4 supervisor alert email (triggered by sweep)                    │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
@@ -348,7 +348,7 @@ orders ──< packer_assignments >── users (packers)
 | sla_completed_at | TIMESTAMPTZ NULLABLE | Set when status → OUTBOUND; null = SLA still active |
 | d4_notified_at | TIMESTAMPTZ NULLABLE | Set when D4 supervisor alert is sent; prevents duplicate alerts |
 | work_date | TIMESTAMPTZ | Start of the day the order was scanned (set explicitly at scan time, not derived from created_at) |
-| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 11:00 AM PHT daily. |
+| archived_at | TIMESTAMPTZ NULLABLE | null = active; non-null = archived. OUTBOUND orders are archived at 23:30 PHT daily. |
 | scanned_by | UUID FK | → users (inbound admin) |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -509,7 +509,7 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 - **Picker Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **Packer Summary:** Total | Unassigned | Assigned | In Progress | Complete
 - **SLA Summary Card:** Live D-level breakdown bar (D0 / D1 / D2 / D3 / D4 counts); D4 count highlighted in red; updates via Socket.io `sla:escalated` event
-- **Nightly Report:** Automated email sent at **11:10 AM PHT** (03:10 UTC) daily to all Admin users
+- **Nightly Report:** Automated email sent at **23:40 PHT** (15:40 UTC) daily to all Admin users
 
 ---
 
@@ -937,7 +937,7 @@ The Archive Panel gives admins full visibility into soft-archived orders and con
 | Expiring in 30d | Archived orders whose `archived_at + 180 days <= now + 30 days` | Amber |
 | Expiring in 7d | Archived orders whose `archived_at + 180 days <= now + 7 days` | Red |
 
-**"Archive OUTBOUND Now" button** — appears alongside the stat cards. Opens a confirmation dialog: *"This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 7:00 PM. Proceed?"* On confirm: calls `POST /archive/trigger`.
+**"Archive OUTBOUND Now" button** — appears alongside the stat cards. Opens a confirmation dialog: *"This will archive all currently OUTBOUND orders for your tenant. This normally runs automatically at 11:30 PM (Manila time). Proceed?"* On confirm: calls `POST /archive/trigger`.
 
 #### Filter Bar
 | Filter | Type | Behavior |
@@ -975,12 +975,12 @@ A **"Clear filters"** button appears when any filter is active.
 
 #### Archive Job
 - **Queue:** `archiveOutbound` (BullMQ)
-- **Schedule:** `0 3 * * *` (UTC) — every day at **11:00 AM PHT** (Asia/Manila)
+- **Schedule:** `'30 23 * * *', tz: 'Asia/Manila'` — every day at **23:30 PHT** (11:30 PM Manila time, 15:30 UTC). Single source of truth: `backend/src/index.ts:158`. SOLUTIONS.md [2026-04-18] / [2026-04-17] document the earlier mis-cron clean-up.
 - **Action:** Sets `archived_at = NOW()` on all `status=OUTBOUND, archived_at IS NULL` orders (all tenants)
 - **Manual trigger:** `POST /archive/trigger` → calls archive synchronously for the requester's tenant, then enqueues for background processing
 
 #### Retention (6-Month Policy)
-- **Hard-delete job** piggybacks on `nightlyReport` at **11:10 PHT (03:10 UTC)**
+- **Hard-delete job** piggybacks on `nightlyReport` at **23:40 PHT (15:40 UTC)** — 11:40 PM Manila time, ~10 minutes after the archive job above
 - Deletes orders where `archived_at <= NOW() - 180 days`
 - Cascade-deletes all child records (`picker_assignments`, `packer_assignments`, `order_status_history`, `sla_escalations`)
 - Per-tenant, per-order error catch — one failure does not abort the sweep
@@ -1179,8 +1179,8 @@ backend/
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
-│   │   ├── nightlyReport.ts       ← BullMQ job: 11:10 AM email + hardDeleteExpiredOrders() call
-│   │   ├── archiveOutbound.ts     ← BullMQ job: 11:00 AM daily, sets archived_at on OUTBOUND orders
+│   │   ├── nightlyReport.ts       ← BullMQ job: 23:40 PHT email + hardDeleteExpiredOrders() call
+│   │   ├── archiveOutbound.ts     ← BullMQ job: 23:30 PHT daily, sets archived_at on OUTBOUND orders
 │   │   ├── slaEscalation.ts       ← BullMQ job: every 15min sweep, D0→D4 escalation + priority boost
 │   │   └── slaD4Email.ts          ← BullMQ job: supervisor alert email when order hits D4
 │   ├── services/
@@ -1288,7 +1288,7 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 ## 13. Reporting
 
 ### Automated
-- **Nightly email at 9:00 PM PHT** (13:00 UTC) to all Admin users
+- **Nightly email at 23:40 PHT** (15:40 UTC) — 11:40 PM Manila time, to all Admin users
 - Contains: Inbound count, Outbound count, Remaining count, Picker & Packer summaries, **SLA data: D4 orders reached today (resolved vs still open), avg time-to-OUTBOUND, D-level breakdown at 9pm snapshot**
 
 ### On-Demand (in-app)
@@ -1417,8 +1417,8 @@ On push to main branch:
 | **9** | SLA escalation job (15-min sweep, D0→D4, priority boosts, D4 alert); SlaAlertBanner UI | ✅ Done | D-level updates automatically; D4 triggers Socket.io alert + supervisor email; banner shows stage + assigned picker/packer; collapse/expand for multiple alerts |
 | **10** | Bulk Inbound Scan — `carrierName` + `shopName` fields on orders; `BulkScanModal` (createPortal), staging list, carrier dropdown, shop combobox; `POST /orders/bulk-scan`, `GET /orders/shops`; `Carrier` enum + `detectPlatform` moved to shared package. Carrier + Shop Name both **mandatory** (frontend disabled + yellow warning + backend 400 validation). 18 preset shop names always in dropdown. | ✅ Done | Batch of TNs staged, carrier + shop assigned, all saved; duplicates reported; single scan unaffected; carrier/shop columns visible in Inbound table |
 | **10b** | Handheld Admin Scan — concurrent session support (`session:{userId}:{deviceType}`); `/inbound-scan` + `/picker-admin-scan` pages; Single/Bulk camera scan modes; phone→desktop real-time relay via Socket.io (no direct DB write from phone); duplicate check on handheld-scan routes; socket routed via Vite HTTPS proxy; custom SSL cert with IP SAN for LAN phone access | ✅ Done | Phone scans → desktop QuickScanModal or BulkScanModal opens; concurrent desktop+phone sessions without conflict; duplicate barcode blocked on phone with warning |
-| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (19:00 PHT daily); `hardDeleteExpiredOrders` in nightly report (21:00 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 7 PM PHT; CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
-| **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | ✅ Done | Live stats update via Socket.io (`sla:escalated`, `order:stats_changed`); nightly HTML email with SLA breakdown sent at 11:10 AM PHT; Dashboard shows pipeline, picker/packer summary, outbound summary, SLA D0–D4 |
+| **DC** | **Daily Cycle Tracking + End-of-Day Archiving** — `work_date` and `archived_at` fields on orders; partial unique index (archived tracking numbers reusable); `archiveService.ts` + `archiveOutbound` BullMQ job (23:30 PHT daily — was 19:00 PHT in early DC drafts, moved to 23:30 in v2.13.x per SOLUTIONS.md [2026-04-18]); `hardDeleteExpiredOrders` in nightly report (23:40 PHT, 180-day retention); `archivedAt: null` filter on all active service queries; Carryover badge (amber CARRY) in Inbound/PickerAdmin/PackerAdmin; Carryover Active stat on Dashboard; Archive Panel (`/archive`) with stats, filters, expiry badges, bulk delete, manual trigger. **Timezone localization:** all start-of-day calculations and cron schedules use Asia/Manila (UTC+8); `manila.ts` utilities in both backend and frontend; all UI date/time displays use `timeZone: 'Asia/Manila'`. **Auth unification:** Picker and Packer now use standard username+password login via `/login` (same as all other roles); PIN auth system removed; `picker_pin`/`packer_pin` columns dropped from DB | ✅ Done | OUTBOUND orders hidden at 23:30 PHT (11:30 PM Manila time); CARRY badge on previous-day orders; Archive Panel works; all timestamps in Manila time; Picker/Packer log in via Chrome with username+password |
+| **11** | Main Dashboard + SLA Summary Card + real-time + nightly email | ✅ Done | Live stats update via Socket.io (`sla:escalated`, `order:stats_changed`); nightly HTML email with SLA breakdown sent at 23:40 PHT (11:40 PM Manila time); Dashboard shows pipeline, picker/packer summary, outbound summary, SLA D0–D4 |
 | **SALES** | **Sales Agent Module (v2.23.1)** — new `SALES_AGENT` role (`UserRole` enum); 6 new Prisma models (`SalesDailyActivity`, `SalesContentPost`, `SalesLiveSellingMetric`, `SalesMarketplaceReport`, `SalesDirectOrder`, `SalesDirectOrderItem`) + 3 enums (`SalesPlatform`, `ContentPostType`, `SaleChannel`); backend routes `/sales` + `/marketing`; services `salesActivityService`, `salesDirectOrderService`, `marketingReportService`; agent-facing UI: `/sales` month calendar dashboard, day-entry form (content posts + live selling + marketplace + direct orders), day-detail modal, own history; admin-facing UI: `/marketing-report` leaderboard + 4 comparison charts + `AgentDetailPanel` (per-agent calendar drill-down); admin-only `Settings → Sales Agents` creation; Vite proxy extended for `/sales` + `/marketing` | ✅ Done (v2.23.1) | Agent logs in → `/sales` opens, calendar renders, daily entry saves + persists across refresh; admin `/marketing-report` shows leaderboard + charts + per-agent drill-down; existing picker/packer/inbound/outbound flows unaffected; **deploy note:** requires manual `prisma db push` on Vultr after CD (workflow runs `migrate deploy || true` — no migrations in repo yet, see SOLUTIONS.md 2026-04-20) |
 | **12** | Reporting & Analytics + CSV/PDF export | 🟡 Partial | CSV/PDF exports for Performance + SLA (done). **Live Performance tab added (v2.25.0 + v2.25.1)**: intraday per-role KPIs, grouped hourly bar chart (Recharts `BarChart`, Pickers/Packers side-by-side), per-worker live tables with hourly sparklines; socket-driven updates via `order:stats_changed` + 30s polling fallback; Live/Polling status pill. Order Timeline tab (per-order lifecycle audit) also shipped. **Historical mode (v2.27.0)**: `DateNavigator` on Live Performance tab, up to 90 days back, per-worker stacked hourly bar charts, inactive-user inclusion in historical view. **Remaining:** CSV/PDF export for Live Performance (deferred), additional cross-period comparative analytics |
 | **13** | Security hardening + load testing | 🔜 | OWASP checklist passed; 100 users load test passed |

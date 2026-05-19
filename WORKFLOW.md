@@ -33,11 +33,11 @@ DOM, bir deponun günlük sipariş akışını yönetir. Siparişler sabah barko
            Outbound panelinden gönderilir (OUTBOUND)
            sla_completed_at set edilir — SLA tamamlandı
 
-11:00 PHT  Archive job çalışır:
+23:30 PHT  Archive job çalışır:
            Tüm OUTBOUND siparişlere archived_at = NOW() yazılır
            Aktif panellerden kaybolur, Archive sayfasına taşınır
 
-11:10 PHT  Nightly job çalışır:
+23:40 PHT  Nightly job çalışır:
            Nightly email raporu gönderilir
            180 günden eski archived siparişler kalıcı silinir
 ```
@@ -70,7 +70,7 @@ DOM, bir deponun günlük sipariş akışını yönetir. Siparişler sabah barko
     ▼
 [OUTBOUND]  ← Sipariş tamamlandı
     │
-    │  19:00 Archive Job
+    │  23:30 Archive Job
     ▼
 archived_at = NOW()  → Archive sayfasında görünür
 ```
@@ -116,7 +116,7 @@ Outbound Paneli
     │  [Geçmiş görünüm] Tarih navigator ile önceki günlerin
     │  carrier/shop raporları görüntülenebilir (ok tuşları veya takvim)
     ▼
-Saat 11:00 — Archive Job (BullMQ, Asia/Manila timezone)
+Saat 23:30 — Archive Job (BullMQ, Asia/Manila timezone)
     │  SELECT * FROM orders WHERE status = 'OUTBOUND' AND archived_at IS NULL
     │  UPDATE orders SET archived_at = NOW()
     ▼
@@ -130,7 +130,7 @@ Archive Sayfası (/archive)
     │  Expiry rozeti: archivedAt + 180 gün
     │  Bulk delete, manuel archive trigger
     ▼
-Saat 11:10 — Nightly Job
+Saat 23:40 — Nightly Job
     │  Nightly email raporu gönderilir
     │  DELETE FROM orders WHERE archived_at < NOW() - 180 days
 ```
@@ -139,7 +139,7 @@ Saat 11:10 — Nightly Job
 
 ## Carryover (CARRY) — Tamamlanmayan Siparişler
 
-Saat 11:00'da `OUTBOUND` olmayan siparişler **silinmez**, ertesi güne taşınır:
+Saat 23:30'da `OUTBOUND` olmayan siparişler **silinmez**, ertesi güne taşınır:
 
 ```
 [INBOUND / PICKING / PACKER_ASSIGNED / ...]  ← 11:00'da hâlâ aktif
@@ -184,5 +184,5 @@ Ertesi gün tüm panellerde görünür
 | Job | Zaman | Ne Yapar |
 |-----|-------|----------|
 | SLA Sweep | Her 15 dakika | D-level günceller, D4 alert gönderir |
-| Archive | 11:00 PHT (03:00 UTC) | OUTBOUND siparişlere archived_at yazar |
-| Nightly | 11:10 PHT (03:10 UTC) | Email raporu + 180 gün üzeri sil |
+| Archive | 23:30 PHT (15:30 UTC) | OUTBOUND siparişlere archived_at yazar |
+| Nightly | 23:40 PHT (15:40 UTC) | Email raporu + 180 gün üzeri sil |

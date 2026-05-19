@@ -172,8 +172,8 @@ SSH uses **password authentication** (not key-based). No SSH key is required on 
 |---|---|---|
 | SLA Escalation Sweep | Every 15 minutes | Escalates D0→D1→D2→D3→D4 based on elapsed time since scan |
 | D4 Supervisor Alert | Triggered by sweep | Sends email alert when order reaches D4 |
-| Archive Outbound | 11:00 AM daily (03:00 UTC) | Marks all OUTBOUND orders as archived — resets daily totals |
-| Nightly Report | 11:10 AM daily (03:10 UTC) | Sends summary email to all Admin users + hard-deletes orders > 180 days |
+| Archive Outbound | 23:30 PHT daily (15:30 UTC) | Marks all OUTBOUND orders as archived — resets daily totals |
+| Nightly Report | 23:40 PHT daily (15:40 UTC) | Sends summary email to all Admin users + hard-deletes orders > 180 days |
 
 ---
 
