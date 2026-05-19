@@ -69,16 +69,12 @@ Inventory  ▼
 1. ADMIN **Product** sayfasında kategori + ürün master data tanımlar (Category, Product Name, Product ID, Default Unit KG/PCS, Reserved threshold).
 2. ADMIN **Warehouse** sayfasında depoları tanımlar (Name, Address).
 3. ADMIN **Inventory** sayfasında label üretir: önce **Category** seçer, ardından o kategoriye filtrelenmiş **Product** dropdown'undan ürün seçer, KG/PCS toggle yapar, miktar + label sayısı girer → **Generate Labels PDF**. (v2.34.4'ten itibaren warehouse selector kaldırıldı — hedef depo Stock In scan'inde belirleniyor.) Backend `count` adet `StockItem` satırı oluşturur (status `PENDING`, warehouseId placeholder olarak tenant'ın en eski warehouse'u). Batch number sunucu üretir: `YYYYMMDD-NNN`. PDF iner.
-4. ADMIN PDF'i Avery L7173 sticker kağıdına basar → kutulara yapıştırır.
+4. ADMIN PDF'i **thermal label roll'a (60×40 mm, 1 label/sayfa)** basar → kutulara yapıştırır. (v2.33.1'den önce Avery L7173 A4 kağıdı kullanılıyordu, artık değil.)
 5. STOCK_KEEPER telefondan `/scan` → login → `/stock/scan`'e yönlenir → **Scan Mode** (Single / Bulk) + Operation + Warehouse seçer → kamera açılır. **v2.34.2+:** Kamera tam ekran fixed overlay (`position: fixed, inset: 0`), üstte floating chip bar (× kapatma + Op + WH + Mode toggle), altta result/log strip — viewfinder maksimum alan kullanır. **v2.34.1+:** Operation seçimi açıkça yapılana kadar Open Camera Op picker'ı açar. **Modes:**
    - **Single Scan:** QR algılandığında titreşim + bip + **"Confirm scan"** bottom-sheet modali. Operatör Confirm'e basana kadar mutation tetiklenmez. Onaylanırsa ikinci titreşim + bip + result banner.
    - **Bulk Scan (v2.34.5):** Auto-commit kaldırıldı. Her QR taraması `GET /stock/lookup/:id` ile read-only preview yapıp local queue'ya `{productName, qty, unit}` ile push'lar (status değişmiyor). Aynı QR queue'da varsa silent skip. Üst counter: `QUEUE · N boxes · X kg + Y pcs`. Queue dolu iken alt overlay'de **Confirm All** butonu → bottom-sheet popup (Operation / Warehouse / Boxes / Total weight / Total count satırları). Confirm basılınca queue sırayla `/stock/scan`'e commit edilir, sonuçlar bulkResults log'a düşer. Cancel queue'yu korur. Clear button queue + log'u temizler. `lockedRef` 800ms debounce aynı frame'in iki kez işlenmesini engeller.
-6. QR scan state machine'i (server-side, `stockService.scanItem`):
-   - Item bulunamadı → "Unknown label" hatası
-   - IN_STOCK + aynı warehouse → **USED** (status OUT_OF_STOCK, kırmızı banner)
-   - IN_STOCK + farklı warehouse → **TRANSFER** (warehouseId güncellenir, status IN kalır, mavi banner)
-   - OUT_OF_STOCK + herhangi warehouse → **IN** (re-stock — status IN_STOCK + warehouseId update, yeşil banner)
-7. ADMIN **Stock** sayfasında ürün başına özet görür: Category | Product | In Stock | Reserved | Transfer (30d) | Used (30d) | Status badge (Low Stock kırmızı / OK yeşil). Üstte 4 KPI card: Products / Low stock / Transfers 30d / Used 30d.
+6. **QR scan state machine (v2.33.0 — operation-driven, server-side `stockService.scanItem`):** Operatör scan ekranında Stock In / Stock Out / Stock Transfer'i UI'dan seçer; server o operasyonun mevcut item durumunda geçerli olup olmadığını doğrular. Detaylı geçiş tablosu için yukarıdaki **"v2.33.0 değişiklik özeti"** bölümünün 3. maddesine bak. (v2.33.0 öncesi implicit state machine — aynı warehouse → USED, farklı warehouse → TRANSFER, OUT_OF_STOCK re-scan → IN — kaldırıldı.) Item bulunamazsa "Unknown label" hatası döner. Sonuç banner'ı: IN → yeşil, USED → kırmızı, TRANSFER → mavi.
+7. ADMIN **Stock** sayfasında ürün başına özet görür (v2.33.0+ kolon düzeni): **Category · Product · Product ID · In Stock (qty + unit) · Box Quantity · Reserved · Status · Actions**. Üstte tek satır toolbar: search input + categories dropdown + Low-stock-only toggle. (v2.33.0 öncesinde 4 KPI kart — Products / Low stock / Transfers 30d / Used 30d — ve Transfer/Used 30d kolonları vardı; v2.33.0'da hepsi kaldırıldı, yerine In Stock hücresi hover'ında per-warehouse breakdown tooltip geldi.)
 
 ---
 
@@ -203,7 +199,7 @@ model StockMovement {
 | POST | `/categories` | `{ name }` | ADMIN |
 | DELETE | `/categories/:id` | — | ADMIN (409 if referenced by products) |
 | GET | `/` | `?categoryId` | ADMIN, STOCK_KEEPER |
-| POST | `/` | `{ categoryId, productCode, name, defaultUnit, reservedThreshold }` | ADMIN |
+| POST | `/` | `{ categoryId, name, defaultUnit, reservedThreshold, productCode? }` — `productCode` v2.33.0'dan beri sunucu tarafında auto-generated (`{CategoryPrefix3}-NNN`); explicit gönderim hâlâ kabul ediliyor (migration / script use case) ama UI göndermez | ADMIN |
 | PUT | `/:id` | (partial body) | ADMIN |
 | DELETE | `/:id` | — | ADMIN (409 if has stock items) |
 
@@ -223,12 +219,12 @@ model StockMovement {
 | POST | `/labels` | `{ productId, unit, quantity, count, warehouseId? }` | ADMIN | `count` adet `StockItem` oluşturur (status `PENDING`) + PDF döner. v2.34.4'ten itibaren `warehouseId` opsiyonel — verilmezse tenant'ın en eski warehouse'u placeholder olarak kullanılır (gerçek depo Stock In scan'inde set edilir). Headers: `X-Labels-Generated`, `X-Batch-Number`. |
 | GET | `/items` | `?status&productId&warehouseId` | ADMIN | Filtreli liste, `take: 500`. Includes: `product` (with category), `warehouse`. |
 | GET | `/lookup/:id` | — | ADMIN, STOCK_KEEPER | v2.34.5 — read-only label preview, status mutate etmez. Bulk Scan queue'sunu `{productName, productCode, qty, unit, status, warehouseName}` ile beslemek için. Etiket bulunamazsa 404. |
-| POST | `/scan` | `{ id, warehouseId }` | ADMIN, STOCK_KEEPER | State machine (IN / USED / TRANSFER). Response: `{ item, type, fromWarehouse?, toWarehouse?, message }`. |
+| POST | `/scan` | `{ id, operation: 'IN'\|'OUT'\|'TRANSFER', warehouseId, toWarehouseId? }` | ADMIN, STOCK_KEEPER | v2.33.0 operation-driven — operatör IN/OUT/TRANSFER'ı UI'dan seçer. Response: `{ item, type, fromWarehouse?, toWarehouse?, message }`. Eski `{ id, warehouseId }` body shape v2.33.0'da kaldırıldı. |
 | POST | `/adjust` | `{ productId, warehouseId, operation: 'ADD'\|'REMOVE', unit, quantity?, boxes }` | ADMIN | v2.34.0 manuel stok düzeltme. ADD: `boxes` adet `IN_STOCK` row yaratır, batch `ADJ-YYYYMMDD-NNN`; REMOVE: en eski N `IN_STOCK` row'u `OUT_OF_STOCK`'a flip eder. Movement type ADD→IN, REMOVE→USED (schema değişmeden). |
 | DELETE | `/items/:id` | — | ADMIN | Hard-delete + cascade movements. |
 | GET | `/movements` | `?limit&offset` | ADMIN | Hareket geçmişi. Includes: `fromWarehouse`, `toWarehouse`, `item.product`. |
 | GET | `/stats` | — | ADMIN | `{ totalProducts, totalInStock, totalOut, lowStockProducts, transfers30d, used30d, in30d }` |
-| GET | `/summary` | — | ADMIN | Per-product aggregate: `[{ productId, productName, categoryName, inStockCount, transferCount, usedCount, reservedThreshold, lowStock }]` |
+| GET | `/summary` | — | ADMIN | Per-product aggregate (v2.33.0+ shape): `[{ productId, productCode, productName, categoryId, categoryName, defaultUnit, reservedThreshold, inStockQuantity, boxCount, byWarehouse[], lowStock }]`. PENDING ve OUT_OF_STOCK rows excluded. `byWarehouse` per-warehouse breakdown (hover tooltip için). Eski `inStockCount/transferCount/usedCount` alanları v2.33.0'da kaldırıldı. |
 
 ---
 

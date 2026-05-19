@@ -156,13 +156,18 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 │      ▼                                                              │ │
 │  [PICKER_COMPLETE]                                                  │ │
 │      │  Picker marks as complete (on handheld)                      │ │
-│      │  Order automatically appears in Packer Admin queue           │ │
+│      │  Order appears in Packer Admin staging area                  │ │
 │      ▼                                                              │ │
-│  ─ ─ ─ ─ ─ Packer Admin Panel ─ ─ ─ ─ ─                           │ │
-│  │  Packer scans waybill on handheld → [PACKER_COMPLETE]            │ │
-│  │  OR: Packer Admin manually completes → [PACKER_COMPLETE]         │ │
-│  │  OR: Packer Admin removes → auto-reassigns to original picker ───┘ │
-│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                           │
+│  [PACKER_ASSIGNED]  ←─────────────────────────────────────────────┐ │ │
+│      │  Packer Admin assigns to a specific Packer (Scan & Stage)  │ │ │
+│      │  Order pushed to assigned packer's handheld queue          │ │ │
+│      ▼                                                            │ │ │
+│  ─ ─ ─ ─ ─ Packer scans waybill on handheld ─ ─ ─ ─ ─             │ │ │
+│  │  Only the assigned packer can complete (race-protected)        │ │ │
+│  │  OR: Packer Admin manually completes the assignment            │ │ │
+│  │  OR: Packer Admin removes → reverts to PICKER_ASSIGNED ────────┼─┘ │
+│  │  OR: Packer Admin unassigns → reverts to PICKER_COMPLETE ──────┘   │
+│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                              │
 │      ▼                                                                │
 │  [PACKER_COMPLETE]                                                    │
 │      │  Packer completes packing                                      │
@@ -174,7 +179,7 @@ Every order must be completed (reach **OUTBOUND**) within **4 hours** of scannin
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-> **Note:** `PACKER_ASSIGNED` and `PACKING` statuses exist in the enum for future use but are **not used** in the current implementation. The packing flow goes directly PICKER_COMPLETE → PACKER_COMPLETE. No pre-assignment step is required for packers.
+> **Note:** `PACKER_ASSIGNED` is active since **v2.29.0** — Packer Admin pre-assigns orders to specific packers (mirroring the picker flow); the assigned packer then scans on their handheld to mark the order PACKER_COMPLETE. `PACKING` remains in the `OrderStatus` enum but is not currently used — the live flow goes `PICKER_COMPLETE → PACKER_ASSIGNED → PACKER_COMPLETE` with no intermediate PACKING state.
 
 > **Important:** The SLA D-level escalates based on wall-clock time since scan — it is **independent of status**. An order can be at D2 while still in PICKING. Status and D-level are two separate dimensions.
 
@@ -325,7 +330,7 @@ orders ──< packer_assignments >── users (packers)
 | created_by | UUID FK | → users (admin who created) |
 | created_at | TIMESTAMPTZ | |
 
-**Role ENUM values:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `PICKER`, `PACKER`
+**Role ENUM values:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `PICKER`, `PACKER`, `SALES_AGENT` (v2.23.1), `STOCK_KEEPER` (v2.30.0)
 
 #### `orders`
 | Column | Type | Notes |
@@ -730,21 +735,56 @@ This endpoint performs a lookup only — it does NOT create orders. Order creati
 
 ---
 
-### 7.5 Packer Admin Panel ✅ Built (Phase 5 + 7)
+### 7.5 Packer Admin Panel ✅ Built (Phase 5 + 7 + v2.29.0 packer pre-assignment)
 **Visible to:** Admin, Packer Admin  
 **Route:** `/packer-admin`
 
-Orders appear here **automatically** when a picker marks an order PICKER_COMPLETE — no manual assignment step required.
+Since **v2.29.0** the panel mirrors the Picker Admin pattern: Packer Admin **explicitly assigns** PICKER_COMPLETE orders to specific packers (Scan & Stage section), and only the assigned packer can scan to complete on their handheld. The shared-queue model was replaced — `PACKER_ASSIGNED` is now an active status in the order lifecycle.
 
 **Carryover:** Orders from a previous day (`work_date < today`) appear with an amber **CARRY** badge in the order table. The section header shows a carryover count with an amber clock icon.
 
-**Header Stats Bar:** Waiting to Pack | Total Packed | Returned to Picker | Packers count | Sync indicator
+**Header Stats Bar:** Waiting to Pack (PICKER_COMPLETE, unassigned) | Assigned (PACKER_ASSIGNED, all packers) | Total Packed | Returned to Picker | Packers count | Sync indicator
 
-> **Returned to Picker** stat: counts orders currently back in PICKER_ASSIGNED state (returned by packer admin). Updates every 5 seconds.
+> **Returned to Picker** stat: counts orders currently back in PICKER_ASSIGNED state (returned by packer admin via Remove). Updates every 5 seconds.
 
 ---
 
-#### Order Queue (top section)
+#### Scan & Stage Flow (primary assignment method, v2.29.0)
+
+Mirrors PickerAdmin's Scan & Stage. The top section of the panel is designed for a Packer Admin with a stack of printed waybills (already pick-completed) and a handheld barcode scanner.
+
+**Flow:**
+1. Packer Admin scans a waybill → system looks up the order by tracking number
+2. If found and PICKER_COMPLETE: order is added to the **staging list** (client-side, no DB write yet)
+3. Admin scans more waybills one by one — staging list grows
+4. Admin selects a Packer from the dropdown
+5. Clicks **"Assign N Staged Orders →"** → all staged orders bulk-assigned to that packer in one request (status flips PICKER_COMPLETE → PACKER_ASSIGNED)
+6. Staging list clears; order table updates automatically
+
+**Handheld Scan Flow — Packer Admin Phone (`/packer-admin-scan`):**
+
+```
+Phone (/packer-admin-scan)                Desktop (Packer Admin Panel)
+──────────────────────────                ────────────────────────────
+Single Scan mode:
+  Camera scans barcode
+  → POST /packer-admin/scan
+    (validates order is PICKER_COMPLETE)
+    → emits order:staged ─────────────→ Order auto-appears in Staging area
+                                          Admin selects Packer from dropdown
+                                          → Assign Staged Orders
+
+Bulk Scan mode:
+  Camera scans multiple barcodes
+  → accumulate list on phone
+  → POST /packer-admin/handheld-bulk-scan
+    → emits order:staged per valid TN → Orders added to Staging area
+                                          Admin selects Packer → Assign all
+```
+
+---
+
+#### Order Queue (below Scan & Stage)
 
 **Tracking Number Search:**
 - Input above the order table — type partial or full tracking number to filter the list in real time
@@ -752,22 +792,23 @@ Orders appear here **automatically** when a picker marks an order PICKER_COMPLET
 - Cleared automatically after a successful Complete or Remove action
 
 **Order Table:**
-- Source: all orders with status = PICKER_COMPLETE (shared queue — no pre-assignment to packers)
-- Columns: Checkbox | # | Tracking Number | Platform | Delay | Picked By (avatar) | Arrived At | Priority | Actions
+- Source: PICKER_COMPLETE (waiting) + PACKER_ASSIGNED (staged to a packer); each row carries a PACKER_ASSIGNED badge with the assigned packer name when applicable
+- Columns: Checkbox | # | Tracking Number | Platform | Delay | Picked By (avatar) | Arrived At | Status badge (PICKER_COMPLETE / PACKER_ASSIGNED → name) | Priority | Actions
 - Sort: priority DESC → delayLevel DESC → createdAt ASC
 - Pagination: 10 per page, resets on search
-- Row tinting: D2 = amber, D3/D4 = red; selected = blue
+- Row tinting: D2 = amber, D3/D4 = red; selected = blue; staged = green tint + STAGED pill
 
 **Actions per row:**
-- **Complete** → green confirmation dialog → `POST /packer-admin/complete` → order → PACKER_COMPLETE
-- **Remove** → red confirmation dialog "Are you sure?" → `POST /packer-admin/remove` → order auto-reassigned to original picker (PICKER_ASSIGNED); falls back to INBOUND if no previous picker
+- **Complete** → green confirmation dialog → `POST /packer-admin/complete` → order → PACKER_COMPLETE (works whether the row is PICKER_COMPLETE or PACKER_ASSIGNED)
+- **Remove** → red confirmation dialog → `POST /packer-admin/remove` → order back to PICKER_ASSIGNED (auto-reassigned to original picker); falls back to INBOUND if no previous picker
+- **Unassign** (only for PACKER_ASSIGNED rows) → `POST /packer-admin/unassign` → clears PackerAssignment, status reverts to PICKER_COMPLETE so a different packer can be staged
 
 **Remove behavior (important):**
 When admin removes an order, the backend:
 1. Finds the most recent completed PickerAssignment for the order
 2. Resets that assignment's `completedAt` → `null` (no new assignment created)
 3. Sets order status → PICKER_ASSIGNED
-4. Logs PICKER_COMPLETE → PICKER_ASSIGNED in orderStatusHistory
+4. Logs the transition in orderStatusHistory (fromStatus is the order's current status — PICKER_COMPLETE, PACKER_ASSIGNED, or PACKER_COMPLETE)
 
 Side effects of step 2:
 - Picker's "Total Completed" count decreases (assignment is no longer counted as done)
@@ -777,23 +818,29 @@ Side effects of step 2:
 
 **Backend endpoints:**
 ```
-GET  /packer-admin/orders                  → PICKER_COMPLETE orders (sorted)
-GET  /packer-admin/stats                   → { stats[], totalCompleted, returnedCount }
-POST /packer-admin/complete { orderId }    → PACKER_COMPLETE
-POST /packer-admin/remove   { orderId }    → PICKER_ASSIGNED (auto-reassign) or INBOUND
+POST /packer-admin/scan { trackingNumber }                  → staging lookup
+POST /packer-admin/handheld-bulk-scan { trackingNumbers[] } → bulk staging lookup
+GET  /packer-admin/pending-staged                           → currently staged-but-not-yet-assigned
+POST /packer-admin/assign     { orderId, packerId }         → PICKER_COMPLETE → PACKER_ASSIGNED
+POST /packer-admin/bulk-assign{ orderIds[], packerId }      → bulk assign
+POST /packer-admin/unassign   { orderId }                   → PACKER_ASSIGNED → PICKER_COMPLETE
+GET  /packer-admin/orders                                   → PICKER_COMPLETE + PACKER_ASSIGNED (sorted)
+GET  /packer-admin/stats                                    → { stats[], totalCompleted, returnedCount }
+POST /packer-admin/complete { orderId }                     → PACKER_COMPLETE
+POST /packer-admin/remove   { orderId }                     → PICKER_ASSIGNED (auto-reassign) or INBOUND
 ```
 
 ---
 
-#### Packer Workload Section (bottom)
+#### Packer Workload Section (bottom, v2.31.4)
 
-- Grid of packer cards (auto-fill, min 220px)
-- Each card: Avatar | username | `X packed` | Done chip
-- **Click card → Order Detail Modal:** table of that packer's completed orders (Tracking | Platform | Delay | Completed At)
+- Grid of packer cards (auto-fill, min 220px) — mirrors PickerStatCard layout
+- Each card: Avatar | username | header "X active · Y packed today" | blue **Assigned** chip + green **Done Today** chip | two-segment progress bar
+- **Click card → Order Detail Modal:** table of that packer's active assignments + completed orders
 - **Backend endpoints:**
 ```
 GET  /packer-admin/packers                         → active PACKER users
-GET  /packer-admin/packer/:packerId/orders         → packer's completed orders (last 50)
+GET  /packer-admin/packer/:packerId/orders         → packer's active + completed orders (last 50)
 ```
 
 ---
@@ -810,22 +857,23 @@ GET  /packer-admin/packer/:packerId/orders         → packer's completed orders
 - After login, automatically redirected to `/packer` (role-based routing)
 - Session persists via JWT cookie — device reopened without re-entering credentials
 
-**Order queue (shared — all packers see the same list):**
-- All PICKER_COMPLETE orders (not pre-assigned; first packer to scan completes it)
+**Order queue (per-packer assigned list, v2.29.0):**
+- Orders in **PACKER_ASSIGNED** status assigned to this specific packer (`PackerAssignment.completedAt IS NULL` + order in PACKER_ASSIGNED). Replaces the pre-v2.29.0 shared queue.
 - Auto-refreshes every 15 seconds
 - List sorted by priority DESC → delayLevel DESC → createdAt ASC
 - Left border color: red (D3+), amber (D1–D2), blue (D0)
+- Empty state if Packer Admin hasn't staged any orders to this packer yet
 
 **Waybill scan → complete flow:**
 1. Packer picks up physical package → scans waybill barcode
-2. Tracking number matched against the shared PICKER_COMPLETE list
+2. Tracking number matched against this packer's own PACKER_ASSIGNED list
 3. Match found → **Confirm Complete** bottom sheet slides up (tracking + platform + delay)
-4. Packer taps **Confirm ✓** → `POST /packer/complete { trackingNumber }` → PACKER_COMPLETE
-5. Order disappears from all packers' lists within 15 seconds
-6. Race condition protection: if two packers scan simultaneously, one gets success, the other gets "Order already completed"
+4. Packer taps **Confirm ✓** → `POST /packer/complete { trackingNumber }` → PACKER_COMPLETE; assignment `completedAt` set
+5. Order disappears from this packer's list within 15 seconds
+6. No match → "not found in your assigned orders" (the order may belong to a different packer or hasn't been assigned yet)
 
 **API endpoints (PACKER role only):**
-- `GET /packer/orders` — all PICKER_COMPLETE orders (shared queue)
+- `GET /packer/orders` — orders in PACKER_ASSIGNED state assigned to this packer
 - `POST /packer/complete { trackingNumber }` — complete by tracking number scan
 
 ---
