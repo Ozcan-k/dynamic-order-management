@@ -61,6 +61,7 @@ services:
     restart: unless-stopped
     environment:
       VITE_BACKEND_URL: http://backend:3000
+      VITE_DISABLE_HMR: ${VITE_DISABLE_HMR:-}
     ports:
       - "5173:5173"
     depends_on:
