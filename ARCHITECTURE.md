@@ -398,6 +398,79 @@ Append-only audit log of every D-level transition. Never updated or deleted.
 | triggered_at | TIMESTAMPTZ | When escalation occurred |
 | trigger_source | VARCHAR | `SCAN` (initial), `JOB` (auto escalation) |
 
+#### Inventory module tables (v2.30.0 – v2.33.0)
+
+> Independent of the order pipeline. Detailed spec in `INVENTORY.md`.
+
+**`product_categories`** — admin-defined categories per tenant. `(tenant_id, name)` unique.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| name | VARCHAR | e.g. "Nuts", "Spices" |
+| created_at | TIMESTAMPTZ | |
+
+**`products`** — product master data. `productCode` auto-generated `{CAT3}-NNN` since v2.33.0.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| category_id | UUID FK | → product_categories |
+| product_code | VARCHAR | `(tenant_id, product_code)` unique |
+| name | VARCHAR | |
+| default_unit | ENUM | `KG`, `PCS` |
+| reserved_threshold | INT | low-stock trigger threshold |
+
+**`warehouses`** — physical locations. `(tenant_id, name)` unique.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| tenant_id | UUID FK | → tenants |
+| name | VARCHAR | |
+| address | TEXT | |
+| created_at, updated_at | TIMESTAMPTZ | |
+
+**`stock_items`** — one row per printed label / physical box.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | embedded in QR code (raw UUID payload since v2.33.3) |
+| tenant_id | UUID FK | → tenants |
+| product_id | UUID FK | → products |
+| warehouse_id | UUID FK | → warehouses (current location) |
+| unit | ENUM | `KG`, `PCS` |
+| quantity | NUMERIC | |
+| batch_number | VARCHAR | server-generated `YYYYMMDD-NNN` or `ADJ-YYYYMMDD-NNN` (v2.34.0 manual adjustments) |
+| status | ENUM | `PENDING` (label printed, not yet scanned), `IN_STOCK`, `OUT_OF_STOCK`. PENDING added v2.33.0 |
+
+**`stock_movements`** — scan event log (append-only).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID PK | |
+| stock_item_id | UUID FK | → stock_items (cascade) |
+| type | ENUM | `IN`, `USED`, `TRANSFER`. Replaces pre-v2.31.0 `MovementDirection` |
+| from_warehouse_id | UUID FK NULLABLE | → warehouses (set on TRANSFER) |
+| to_warehouse_id | UUID FK NULLABLE | → warehouses (set on TRANSFER) |
+| scanned_by_id | UUID FK | → users |
+| scanned_at | TIMESTAMPTZ | |
+
+#### Sales module tables (v2.23.1 — agents-only, not tied to orders)
+
+> Tracks SALES_AGENT daily activities. Detailed spec is in the v2.23.1 patch entry of this doc + `MEMORY.md`. All tables are `tenant_id`-scoped with RLS, same isolation rules as the order tables.
+
+| Table | Purpose |
+|---|---|
+| `sales_daily_activities` | One row per agent per day — wrapper that owns the child rows for that date |
+| `sales_content_posts` | Content posts logged by the agent (Reels, TikTok, Shopee Live thumbnails, etc.); enum `ContentPostType` |
+| `sales_live_selling_metrics` | Per-live-session metrics: platform (`SalesPlatform`), viewers, orders count |
+| `sales_marketplace_reports` | Shopee/Lazada/TikTok per-day report rows (revenue, orders, returns) |
+| `sales_direct_orders` | Direct in-house orders captured by the agent; channel = `SaleChannel` enum |
+| `sales_direct_order_items` | Line items for `sales_direct_orders` (product, qty, unit price) |
+
 ### Indexes
 ```sql
 -- Active orders unique constraint (partial — archived orders with same TN can co-exist)
@@ -1097,44 +1170,69 @@ PENDING and OUT_OF_STOCK rows are excluded from every aggregate above. Frontend 
 frontend/
 ├── src/
 │   ├── pages/
-│   │   ├── Login.tsx
-│   │   ├── Inbound.tsx            ← /dashboard — Phase 2 ✅ (pagination 25/page, delay sort)
-│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 ✅ (scan+stage, bulk assign,
-│   │   │                              workload cards, order detail modal, remove/complete,
-│   │   │                              "Returned from Packer" stat, ↩ badge on picker cards)
-│   │   ├── PickerMobile.tsx       ← /picker ✅ PIN auth + shared order list + scan complete
-│   │   ├── PackerAdmin.tsx        ← /packer-admin ✅ (PICKER_COMPLETE queue, tracking search,
-│   │   │                              complete/remove dialogs, auto-reassign on remove,
-│   │   │                              packer workload cards, PIN management,
-│   │   │                              "Returned to Picker" + "Total Packed" stats)
-│   │   ├── PackerMobile.tsx       ← /packer ✅ PIN auth + shared queue + scan complete (green theme)
-│   │   ├── Outbound.tsx           ← /outbound ✅ Phase 8 (dispatch queue, comparison report, stuck orders)
-│   │   ├── Archive.tsx            ← /archive ✅ v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
-│   │   └── Users.tsx              ← Phase 1 (placeholder until full build)
+│   │   ├── Login.tsx              ← username/password login; role-aware redirect via getDefaultRoute
+│   │   ├── ScanLogin.tsx          ← /scan — handheld URL entry; redirects each role to their own scan/list page
+│   │   ├── Dashboard.tsx          ← / for ADMIN/INBOUND_ADMIN (Phase 11) — pipeline KPIs + SLA summary
+│   │   ├── Inbound.tsx            ← /dashboard — Phase 2 (Single + Bulk scan modal, pagination 25/page)
+│   │   ├── InboundScan.tsx        ← /inbound-scan — phase 10b handheld camera scan, single + bulk modes
+│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 + scan+stage + workload cards
+│   │   ├── PickerAdminScan.tsx    ← /picker-admin-scan — phone scan station (relays via socket)
+│   │   ├── PickerMobile.tsx       ← /picker — login + own PICKER_ASSIGNED orders + scan complete
+│   │   ├── PackerAdmin.tsx        ← /packer-admin — v2.29.0 scan & stage + per-packer assignment + workload
+│   │   ├── PackerAdminScan.tsx    ← /packer-admin-scan — v2.29.0 phone scan station (green theme)
+│   │   ├── PackerMobile.tsx       ← /packer — v2.29.0 own PACKER_ASSIGNED list + scan complete (green theme)
+│   │   ├── Outbound.tsx           ← /outbound — Phase 8 (dispatch queue, comparison report, stuck orders)
+│   │   ├── Archive.tsx            ← /archive — v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
+│   │   ├── Reports.tsx            ← /reports — 4 tabs: Live Performance, Performance, SLA Analytics, Order Timeline
+│   │   ├── Settings.tsx           ← admin user management + sales-agent + stock-keeper creation
+│   │   ├── Users.tsx              ← legacy placeholder (Settings replaced most functionality)
+│   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
+│   │   ├── SalesEntry.tsx         ← /sales/entry — daily activity form (content posts + live selling + marketplace + direct orders)
+│   │   ├── SalesOrders.tsx        ← /sales/orders — agent's own direct-order history with edit/delete (v2.28.0)
+│   │   ├── MarketingReport.tsx    ← /marketing-report — admin + sales-agent leaderboard + 5 comparison charts + AgentDetailPanel
+│   │   ├── StockScan.tsx          ← /stock/scan — STOCK_KEEPER mobile camera, Single/Bulk modes, operation-driven (v2.33.0)
+│   │   └── inventory/
+│   │       ├── Products.tsx       ← /inventory/products — Categories + Products CRUD (v2.31.0)
+│   │       ├── InventoryItems.tsx ← /inventory/items — label generation PDF (v2.31.0 → v2.34.4 form rework)
+│   │       ├── Warehouses.tsx     ← /inventory/warehouses — Warehouse CRUD
+│   │       └── StockSummary.tsx   ← /inventory/stock — per-product table + manual adjust modal (v2.34.0)
 │   ├── components/
 │   │   ├── ScanInput.tsx          ← HID barcode scanner input (desktop inbound only)
+│   │   ├── ProtectedRoute.tsx     ← role-gated route wrapper; redirects to /login or /unauthorized
 │   │   ├── OrderTable.tsx         ← desktop table; includes DelayBadge column; D2+ rows tinted
 │   │   ├── OrderCard.tsx          ← Phase 4: mobile card, touch-friendly, large tap targets
 │   │   ├── ConfirmDialog.tsx      ← reusable confirmation modal
 │   │   ├── DelayBadge.tsx         ← D-level badge: D0=none, D1=yellow, D2=orange, D3=red, D4=red+pulse
 │   │   ├── SlaAlertBanner.tsx     ← Phase 9: dismissible D4 alert banner for ADMIN/INBOUND_ADMIN
+│   │   ├── SlaHistoryModal.tsx    ← per-order SLA escalation timeline modal
+│   │   ├── BulkScanModal.tsx      ← Phase 10 bulk staging + carrier/shop selector
+│   │   ├── QuickScanModal.tsx     ← Phase 10b single-scan carrier/shop prompt (phone → desktop)
 │   │   └── shared/
 │   │       ├── AppLayout.tsx      ← desktop layout wrapper (Sidebar + content area)
-│   │       ├── Sidebar.tsx        ← role-based nav with SVG icons; desktop only
+│   │       ├── Sidebar.tsx        ← role-based nav; v2.31.0 gained `children?` for Inventory parent menu
 │   │       ├── MobileHeader.tsx   ← Phase 4: handheld layout header (name + time, no nav)
 │   │       ├── PageShell.tsx      ← sticky header + scrollable body for each panel
 │   │       ├── Avatar.tsx         ← initials avatar component
 │   │       ├── PlatformBadge.tsx  ← color-coded platform label (Shopee/Lazada/TikTok)
-│   │       ├── StatCard.tsx       ← stat number card used in panel headers (supports optional subtitle prop)
-│   │       └── SectionHeader.tsx  ← section title + count badge
+│   │       ├── StatCard.tsx       ← stat number card used in panel headers
+│   │       ├── SectionHeader.tsx  ← section title + count badge
+│   │       ├── ConfirmModal.tsx   ← v2.33.0 — createPortal modal replacing window.confirm() in Inventory
+│   │       ├── Pagination.tsx     ← v2.35.1 — shared Prev/Next + numbered footer (StockSummary + Products)
+│   │       └── DateNavigator.tsx  ← v2.27.0 — extracted from Outbound; prev/next + Today + date picker; minDate prop
 │   ├── stores/                    ← Zustand global state
 │   │   ├── authStore.ts
-│   │   └── notificationStore.ts   ← Phase 9: d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   ├── notificationStore.ts   ← Phase 9: d4Alerts[], addD4Alert(), dismissD4Alert()
+│   │   └── mobileSidebar.tsx      ← context for mobile sidebar open/close (handheld)
 │   ├── api/                       ← TanStack Query hooks
 │   │   ├── orders.ts
 │   │   ├── assignments.ts
 │   │   ├── users.ts
-│   │   └── reports.ts
+│   │   ├── reports.ts
+│   │   ├── sales.ts               ← v2.23.1 — agent calendar + day-detail + direct order CRUD
+│   │   ├── marketing.ts           ← v2.23.1 — leaderboard + drill-down
+│   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD hooks
+│   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD hooks
+│   │   └── stock.ts               ← v2.31.0 + v2.33.0 — useStockSummary, useScanStock, useGenerateLabels
 │   ├── lib/
 │   │   ├── platformDetect.ts      ← tracking number → platform logic
 │   │   ├── scanDetect.ts          ← keystroke interval < 50ms = scanner, > 200ms = manual
@@ -1167,16 +1265,29 @@ backend/
 ├── src/
 │   ├── routes/
 │   │   ├── auth.ts
-│   │   ├── orders.ts
-│   │   ├── assignments.ts
+│   │   ├── orders.ts              ← scan + bulk-scan + shops + handheld scan endpoints
+│   │   ├── assignments.ts         ← /assign/picker, /assign/packer (legacy single-shot)
+│   │   ├── picker-admin.ts        ← v2.x — scan-and-stage, assign, bulk-assign, stats, complete, unassign
+│   │   ├── packer-admin.ts        ← v2.29.0 — scan-and-stage, assign, bulk-assign, stats, complete, remove, unassign
+│   │   ├── picker.ts              ← PICKER handheld endpoints (own orders, complete)
+│   │   ├── packer.ts              ← PACKER handheld endpoints (own assigned orders, complete)
+│   │   ├── outbound.ts            ← dispatch single + bulk, stats, stuck list
 │   │   ├── users.ts
-│   │   ├── reports.ts
-│   │   └── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
+│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance, /reports/order-timeline (+ PDF/CSV)
+│   │   ├── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
+│   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD (admin + read for STOCK_KEEPER)
+│   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD (admin + read for STOCK_KEEPER)
+│   │   ├── stock.ts               ← v2.31.0 + v2.33.0 rewrites — /labels, /scan (operation-driven), /summary, /stats, /items, /lookup/:id, /adjust, /movements
+│   │   ├── sales.ts               ← v2.23.1 — agent daily activity + own direct-order CRUD
+│   │   └── marketing.ts           ← v2.23.1 — admin leaderboard + drill-down (audit-logged)
 │   ├── plugins/
 │   │   ├── auth.ts                ← JWT verification plugin
 │   │   ├── cors.ts
 │   │   ├── rateLimit.ts
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
+│   ├── middleware/
+│   │   ├── rbac.ts                ← role-based access control
+│   │   └── auditLog.ts            ← v2.26.0 — logs marketing-report reads/writes (userId, role, tenantId, method, url, ts)
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
 │   │   ├── nightlyReport.ts       ← BullMQ job: 23:40 PHT email + hardDeleteExpiredOrders() call
@@ -1186,10 +1297,18 @@ backend/
 │   ├── services/
 │   │   ├── orderService.ts
 │   │   ├── assignmentService.ts
+│   │   ├── pickerAdminService.ts  ← v2.32.0 perf rewrite — getPickerStats batched (6 queries, was 4N+2)
+│   │   ├── packerAdminService.ts  ← v2.29.0 + v2.31.4 — getPackerStats with Assigned + Done Today
 │   │   ├── reportService.ts
 │   │   ├── emailService.ts
 │   │   ├── archiveService.ts      ← archiveOutboundOrders(), getArchivedOrders(), bulkDeleteArchivedOrders(), hardDeleteExpiredOrders()
-│   │   └── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
+│   │   ├── slaService.ts          ← escalateOrder(), calculatePriorityDelta(), markSlaComplete(), querySlaEligibleOrders()
+│   │   ├── productService.ts      ← v2.31.0 + v2.33.0 — Product/Category CRUD + auto productCode generation
+│   │   ├── warehouseService.ts    ← v2.31.0 — Warehouse CRUD + in-stock item count
+│   │   ├── stockService.ts        ← v2.31.0 rewrite + v2.33.0 operation-driven scan state machine + v2.34.0 manual adjust + v2.34.5 bulk lookup
+│   │   ├── salesActivityService.ts        ← v2.23.1 — calendar + day-detail + activity CRUD
+│   │   ├── salesDirectOrderService.ts     ← v2.28.0 — direct order edit/delete (transactional item replace, cascade delete)
+│   │   └── marketingReportService.ts      ← v2.23.1 + v2.28.x — leaderboard + comparison charts + agent drill-down
 │   ├── lib/
 │   │   └── manila.ts              ← getManilaStartOfToday(), getManilaDateString() — pure UTC+8 arithmetic, no deps
 │   └── middleware/

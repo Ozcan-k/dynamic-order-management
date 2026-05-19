@@ -1,6 +1,6 @@
 # Inventory Module
 
-> **Status:** ✅ LIVE on https://domwarehouse.com (v2.34.5, 2026-05-15). Schema unchanged since v2.33.0 — all subsequent work is application/UI/render-side. v2.33.x dialed in the thermal-label format (60 × 40 mm, single-page roll, QR 36 mm, EC=M margin 4, raw UUID payload, `fitText` manual truncation) and the mobile scan UX (Single / Bulk mode toggle, fullscreen camera, floating chip top bar, in-overlay close button, vibrate + beep on detect, Confirm-scan bottom sheet in Single mode, running log + counter in Bulk mode, explicit operation-pick guard). v2.34.0 added a manual stock-adjustment endpoint + Edit-modal section on the Stock page (ADMIN can ADD/REMOVE boxes per warehouse without scanning labels, batch-numbered `ADJ-YYYYMMDD-NNN`). v2.34.1 hard-blocks re-IN of an already-stocked label (use Transfer / Stock Out instead). v2.34.2 dropped the warehouse-name row from the printed sticker and widened the remaining text (product name 10pt, qty 12pt, code/batch 7pt). v2.34.4 reworked the Inventory label-generation form: Category → Product cascade dropdowns and the warehouse selector was removed — the destination warehouse is now picked at Stock-In scan time (backend `warehouseId` is optional on `POST /stock/labels`; PENDING rows fall back to the tenant's first warehouse as a placeholder until scanned).
+> **Status:** ✅ LIVE on https://domwarehouse.com (v2.35.3, 2026-05-19 — overall app version; this doc covers the Inventory module specifically up to v2.34.5). Schema unchanged since v2.33.0 — all subsequent work is application/UI/render-side. v2.33.x dialed in the thermal-label format (60 × 40 mm, single-page roll, QR 36 mm, EC=M margin 4, raw UUID payload, `fitText` manual truncation) and the mobile scan UX (Single / Bulk mode toggle, fullscreen camera, floating chip top bar, in-overlay close button, vibrate + beep on detect, Confirm-scan bottom sheet in Single mode, running log + counter in Bulk mode, explicit operation-pick guard). v2.34.0 added a manual stock-adjustment endpoint + Edit-modal section on the Stock page (ADMIN can ADD/REMOVE boxes per warehouse without scanning labels, batch-numbered `ADJ-YYYYMMDD-NNN`). v2.34.1 hard-blocks re-IN of an already-stocked label (use Transfer / Stock Out instead). v2.34.2 dropped the warehouse-name row from the printed sticker and widened the remaining text (product name 10pt, qty 12pt, code/batch 7pt). v2.34.4 reworked the Inventory label-generation form: Category → Product cascade dropdowns and the warehouse selector was removed — the destination warehouse is now picked at Stock-In scan time (backend `warehouseId` is optional on `POST /stock/labels`; PENDING rows fall back to the tenant's first warehouse as a placeholder until scanned).
 > **Sticker standard:** Thermal label roll · 60 × 40 mm · 1 label per page (direct thermal printer)
 > **Roles:** ADMIN (manage + view + delete) · STOCK_KEEPER (scan + read-only product/warehouse lookups)
 
@@ -286,13 +286,15 @@ Aşağıdaki adımlar bu çalışma içinde tamamlandı:
 ### UI smoke test (kullanıcı tarafından — tarayıcıdan)
 
 1. https://localhost:5173 → ADMIN login → sidebar'da "Inventory" parent görünür → expand olunca 4 child gelir.
-2. Categories tab → "Nuts" ekle. Products tab → "Almond" ekle (Category Nuts, Product ID A-001, Reserved 50, Default Unit KG).
+2. Categories tab → "Nuts" ekle. Products tab → "Almond" ekle (Category Nuts, Reserved 50, Default Unit KG) — Product ID inputu artık yok; backend `NUT-001` üretir (v2.33.0 Auto Product ID).
 3. Warehouses → "Main WH" + "Transit WH" ekle.
-4. Inventory → Almond + Main WH + 5 KG + 10 label print → PDF iner. Avery layout korunmuş mu cetvelle ölç.
-5. `/stock/scan` → Main WH seç → bir label scan = "Stocked" (yeşil). Aynı label scan = "Used / Out" (kırmızı).
-6. Yeni label scan → Main WH'da → IN. Sonra Transit WH seçili tekrar scan → "Transferred Main WH → Transit WH" (mavi).
-7. `/inventory/stock` → Almond için Transfer count = 1, Used count = 1, In Stock = 8. Reserved 50 olduğu için "Low Stock" badge kırmızı.
-8. Yetki testleri: STOCK_KEEPER tarayıcıdan `/inventory/products`'a giderse reddetmeli; PICKER/PACKER `/stock/scan`'e giderse reddetmeli.
+4. Inventory → Category "Nuts" → Product "Almond" → 5 KG → 10 label print → PDF iner. **Thermal label 60×40mm, 1 label/sayfa**; A4 / Avery DEĞİL (v2.33.1). PDF'i thermal printer rolüne bas, sticker boyutunu cetvelle doğrula.
+5. `/stock/scan` → **Operation = Stock In** + **Main WH** seç → bir label scan → status PENDING → IN_STOCK, yeşil banner "Stocked at Main WH". v2.34.1'den itibaren operation explicit seçilmedikçe Open Camera "Pick Operation" picker'ı açar.
+6. Aynı label tekrar IN scan denenirse v2.34.1 **strict re-IN block**: kırmızı hata "Already in stock at Main WH — use Transfer or Stock Out instead".
+7. **Stock Out** (USED) → `/stock/scan` → Operation = Stock Out → aynı label scan → status IN_STOCK → OUT_OF_STOCK, kırmızı banner.
+8. **Stock Transfer** → yeni IN_STOCK label scan → Operation = Stock Transfer + To Warehouse = Transit WH → mavi banner "Transferred Main WH → Transit WH"; status IN_STOCK kalır, warehouseId güncellenir.
+9. `/inventory/stock` → Almond satırında: **In Stock** kolonu güncel qty + unit ("4 kg"), **Box Quantity** güncel kutu sayısı; eski Transfer/Used 30d kolonları **yok** (v2.33.0'da kaldırıldı). In Stock hücresine hover → per-warehouse breakdown tooltip ("Main WH · 0 box · 0 kg · Transit WH · 1 box · 5 kg"). `inStockQuantity < reservedThreshold` ise **Low Stock** badge.
+10. Yetki testleri: STOCK_KEEPER tarayıcıdan `/inventory/products`'a giderse reddetmeli; PICKER/PACKER `/stock/scan`'e giderse reddetmeli; SALES_AGENT `/inventory/*`'a giderse RootRoute (v2.35.3) onu `/sales`'e yönlendirmeli, dead-end görmemeli.
 
 ---
 
