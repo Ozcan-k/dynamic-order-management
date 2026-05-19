@@ -5,6 +5,74 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-19] Console noise on live — Vite HMR `wss://` retry loop + React Router v7 future-flag warnings
+
+### Problem
+Loading any page on https://domwarehouse.com printed a chain of warnings in the browser console on every refresh:
+
+```
+client:536 WebSocket connection to 'wss://domwarehouse.com/?token=…' failed:
+client:536 WebSocket connection to 'wss://localhost:5173/?token=…' failed:
+client:512 [vite] failed to connect to websocket.
+react-router-dom: ⚠️ React Router Future Flag Warning: v7_startTransition…
+react-router-dom: ⚠️ React Router Future Flag Warning: v7_relativeSplatPath…
+```
+
+The app itself worked — API calls, Socket.io for app events, login/scan/etc. all fine. But the noise made real errors hard to spot during live debugging and made it look like something was broken to non-dev observers.
+
+### Root Cause
+**Two unrelated cosmetic issues conflated:**
+
+1. **Vite HMR retry loop.** Production runs Vite **dev mode** behind nginx (per the original DOM infra decision — no `vite build` + static serve). The Vite client (`@vite/client`) shipped in every dev bundle opens a WebSocket back to the dev server for hot-module reloading:
+   - First try: `wss://<page-host>/` → fails because nginx only proxies WS for `/socket.io`. There's no Vite HMR endpoint exposed.
+   - Fallback: `wss://localhost:5173/` → hardcoded fallback in Vite's HMR client. The browser is on the **user's** machine, not the server, so `localhost:5173` resolves to the user's own machine where nothing's running. Fails too.
+   - The client retries forever every ~1 s.
+
+   Only `/socket.io` is proxied as WS in `frontend/vite.config.ts` (line 21-25). Real-time app events ride that, so app behavior is unaffected — but every page bleeds two failed WSS attempts into the console on first paint.
+
+2. **React Router v7 future-flag warnings.** `BrowserRouter` in `frontend/src/App.tsx` had no `future` prop. React Router v6.4+ logs a warning every time the router mounts if `v7_startTransition` and `v7_relativeSplatPath` aren't explicitly opted in. Cosmetic — the app uses v6 behavior either way.
+
+### Why it surfaced now
+The HMR retry was always there (live has been Vite-dev-mode since the initial Vultr deploy), but a user paying attention to the browser console during the v2.35.1 Products page testing finally asked about it. Same root cause noted as a "red herring" in the v2.32.0 debug entry above (2026-05-07) but was never fixed.
+
+### Fix (v2.35.2)
+Two changes, both opt-in / non-breaking by default:
+
+1. **`frontend/vite.config.ts`** — add `hmr: process.env.VITE_DISABLE_HMR === 'true' ? false : undefined` to the `server` config. When env var unset → `undefined` → Vite uses its default HMR setup (local dev unaffected). When set to `'true'` → HMR client disabled entirely → no more WSS retries.
+
+2. **`docker-compose.yml`** — pass the env var through to the frontend container: `VITE_DISABLE_HMR: ${VITE_DISABLE_HMR:-}`. Default empty string → behavior identical to before. Vultr `.env` opts in with `VITE_DISABLE_HMR=true`.
+
+3. **`frontend/src/App.tsx`** — `<BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>`. Splat route is a single `Navigate` (no nested children) so `v7_relativeSplatPath` is a no-op for this app; `v7_startTransition` wraps route transitions in `React.startTransition` — small timing difference but no Suspense boundaries in the route tree to surface it.
+
+### Activation (post-deploy, manual)
+The code change ships HMR control behind an env var that defaults to **off**, so a fresh deploy without touching `.env` will not change behavior. To actually silence the WSS noise on live:
+
+1. SSH to Vultr: `ssh root@<vultr-ip>`
+2. Edit `/path/to/dynamic-order-management/.env`: add `VITE_DISABLE_HMR=true`
+3. `docker compose up -d --build frontend` — rebuild only the frontend container; backend/postgres/redis untouched
+4. Reload https://domwarehouse.com and verify the two `wss://` errors are gone; React Router warnings should also be gone (those silenced themselves on first deploy, no env step needed).
+
+The React Router warnings are silenced **immediately** by the deploy — no env step needed.
+
+### Rule
+Vite running in dev mode in production is a known-cost setup choice (zero-build deploy, instant cache-bust on file change, no static-asset pipeline). The unavoidable side effects:
+- HMR client emits failed WSS handshakes unless explicitly disabled.
+- All source files ship as ESM modules — bigger payload than a built bundle.
+
+If the console noise itself is the concern (not the size/perf cost), `server.hmr: false` is the minimum-change fix. If long-term you want a proper production build (`vite build` + nginx serving `dist/`), that's a separate, larger pipeline change and would also remove the env-var requirement.
+
+For React Router, always set `future` flags explicitly even if you don't intend to migrate yet — it's a one-time edit that keeps the console clean and forces a deliberate choice when v7 lands.
+
+### Files affected
+- `frontend/vite.config.ts` — `server.hmr` env-gated.
+- `docker-compose.yml` — `VITE_DISABLE_HMR` passthrough on frontend service.
+- `frontend/src/App.tsx` — `<BrowserRouter>` `future` prop.
+- `CLAUDE.md` — version `v2.35.1` → `v2.35.2`.
+- `ARCHITECTURE.md` — header status + new v2.35.2 paragraph.
+- (Pending on live) `.env` on Vultr — add `VITE_DISABLE_HMR=true`.
+
+---
+
 ## [2026-05-07] `/picker-admin/stats` still hung after N+1 fix — missing composite index on `order_status_history`
 
 ### Problem

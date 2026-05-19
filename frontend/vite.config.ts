@@ -39,6 +39,7 @@ export default defineConfig({
     allowedHosts: ['domwarehouse.com', 'www.domwarehouse.com', 'localhost', '127.0.0.1'],
     https: hasCerts ? { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) } : undefined,
     proxy: proxyConfig,
+    hmr: process.env.VITE_DISABLE_HMR === 'true' ? false : undefined,
     watch: {
       usePolling: true,
       interval: 300,
