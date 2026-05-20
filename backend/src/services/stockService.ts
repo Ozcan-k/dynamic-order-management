@@ -72,6 +72,40 @@ function fitText(doc: PDFKit.PDFDocument, text: string, maxWidth: number): strin
   return s + '…'
 }
 
+// Product names must always print in full (operator needs to read them off the
+// sticker). Strategy: try 10pt single line; if too wide, greedy-wrap to 2
+// lines; if 2 lines still don't fit, step the font down 10→9→8→7pt and retry.
+// Only as a last resort (pathological long single word at 7pt) do we fall back
+// to ellipsis truncation. Caller must set font back to its own size afterward.
+function fitProductName(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  maxWidth: number,
+): { lines: string[]; size: number } {
+  const sizes = [10, 9, 8, 7]
+  for (const size of sizes) {
+    doc.fontSize(size).font('Helvetica-Bold')
+    if (doc.widthOfString(text) <= maxWidth) {
+      return { lines: [text], size }
+    }
+    const words = text.split(/\s+/).filter(Boolean)
+    let line1 = ''
+    let i = 0
+    for (; i < words.length; i++) {
+      const candidate = line1 ? `${line1} ${words[i]}` : words[i]
+      if (doc.widthOfString(candidate) <= maxWidth) line1 = candidate
+      else break
+    }
+    const line2 = words.slice(i).join(' ')
+    if (line1 && line2 && doc.widthOfString(line2) <= maxWidth) {
+      return { lines: [line1, line2], size }
+    }
+  }
+  const minSize = sizes[sizes.length - 1]
+  doc.fontSize(minSize).font('Helvetica-Bold')
+  return { lines: [fitText(doc, text, maxWidth)], size: minSize }
+}
+
 async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
   const pageOpts = { size: [LABEL_W_PT, LABEL_H_PT] as [number, number], margin: 0 }
   const doc = new PDFDocument(pageOpts)
@@ -103,8 +137,14 @@ async function buildStickerPdf(items: LabelItem[]): Promise<Buffer> {
     // Warehouse name is intentionally omitted from the printed label — the
     // assigned warehouse is part of the DB record (and shown in the scan UI
     // when the QR is decoded), so it's just visual noise on the sticker.
-    doc.fontSize(10).font('Helvetica-Bold')
-    doc.text(fitText(doc, it.productName, textW), textX, lineY(5))
+    const name = fitProductName(doc, it.productName, textW)
+    doc.fontSize(name.size).font('Helvetica-Bold')
+    const nameLineH = name.size * 1.2
+    let nameY = lineY(5)
+    for (const ln of name.lines) {
+      doc.text(ln, textX, nameY, { lineBreak: false })
+      nameY += nameLineH
+    }
 
     doc.fontSize(12).font('Helvetica-Bold')
     doc.text(fitText(doc, qtyText, textW), textX, lineY(15))
