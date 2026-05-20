@@ -5,6 +5,52 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-20] Thermal sticker product name ellipsis-truncated ("Dried Di…") — fix took two attempts
+
+### Problem
+Field photo of a printed thermal label showed the product name as "Dried Di…" — the actual product was "Dried Dill" but the renderer cut it off with ellipsis. A second batch of labels for "Dried California Almonds" printed as "Dried Califor…" with the same shape: single line, ellipsis at character ~13. The operator's complaint was that the abbreviated name is useless on the warehouse floor — the QR carries the ID but humans need to read the sticker too.
+
+### Root cause
+`backend/src/services/stockService.ts buildStickerPdf` writes the product name into an ~18 mm text strip to the right of the 36 mm QR (text width = `LABEL_W_PT − qrX − QR_SIZE_PT − 2×PADDING_PT` = 51.02 pt). The original `fitText(doc, text, maxWidth)` measures via `doc.widthOfString` at 10pt Helvetica-Bold and character-by-character truncates with `…` until it fits. Any name wider than 51.02 pt at 10pt → ellipsis. "Dried Dill" Helvetica-Bold 10pt ≈ 52 pt — 1 pt over budget — so the whole name fails the single-line check and gets truncated.
+
+### Fix attempt #1 (v2.35.4) — INSUFFICIENT
+Added `fitProductName(doc, text, maxWidth)` helper that tries 10pt single line → 10pt 2-line greedy wrap → font shrink 10→9→8→7pt repeating both attempts. Ellipsis fallback only as last resort. Pushed to test + main; CD redeployed.
+
+Field re-test for "Dried California X" product **still printed "Dried Califor…" on a single line.** Initial reflex was to suspect deploy persistence (cf. SOLUTIONS.md [2026-04-18] "Backend Container Never Rebuilt"), but `gh run view` confirmed `dom_backend Recreated` + `Container dom_backend Started` at 01:41:53Z, and the user-generated PDF was created at 01:42:47Z — 49 s after the new container came up. Deploy was fine; the code itself was insufficient.
+
+### Root cause of attempt #1's insufficiency
+At 7pt (the smallest size attempted), Helvetica-Bold "California Almonds" = 64.04 pt, "California Prunes" = ~61 pt, etc. Always > 51.02 pt text-W. Greedy 2-line wrap put "Dried" on line 1 and "California Almonds" on line 2 — line 2 never fit at any size 10pt → 7pt. All branches failed; the function fell through to its ellipsis fallback. The fix shipped because hand-math estimated that "9pt or 8pt should be enough" without actually measuring.
+
+### Fix attempt #2 (v2.35.5) — SUCCESS
+Two changes:
+1. Extend size range to `[10, 9, 8, 7, 6]` pt. At 6pt "Dried California" = 44.56 pt (fits), "Almonds"/"Walnuts"/"Prunes" all under 30 pt (fit). 2-line wrap succeeds at 6pt for the entire "Dried California X" cohort.
+2. After 2-line attempts at all sizes, allow 3-line wrap at 7pt then 6pt — covers very long 4-word names like "Premium Organic Walnut Halves". Vertical safety: 3 × 7pt × 1.2 line-height = 25.2 pt; baseline of line 3 = lineY(5) + 25.2 = 39.4 pt; qty row at lineY(15) = 42.5 pt; ~3 pt clearance — safe.
+
+Helper refactored: `greedyWrap(doc, text, maxWidth, maxLines)` extracted from the inline 2-line packer. Ellipsis fallback fires only for pathological single-word names wider than 51 pt at 6pt (e.g. 33-char `Supercalifragilisticexpialidocious`); not seen on any real product.
+
+Local probe script (using the same PDFKit version and Helvetica-Bold font) confirmed before push:
+- `Almond` → 10pt single
+- `Dried Dill` → 10pt single (52.0pt fits within 51.02 — close but OK)
+- `Dried Dates` → 10pt 2-line ("Dried" / "Dates")
+- `Dried California Almonds` → 6pt 2-line ("Dried California" / "Almonds")
+- `Dried Californian Walnuts` → 6pt 2-line
+- `Premium Organic Walnut Halves` → 6pt 2-line ("Premium Organic" / "Walnut Halves")
+- Pathological 33-char single word → 6pt ellipsis (acceptable)
+
+Field test post-deploy 2026-05-20 confirmed: user-generated PDF for the "Dried California X" product now prints the full name on 2 lines at 6pt.
+
+### Files affected
+- `backend/src/services/stockService.ts` — added `greedyWrap` + rewrote `fitProductName`; updated `buildStickerPdf` to render multi-line with `size × 1.2` line-height starting at `lineY(5)`.
+- `CLAUDE.md` — version `v2.35.3` → `v2.35.4` → `v2.35.5`.
+- `INVENTORY.md` — status header + 2 new rows in the change-log table.
+
+### Generalised rule
+**Layout / render fixes that depend on font measurements must be probed locally before pushing.** Write a one-shot script that uses the same library version + same font and prints `widthOfString` for a representative cohort of real product names (not just "Almond" — use the actual longest 5-10 entries from prod). Linear scaling estimates ("at 9pt this string should be ~10% narrower") are unreliable for proportional fonts; only the library's own measurement is ground truth.
+
+Saved as `feedback_layout_render_probe.md` in the Claude Code memory; pairs with `feedback_verify_deploy.md` (which catches the *other* failure mode — code is fine but deploy didn't propagate).
+
+---
+
 ## [2026-05-19] SALES_AGENT (and any non-admin role) sees "403 — Coming Soon" when hitting bare `/`
 
 ### Problem
