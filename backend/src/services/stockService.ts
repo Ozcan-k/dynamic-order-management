@@ -72,34 +72,60 @@ function fitText(doc: PDFKit.PDFDocument, text: string, maxWidth: number): strin
   return s + '…'
 }
 
-// Product names must always print in full (operator needs to read them off the
-// sticker). Strategy: try 10pt single line; if too wide, greedy-wrap to 2
-// lines; if 2 lines still don't fit, step the font down 10→9→8→7pt and retry.
-// Only as a last resort (pathological long single word at 7pt) do we fall back
-// to ellipsis truncation. Caller must set font back to its own size afterward.
+// Greedy word-wrap into up to `maxLines` lines at the doc's current font.
+// Returns null if any single word is wider than maxWidth, or if the text
+// can't be packed into the line budget. Caller is responsible for setting
+// the font before calling.
+function greedyWrap(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] | null {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return null
+  const lines: string[] = []
+  let current = ''
+  for (const w of words) {
+    if (doc.widthOfString(w) > maxWidth) return null
+    const candidate = current ? `${current} ${w}` : w
+    if (doc.widthOfString(candidate) <= maxWidth) {
+      current = candidate
+    } else {
+      lines.push(current)
+      if (lines.length >= maxLines) return null
+      current = w
+    }
+  }
+  if (current) lines.push(current)
+  return lines.length <= maxLines ? lines : null
+}
+
+// Product names must always print in full (operator needs to read them off
+// the sticker). Strategy at the ~18 mm text strip:
+//   1. Sizes 10→9→8→7→6pt; at each, attempt single line then 2-line wrap.
+//   2. If 2 lines still won't fit at 6pt (long 3-word names), allow 3 lines
+//      at 7pt then 6pt — both safely clear the qty row at lineY(15).
+//   3. Last resort (single word wider than line at 6pt): ellipsis truncate.
+// Caller must reset font to its own size afterward.
 function fitProductName(
   doc: PDFKit.PDFDocument,
   text: string,
   maxWidth: number,
 ): { lines: string[]; size: number } {
-  const sizes = [10, 9, 8, 7]
+  const sizes = [10, 9, 8, 7, 6]
   for (const size of sizes) {
     doc.fontSize(size).font('Helvetica-Bold')
     if (doc.widthOfString(text) <= maxWidth) {
       return { lines: [text], size }
     }
-    const words = text.split(/\s+/).filter(Boolean)
-    let line1 = ''
-    let i = 0
-    for (; i < words.length; i++) {
-      const candidate = line1 ? `${line1} ${words[i]}` : words[i]
-      if (doc.widthOfString(candidate) <= maxWidth) line1 = candidate
-      else break
-    }
-    const line2 = words.slice(i).join(' ')
-    if (line1 && line2 && doc.widthOfString(line2) <= maxWidth) {
-      return { lines: [line1, line2], size }
-    }
+    const wrapped = greedyWrap(doc, text, maxWidth, 2)
+    if (wrapped && wrapped.length === 2) return { lines: wrapped, size }
+  }
+  for (const size of [7, 6]) {
+    doc.fontSize(size).font('Helvetica-Bold')
+    const wrapped = greedyWrap(doc, text, maxWidth, 3)
+    if (wrapped && wrapped.length >= 2) return { lines: wrapped, size }
   }
   const minSize = sizes[sizes.length - 1]
   doc.fontSize(minSize).font('Helvetica-Bold')
