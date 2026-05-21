@@ -133,7 +133,7 @@ export interface AdjustStockInput {
   warehouseId: string
   operation: AdjustmentOperation
   unit: StockUnit
-  quantity?: number  // qty per box (required for ADD, ignored for REMOVE)
+  quantity?: number  // qty per box: required for ADD, optional filter for REMOVE
   boxes: number
 }
 

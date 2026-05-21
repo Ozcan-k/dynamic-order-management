@@ -196,17 +196,35 @@ export async function updateProduct(
   }
 }
 
+// Delete is blocked whenever the product still has IN_STOCK boxes (the
+// operator must Stock Out / Adjust those first). PENDING labels and historical
+// OUT_OF_STOCK rows do NOT block deletion — they're swept inside the same
+// transaction so the FK Restrict on StockItem.product doesn't trip. Movement
+// rows cascade via StockMovement.stockItem onDelete: Cascade.
 export async function deleteProduct(tenantId: string, id: string) {
   const existing = await prisma.product.findFirst({
     where: { id, tenantId },
     select: { id: true },
   })
   if (!existing) throw new Error('Product not found')
+
+  const inStockCount = await prisma.stockItem.count({
+    where: { tenantId, productId: existing.id, status: 'IN_STOCK' },
+  })
+  if (inStockCount > 0) {
+    throw new Error(
+      `Cannot delete — ${inStockCount} box(es) still in stock. Stock Out or Remove them first.`,
+    )
+  }
+
   try {
-    await prisma.product.delete({ where: { id: existing.id } })
+    await prisma.$transaction(async (tx) => {
+      await tx.stockItem.deleteMany({ where: { tenantId, productId: existing.id } })
+      await tx.product.delete({ where: { id: existing.id } })
+    })
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
-      throw new Error('Cannot delete product — it has stock items associated with it')
+      throw new Error('Cannot delete product — it is still referenced elsewhere')
     }
     throw err
   }

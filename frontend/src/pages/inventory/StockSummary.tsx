@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import PageShell from '../../components/shared/PageShell'
-import ConfirmModal from '../../components/shared/ConfirmModal'
 import Pagination from '../../components/shared/Pagination'
 import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
@@ -14,7 +13,6 @@ import {
 import {
   useProductCategories,
   useUpdateProduct,
-  useDeleteProduct,
   useProducts,
   type Product,
   type ProductInput,
@@ -45,14 +43,12 @@ export default function StockSummary() {
   const { data: warehouses = [] } = useWarehouses()
 
   const updateProduct = useUpdateProduct()
-  const deleteProduct = useDeleteProduct()
   const adjustStock = useAdjustStock()
 
   const [categoryId, setCategoryId] = useState<string>('')
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [editTarget, setEditTarget] = useState<Product | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; productCode: string; category: string } | null>(null)
   const [hoverProductId, setHoverProductId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -81,19 +77,6 @@ export default function StockSummary() {
 
   const pageStart = (page - 1) * PAGE_SIZE
   const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE)
-
-  async function confirmDelete() {
-    if (!deleteTarget) return
-    setActionError(null)
-    try {
-      await deleteProduct.mutateAsync(deleteTarget.id)
-      setDeleteTarget(null)
-    } catch (err) {
-      const e = err as { response?: { data?: { error?: string } }; message?: string }
-      setActionError(e?.response?.data?.error ?? e?.message ?? 'Failed to delete product')
-      setDeleteTarget(null)
-    }
-  }
 
   return (
     <PageShell icon={StockIcon} title="Stock" subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}>
@@ -179,10 +162,6 @@ export default function StockSummary() {
                         const p = productById.get(row.productId)
                         if (p) { setEditTarget(p); setActionError(null) }
                       }} style={btnLink}>Edit</button>
-                      <button onClick={() => setDeleteTarget({
-                        id: row.productId, name: row.productName,
-                        productCode: row.productCode, category: row.categoryName,
-                      })} style={{ ...btnLink, color: colors.danger }}>Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -225,19 +204,6 @@ export default function StockSummary() {
             await adjustStock.mutateAsync(input)
           }}
           onCancel={() => setEditTarget(null)}
-        />
-      )}
-
-      {deleteTarget && (
-        <ConfirmModal
-          title="Delete product"
-          message={`This will permanently remove "${deleteTarget.name}" from the product master list. Products with stock items cannot be deleted.`}
-          detail={`Product ID: ${deleteTarget.productCode} · Category: ${deleteTarget.category}`}
-          confirmLabel="Delete"
-          tone="danger"
-          busy={deleteProduct.isPending}
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </PageShell>
@@ -314,10 +280,12 @@ function EditProductModal({
   async function handleApplyAdjustment() {
     setAdjError(null); setAdjSuccess(null)
     const boxes = parseInt(adjBoxes, 10)
-    const qty = adjOp === 'ADD' ? parseFloat(adjQuantity) : undefined
+    const qtyRaw = adjQuantity.trim()
+    const qty = qtyRaw ? parseFloat(qtyRaw) : undefined
     if (!adjWarehouseId) { setAdjError('Pick a warehouse'); return }
     if (!boxes || boxes < 1) { setAdjError('Box count must be at least 1'); return }
     if (adjOp === 'ADD' && (!qty || qty <= 0)) { setAdjError('Quantity per box must be greater than 0'); return }
+    if (adjOp === 'REMOVE' && qtyRaw && (!qty || qty <= 0)) { setAdjError('Qty per box must be greater than 0'); return }
     try {
       await onAdjust({
         productId: product.id,
@@ -328,9 +296,12 @@ function EditProductModal({
         boxes,
       })
       const whName = warehouses.find((w) => w.id === adjWarehouseId)?.name ?? 'warehouse'
+      const u = adjUnit === 'KG' ? 'kg' : 'pcs'
       setAdjSuccess(adjOp === 'ADD'
-        ? `Added ${boxes} box${boxes > 1 ? 'es' : ''} (${qty} ${adjUnit === 'KG' ? 'kg' : 'pcs'} each) at ${whName}.`
-        : `Removed ${boxes} box${boxes > 1 ? 'es' : ''} from ${whName}.`)
+        ? `Added ${boxes} box${boxes > 1 ? 'es' : ''} (${qty} ${u} each) at ${whName}.`
+        : qty
+          ? `Removed ${boxes} box${boxes > 1 ? 'es' : ''} of ${qty} ${u} from ${whName}.`
+          : `Removed ${boxes} box${boxes > 1 ? 'es' : ''} (oldest first) from ${whName}.`)
       setAdjBoxes('1')
       setAdjQuantity('')
     } catch (err) {
@@ -473,7 +444,7 @@ function EditProductModal({
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: adjOp === 'ADD' ? '1.4fr 1fr 0.8fr 1fr' : '1.4fr 1fr', gap: 12, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 0.8fr 1fr', gap: 12, alignItems: 'end' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={labelStyle}>Warehouse</label>
               <select
@@ -496,32 +467,37 @@ function EditProductModal({
               />
             </div>
 
-            {adjOp === 'ADD' && (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={labelStyle}>Unit</label>
-                  <select
-                    value={adjUnit}
-                    onChange={(e) => setAdjUnit(e.target.value as StockUnit)}
-                    style={formInputStyle}
-                  >
-                    <option value="KG">KG</option>
-                    <option value="PCS">PCS</option>
-                  </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={labelStyle}>Qty per box</label>
-                  <input
-                    type="number" min={0.01} step="any"
-                    value={adjQuantity}
-                    onChange={(e) => setAdjQuantity(e.target.value)}
-                    placeholder={adjUnit === 'KG' ? '5.0' : '24'}
-                    style={formInputStyle}
-                  />
-                </div>
-              </>
-            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={labelStyle}>Unit</label>
+              <select
+                value={adjUnit}
+                onChange={(e) => setAdjUnit(e.target.value as StockUnit)}
+                style={formInputStyle}
+              >
+                <option value="KG">KG</option>
+                <option value="PCS">PCS</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={labelStyle}>
+                Qty per box {adjOp === 'REMOVE' && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: colors.textMuted }}>· optional</span>}
+              </label>
+              <input
+                type="number" min={0.01} step="any"
+                value={adjQuantity}
+                onChange={(e) => setAdjQuantity(e.target.value)}
+                placeholder={adjOp === 'ADD'
+                  ? (adjUnit === 'KG' ? '5.0' : '24')
+                  : 'any (oldest first)'}
+                style={formInputStyle}
+              />
+            </div>
           </div>
+          {adjOp === 'REMOVE' && (
+            <div style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
+              Boxes of the same product may differ in size. Specify the exact qty per box to only remove matching boxes; leave blank to remove the oldest N boxes regardless of size.
+            </div>
+          )}
 
           {adjError && (
             <div style={{ padding: '8px 12px', borderRadius: 8, background: colors.dangerLight, border: `1px solid ${colors.dangerBorder}`, fontSize: 12, color: '#dc2626' }}>

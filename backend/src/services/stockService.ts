@@ -541,7 +541,10 @@ export interface AdjustStockInput {
   warehouseId: string
   operation: AdjustmentOperation
   unit: StockUnit
-  quantity: number  // qty per box; only used for ADD
+  // qty per box. Required for ADD. Optional filter for REMOVE: when provided,
+  // only IN_STOCK rows whose unit + quantity match exactly are eligible
+  // (so a 10 kg box isn't silently consumed when the operator wanted a 5 kg).
+  quantity?: number
   boxes: number     // number of boxes to add or remove
 }
 
@@ -561,7 +564,10 @@ export async function adjustStock(
   if (!input.productId) throw new Error('Product is required')
   if (!input.warehouseId) throw new Error('Warehouse is required')
   if (input.boxes < 1 || input.boxes > 500) throw new Error('Box count must be between 1 and 500')
-  if (input.operation === 'ADD' && !(input.quantity > 0)) {
+  if (input.operation === 'ADD' && (input.quantity === undefined || input.quantity <= 0)) {
+    throw new Error('Quantity per box must be greater than 0')
+  }
+  if (input.quantity !== undefined && input.quantity <= 0) {
     throw new Error('Quantity per box must be greater than 0')
   }
 
@@ -574,6 +580,7 @@ export async function adjustStock(
 
   if (input.operation === 'ADD') {
     const batchNumber = await nextAdjustmentBatchNumber(tenantId)
+    const qtyPerBox = input.quantity as number
     await prisma.$transaction(async (tx) => {
       for (let i = 0; i < input.boxes; i++) {
         const row = await tx.stockItem.create({
@@ -582,7 +589,7 @@ export async function adjustStock(
             productId: product.id,
             warehouseId: warehouse.id,
             unit: input.unit,
-            quantity: input.quantity,
+            quantity: qtyPerBox,
             batchNumber,
             status: 'IN_STOCK',
           },
@@ -608,21 +615,26 @@ export async function adjustStock(
   }
 
   // REMOVE — pick the oldest N IN_STOCK rows at this warehouse for this
-  // product and mark them OUT_OF_STOCK. Errors if not enough rows.
+  // product and mark them OUT_OF_STOCK. When the caller specifies a qty/unit,
+  // narrow to rows that match exactly so a heavier box isn't silently used.
+  const removeFilter = {
+    tenantId,
+    productId: input.productId,
+    warehouseId: input.warehouseId,
+    status: 'IN_STOCK' as const,
+    ...(input.quantity !== undefined ? { unit: input.unit, quantity: input.quantity } : {}),
+  }
   const candidates = await prisma.stockItem.findMany({
-    where: {
-      tenantId,
-      productId: input.productId,
-      warehouseId: input.warehouseId,
-      status: 'IN_STOCK',
-    },
+    where: removeFilter,
     orderBy: { updatedAt: 'asc' },
     take: input.boxes,
     select: { id: true },
   })
   if (candidates.length < input.boxes) {
+    const u = input.unit === 'KG' ? 'kg' : 'pcs'
+    const qualifier = input.quantity !== undefined ? ` of ${input.quantity} ${u}` : ''
     throw new Error(
-      `Only ${candidates.length} box(es) in stock at this warehouse — cannot remove ${input.boxes}.`,
+      `Only ${candidates.length} box(es)${qualifier} in stock at this warehouse — cannot remove ${input.boxes}.`,
     )
   }
   await prisma.$transaction(async (tx) => {
