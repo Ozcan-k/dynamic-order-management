@@ -392,7 +392,7 @@ function ProductsTab() {
       {deleteTarget && (
         <ConfirmModal
           title="Delete product"
-          message={`This will permanently remove "${deleteTarget.name}" from the product master list.`}
+          message={`This will permanently remove "${deleteTarget.name}" from the product master list. Pending labels and used-stock history for this product will also be cleared. Deletion is blocked if any boxes are still IN STOCK.`}
           detail={`Product ID: ${deleteTarget.productCode} · Category: ${deleteTarget.category.name}`}
           confirmLabel="Delete"
           tone="danger"

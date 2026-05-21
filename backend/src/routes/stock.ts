@@ -163,7 +163,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
           warehouseId: result.data.warehouseId,
           operation: result.data.operation,
           unit: result.data.unit,
-          quantity: result.data.quantity ?? 0,
+          quantity: result.data.quantity,
           boxes: result.data.boxes,
         })
         return reply.send(adjResult)
