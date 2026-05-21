@@ -120,6 +120,13 @@ export default function StockScan() {
   const streamRef = useRef<MediaStream | null>(null)
   const controlsRef = useRef<{ stop: () => void } | null>(null)
   const lockedRef = useRef(false)
+  // Single-mode: after a scan resolves (success OR error), keep the ID so the
+  // camera doesn't immediately re-detect the same QR (which is still in the
+  // viewfinder) and pop the confirm modal again — that auto-re-fire was
+  // causing brand-new PENDING labels to flip IN_STOCK on the first attempt
+  // and then throw "Already stocked at …" on the silent second attempt.
+  // Reset on: different QR detected, Cancel pressed, camera closed/reopened.
+  const lastResolvedIdRef = useRef<string | null>(null)
 
   const [operation, setOperation] = useState<ScanOperation>(() => {
     const stored = localStorage.getItem(OP_KEY) as ScanOperation | null
@@ -215,6 +222,7 @@ export default function StockScan() {
     controlsRef.current = null
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    lastResolvedIdRef.current = null
     setCameraOn(false)
   }, [])
 
@@ -301,6 +309,10 @@ export default function StockScan() {
           return
         }
         // Single mode — alert user and open the confirmation modal.
+        // Silent skip if this is the same QR we just resolved (success or
+        // error). Pointing at any other QR clears the guard.
+        if (id === lastResolvedIdRef.current) return
+        lastResolvedIdRef.current = null
         playBeep(true); vibrate([80, 60, 140])
         setPendingScan({ id })
       }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
@@ -319,13 +331,18 @@ export default function StockScan() {
   useEffect(() => () => stopCamera(), [stopCamera])
 
   function cancelScan() {
+    // Cancel = operator decided not to commit this QR; allow them to scan
+    // the same sticker again immediately (e.g. to verify they grabbed the
+    // right box) by clearing the resolved-id guard.
+    lastResolvedIdRef.current = null
     setPendingScan(null)
   }
 
   function confirmScan() {
     if (!pendingScan) return
+    const scannedId = pendingScan.id
     const payload: ScanPayload = {
-      id: pendingScan.id,
+      id: scannedId,
       operation,
       warehouseId,
       ...(needsToWarehouse ? { toWarehouseId } : {}),
@@ -334,6 +351,7 @@ export default function StockScan() {
       onSuccess: (data) => {
         setLastResult(data); setErrorMessage(null)
         setPendingScan(null)
+        lastResolvedIdRef.current = scannedId
         playBeep(true); vibrate([200, 60, 80, 60, 80])
       },
       onError: (err: unknown) => {
@@ -341,6 +359,7 @@ export default function StockScan() {
           ?? 'Scan failed'
         setErrorMessage(msg); setLastResult(null)
         setPendingScan(null)
+        lastResolvedIdRef.current = scannedId
         playBeep(false); vibrate([100, 60, 100, 60, 100])
       },
     })
