@@ -8,7 +8,7 @@ import { useScanStock, lookupStockItem } from '../api/stock'
 import { useWarehouses } from '../api/warehouses'
 import type { ScanResult, ScanPayload, ScanOperation } from '../api/stock'
 
-const RESULT_TOAST_MS = 7000
+const RESULT_TOAST_MS = 2000
 
 function playBeep(success: boolean) {
   try {
@@ -17,18 +17,24 @@ function playBeep(success: boolean) {
     const gain = ctx.createGain()
     osc.connect(gain); gain.connect(ctx.destination)
     if (success) {
+      // 3-note ascending chirp — louder + longer so operators hear it clearly
+      // over warehouse noise and don't miss it when the 2s banner clears.
       osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08)
+      osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.10)
+      osc.frequency.setValueAtTime(1480, ctx.currentTime + 0.20)
       osc.type = 'sine'
-      gain.gain.setValueAtTime(0.35, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2)
+      gain.gain.setValueAtTime(0.6, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45)
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.45)
     } else {
-      osc.frequency.setValueAtTime(300, ctx.currentTime)
+      // Two-tone descending error buzz — distinctly lower than success so the
+      // operator can tell them apart without looking at the screen.
+      osc.frequency.setValueAtTime(220, ctx.currentTime)
+      osc.frequency.setValueAtTime(180, ctx.currentTime + 0.15)
       osc.type = 'square'
-      gain.gain.setValueAtTime(0.2, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3)
+      gain.gain.setValueAtTime(0.45, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5)
     }
   } catch { /* noop */ }
 }
@@ -352,7 +358,9 @@ export default function StockScan() {
         setLastResult(data); setErrorMessage(null)
         setPendingScan(null)
         lastResolvedIdRef.current = scannedId
-        playBeep(true); vibrate([200, 60, 80, 60, 80])
+        // Strong 3-pulse success vibration (~870ms) — clearly distinct from
+        // error pattern and noticeable in a glove without looking at screen.
+        playBeep(true); vibrate([250, 100, 200, 100, 200])
       },
       onError: (err: unknown) => {
         const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
@@ -360,7 +368,9 @@ export default function StockScan() {
         setErrorMessage(msg); setLastResult(null)
         setPendingScan(null)
         lastResolvedIdRef.current = scannedId
-        playBeep(false); vibrate([100, 60, 100, 60, 100])
+        // Longer 4-pulse error vibration (~1180ms) — heavier than success so
+        // the operator feels something is wrong even mid-stride.
+        playBeep(false); vibrate([180, 100, 180, 100, 180, 100, 280])
       },
     })
   }
@@ -405,8 +415,8 @@ export default function StockScan() {
     setIsCommittingBulk(false)
     const ok = newResults.filter((r) => !r.error).length
     const bad = newResults.length - ok
-    if (bad === 0) { playBeep(true); vibrate([200, 60, 80, 60, 80]) }
-    else { playBeep(false); vibrate([100, 60, 100, 60, 100]) }
+    if (bad === 0) { playBeep(true); vibrate([250, 100, 200, 100, 200]) }
+    else { playBeep(false); vibrate([180, 100, 180, 100, 180, 100, 280]) }
   }
 
   async function handleLogout() {
