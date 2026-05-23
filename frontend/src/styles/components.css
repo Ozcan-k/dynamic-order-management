@@ -146,6 +146,20 @@
   box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
+/* ─── Row flash (Phase E v2.38.2) ─────────────────────────────────────────
+   Brief 250ms primary-tint pulse when a row arrives via socket update.
+   No layout shift — uses background-color only. Apply with className while
+   the row is "fresh"; remove after ~350ms (slightly longer than the anim).
+   Works on any container (table row, staged list item, card). */
+@keyframes row-flash {
+  0%   { background-color: rgba(37, 99, 235, 0.18); }
+  100% { background-color: transparent; }
+}
+
+.row-flash {
+  animation: row-flash 250ms var(--ease-standard) forwards;
+}
+
 /* Delay-level row tinting — saha-doğrulanmış, do not change. */
 .data-table-wrap tbody tr.row-d2 {
   background: #fffbeb;

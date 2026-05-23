@@ -322,6 +322,24 @@ export default function PackerAdmin() {
   // ── Scan & Stage state ───────────────────────────────────────────────────
   const [stagedOrders, setStagedOrders] = useState<Order[]>([])
   const [scanFeedback, setScanFeedback] = useState<{ type: 'error' | 'warning' | 'success'; message: string } | null>(null)
+  // Phase E v2.38.2: IDs of staged orders that just arrived — gets the 250ms row-flash.
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set())
+
+  const markFresh = (id: string) => {
+    setFreshIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+    setTimeout(() => {
+      setFreshIds(prev => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, 350)
+  }
 
   // On mount: drain Redis-backed pending staged orders (catches scans done before page open)
   useEffect(() => {
@@ -350,6 +368,7 @@ export default function PackerAdmin() {
         if (prev.find(o => o.id === data.order.id)) return prev
         return [...prev, data.order]
       })
+      markFresh(data.order.id)
       setScanFeedback({ type: 'success', message: `Handheld staged: ${data.order.trackingNumber}` })
       setTimeout(() => setScanFeedback(null), 3000)
     })
@@ -752,11 +771,15 @@ export default function PackerAdmin() {
             </div>
             <div style={{ background: '#fff' }}>
               {stagedOrders.map((order, i) => (
-                <div key={order.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '9px 16px',
-                  borderBottom: i < stagedOrders.length - 1 ? `1px solid ${colors.border}` : 'none',
-                }}>
+                <div
+                  key={order.id}
+                  className={freshIds.has(order.id) ? 'row-flash' : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '9px 16px',
+                    borderBottom: i < stagedOrders.length - 1 ? `1px solid ${colors.border}` : 'none',
+                  }}
+                >
                   <span style={{ fontSize: '11px', color: colors.textMuted, width: 20, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', flex: 1 }}>
                     {order.trackingNumber}
