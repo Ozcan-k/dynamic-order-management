@@ -106,12 +106,13 @@ export default function ScanLogin() {
       }}>
         <ScanIcon />
 
+        {/* Phase G v2.38.4: tracking-display for modern-minimal heading feel. */}
         <h1 style={{
           margin: '0 0 4px',
           fontSize: '22px',
           fontWeight: 800,
           color: '#0f172a',
-          letterSpacing: '-0.4px',
+          letterSpacing: 'var(--tracking-display)',
           textAlign: 'center',
         }}>
           Scan Station
@@ -136,7 +137,7 @@ export default function ScanLogin() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <label style={{
               fontSize: '11px', fontWeight: 700, color: '#374151',
-              textTransform: 'uppercase', letterSpacing: '0.07em',
+              textTransform: 'uppercase', letterSpacing: 'var(--tracking-wide)',
             }}>
               Username
             </label>
@@ -178,7 +179,7 @@ export default function ScanLogin() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <label style={{
               fontSize: '11px', fontWeight: 700, color: '#374151',
-              textTransform: 'uppercase', letterSpacing: '0.07em',
+              textTransform: 'uppercase', letterSpacing: 'var(--tracking-wide)',
             }}>
               Password
             </label>

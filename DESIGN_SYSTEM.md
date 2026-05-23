@@ -47,6 +47,31 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase G — Tier 4 Operator-Scan Typography (v2.38.4)
+
+Ultra-surgical. **Zero scan-flow JS touched** — every operator-critical timer / audio / haptic / decode guard is provably untouched (verified by `git diff` before commit).
+
+### What changed
+- **`ScanLogin.tsx`** — heading `letter-spacing` → `var(--tracking-display)`; label `letter-spacing` → `var(--tracking-wide)`. Submit button left as-is (handheld-optimized gradient + shadow).
+- **6 scan-flow pages: single letterSpacing swap per file on hero headline only.**
+  - `InboundScan.tsx`, `PickerAdminScan.tsx`, `PackerAdminScan.tsx` — `'-0.5px'` → `'var(--tracking-display)'`
+  - `PickerMobile.tsx`, `PackerMobile.tsx` — `'-0.4px'` → `'var(--tracking-display)'`
+  - `StockScan.tsx` — not touched (no equivalent hero hotspot)
+
+### What was NOT touched (provably)
+The saha-doğrulanmış v2.36.2 scan UX remains bitwise-identical:
+- 2s success banner timing
+- 880→1175→1480 Hz 3-note ascending beep + 220→180 Hz error buzz (`AudioContext` calls)
+- 250+100+200+100+200 ms success vibrate + 180+100+180+100+180+100+280 ms error vibrate (`navigator.vibrate`)
+- `lastResolvedIdRef` double-fire guard
+- `decodeFromStream`, scan event handlers, all API calls
+
+### Rule for future scan-page edits
+- **Never** change `setTimeout` / `setInterval` / `AudioContext` / `navigator.vibrate` / `lastResolvedIdRef` / `decodeFromStream` in scan files without a saha verification round.
+- Typography-only edits in scan files MUST be diff-grep-verified before commit: `git diff HEAD frontend/src/pages/{InboundScan,PickerMobile,PackerMobile,StockScan,ScanLogin,PickerAdminScan,PackerAdminScan}.tsx | grep -E '^[+-]'` should show only style-property lines, never JS.
+
+---
+
 ## Phase F — Tier 3 Forms/Data Polish (v2.38.3)
 
 Scope-controlled single commit per directive. Inventory pages (Products / Stock / Warehouses / InventoryItems), Reports, Settings, Outbound, Archive, and the remaining shared modals all **inherit** Phase C primitive polish (button focus rings, input/select focus, table hover/focus, modal animation) through the shared classes — no per-file change needed in this phase. Their inline-style extraction is deferred to a possible F.2.
