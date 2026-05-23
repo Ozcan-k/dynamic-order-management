@@ -47,6 +47,42 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase F — Tier 3 Forms/Data Polish (v2.38.3)
+
+Scope-controlled single commit per directive. Inventory pages (Products / Stock / Warehouses / InventoryItems), Reports, Settings, Outbound, Archive, and the remaining shared modals all **inherit** Phase C primitive polish (button focus rings, input/select focus, table hover/focus, modal animation) through the shared classes — no per-file change needed in this phase. Their inline-style extraction is deferred to a possible F.2.
+
+### New shared primitives (`components.css`)
+
+| Family | Members | Purpose |
+|---|---|---|
+| `.page-hero` | `.page-hero-content`, `.page-hero-label`, `.page-hero-title`, `.page-hero-actions`, `.page-hero-cta` | Blue-gradient page header strip. Generalized from the old `.sales-hero`. Used by SalesDashboard + MarketingReport. |
+| `.preset-btn-group` | `.preset-btn`, `.preset-btn--active` | Pill-shaped toggle buttons for date-range presets, tinted for placement on the gradient hero. |
+| `.live-pill` | `.live-pill-dot`, `@keyframes live-pulse` | Green pulsing "LIVE" indicator. Extracted from MarketingReport's inline `mktPulse` keyframe. |
+| `.filter-card` | `.filter-field`, `.filter-field-label`, `.filter-field-input` | Grid-laid filter container (different from the flex/chip `.filter-bar`). |
+
+### New sales-suite classes (`sales-dashboard.css`)
+
+| Family | Members | Purpose |
+|---|---|---|
+| Sales Entry toolbar | `.sales-entry-toolbar`, `.sales-entry-status`, `.sales-entry-progress` (+ `--done`), `.sales-entry-save` (+ `--saving`) | Top controls strip for SalesEntry. |
+| Section card | `.section-card`, `.section-card-header` (+ `--open`), `.section-card-header-title`, `.section-card-badge` (+ `--warn` / `--info`), `.section-card-chevron` (+ `--open`), `.section-card-body` | Collapsible card primitive used by SalesEntry's 4 daily-activity sections. |
+| Highlight variant | `.sales-stat-card--highlight-blue` | Blue-gradient sibling of the existing green `--highlight`. |
+
+### Page migrations
+- **SalesDashboard.tsx** — hero swap `.sales-hero*` → `.page-hero*`
+- **MarketingReport.tsx** — full hero strip + preset buttons + LIVE pill → shared classes; inline `@keyframes mktPulse` deleted
+- **SalesOrders.tsx** — filters / stats / empty state / table / action buttons / channel pill → shared classes
+- **SalesEntry.tsx** — top toolbar + empty state + SectionCard → shared classes
+- **SlaHistoryModal.tsx** — shell to `.modal-backdrop` + `.modal-card` (with `--wide` modifier); close button to `.btn .btn-ghost .btn-sm`; timeline body kept bespoke
+
+### Rule for new filter UIs
+- Date pickers + selects in a grid → `.filter-card` + `.filter-field` + `.filter-field-input`
+- Date-range preset toggles → `.preset-btn-group` + `.preset-btn` (`.preset-btn--active` for selected)
+- Live polling indicator → `.live-pill` + `.live-pill-dot`
+- Page-top blue gradient strip → `.page-hero` + slots
+
+---
+
 ## Phase E — Tier 2 High-Traffic Polish (v2.38.2)
 
 Scope-controlled. Full PickerAdmin/PackerAdmin toolbar normalization (those files carry 160+146 inline-style blocks) deferred to a later sub-phase to keep regression risk low. SalesEntry/SalesOrders inline extraction + MonthCalendar/DaySummaryCell typography refinement deferred to Phase F.

@@ -70,16 +70,16 @@ export default function SalesDashboard() {
       title="Sales Dashboard"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
-      {/* Hero strip */}
-      <div className="sales-hero">
-        <div>
-          <div className="sales-hero-label">Today · {today}</div>
-          <div className="sales-hero-title">Today's Snapshot</div>
+      {/* Hero strip — uses shared .page-hero family (Phase F) */}
+      <div className="page-hero">
+        <div className="page-hero-content">
+          <div className="page-hero-label">Today · {today}</div>
+          <div className="page-hero-title">Today's Snapshot</div>
         </div>
         <button
           type="button"
           onClick={() => navigate('/sales/entry')}
-          className="sales-hero-cta"
+          className="page-hero-cta"
         >Enter Today's Report →</button>
       </div>
 
