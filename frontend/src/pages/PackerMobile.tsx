@@ -362,7 +362,7 @@ export default function PackerMobile() {
               )}
             </div>
             <div style={{ textAlign: 'left' }}>
-              <div style={{ color: isPending || cameraOpen ? '#94a3b8' : '#fff', fontSize: '21px', fontWeight: 800, letterSpacing: '-0.4px', lineHeight: 1.15 }}>
+              <div style={{ color: isPending || cameraOpen ? '#94a3b8' : '#fff', fontSize: '21px', fontWeight: 800, letterSpacing: 'var(--tracking-display)', lineHeight: 1.15 }}>
                 {lookingUp ? 'Looking up...' : isPending ? 'Processing...' : 'Scan Barcode'}
               </div>
               <div style={{ color: isPending || cameraOpen ? '#94a3b8' : 'rgba(255,255,255,0.65)', fontSize: '13px', marginTop: '4px', fontWeight: 500 }}>

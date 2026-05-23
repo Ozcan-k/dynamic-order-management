@@ -291,7 +291,7 @@ export default function InboundScan() {
               </svg>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ color: isPending || cameraOpen ? '#475569' : '#fff', fontSize: '22px', fontWeight: 800, letterSpacing: '-0.5px' }}>
+              <div style={{ color: isPending || cameraOpen ? '#475569' : '#fff', fontSize: '22px', fontWeight: 800, letterSpacing: 'var(--tracking-display)' }}>
                 {isPending ? 'Processing...' : mode === 'single' ? 'Scan Barcode' : 'Scan Next Barcode'}
               </div>
               <div style={{ color: isPending || cameraOpen ? '#334155' : 'rgba(255,255,255,0.65)', fontSize: '15px', marginTop: '5px', fontWeight: 500 }}>
