@@ -394,10 +394,12 @@
 
 /* ─── Stats Grid ────────────────────────────────────────────────────────── */
 
+/* Phase D v2.38.1: gap snapped from 14px to --space-4 (16px) — aligns the
+   stat-card grid to the 4px scale used everywhere else. */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 /* ─── Loading Spinner ───────────────────────────────────────────────────── */
@@ -1037,14 +1039,16 @@
   100% { transform: translateY(-110vh) translateX(-8px); opacity: 0; }
 }
 
-/* Centered card */
+/* Phase D v2.38.1: card radius tightened 16→12 (--radius-xl) — Linear/Vercel
+   use smaller radii on focus surfaces. Shadow stays bespoke and deeper than
+   --shadow-lg because the card sits on a dark gradient. */
 .login-card {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 420px;
   background: #ffffff;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 36px 32px 28px;
   box-shadow:
     0 24px 64px rgba(0, 0, 0, 0.35),
@@ -1083,12 +1087,14 @@
   margin-bottom: 22px;
 }
 
+/* Phase D v2.38.1: tracking aligned to display token (-0.03em) for tighter
+   modern-minimal heading feel. Size and weight preserved. */
 .login-card-heading h2 {
   margin: 0 0 6px;
-  font-size: 24px;
+  font-size: var(--font-size-xl);
   font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.5px;
+  color: var(--color-text-primary);
+  letter-spacing: var(--tracking-display);
 }
 
 .login-card-heading p {
@@ -1213,7 +1219,9 @@
   color: #3b82f6;
 }
 
-/* Shimmer button */
+/* Phase D v2.38.1: aligned to Phase C button pattern — hover lifts shadow
+   only (no translateY), :active uses scale(0.98) for tactile press. Adds
+   :focus-visible white-on-primary ring. */
 .shimmer-btn {
   position: relative;
   margin-top: 4px;
@@ -1225,16 +1233,22 @@
   background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
   box-shadow: 0 8px 24px rgba(59, 130, 246, 0.38);
   overflow: hidden;
-  transition: box-shadow 180ms, transform 180ms;
+  transition: box-shadow var(--duration-base) var(--ease-standard),
+              transform var(--duration-instant) var(--ease-standard);
 }
 
 .shimmer-btn:hover:not(:disabled) {
   box-shadow: 0 10px 28px rgba(59, 130, 246, 0.48);
-  transform: translateY(-1px);
+}
+
+.shimmer-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.38),
+              0 0 0 2px #fff, 0 0 0 4px var(--color-primary);
 }
 
 .shimmer-btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: scale(0.98);
 }
 
 .shimmer-btn::before {

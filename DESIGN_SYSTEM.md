@@ -47,6 +47,20 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase D — Tier 1 Showcase Polish (v2.38.1)
+
+Login + Dashboard + Sidebar end-to-end. Heavy Dashboard component refactor (inline-styled MetricCard / PipelineStage / Volume Report buttons) deferred to Phase F.
+
+- **`.login-card`** border-radius 16 → `var(--radius-xl)` (12px). Card shadow kept bespoke (deeper than `--shadow-lg` because the card sits on a dark gradient).
+- **`.login-card-heading h2`** font-size → `var(--font-size-xl)` (24, token-driven), color → `var(--color-text-primary)`, letter-spacing → `var(--tracking-display)` (-0.03em, was -0.5px).
+- **`.shimmer-btn`** (login submit) aligned to Phase C button pattern — no hover translateY; `:active scale(0.98)` 80ms; new `:focus-visible` ring stacked over shimmer shadow.
+- **`.stats-grid`** gap 14px → `var(--space-4)` (16px) — snaps the dashboard stat grid to the 4px scale.
+- **Dashboard hero clock** no longer forces SF Mono via inline style — uses body Inter Variable with `tabular-nums` already on `.dashboard-hero-time` (Linear-style).
+- **`NumberTicker` default 900ms unchanged** — 250ms is jarring for stat counters; the plan's suggestion to align to `motion.duration.slow` doesn't fit number-ticker UX.
+- **Sidebar mobile drawer:** Phase C visual changes verified across the responsive breakpoint; CSS unchanged.
+
+---
+
 ## Phase C — Shared Primitives Polish (v2.38.0)
 
 First phase with **real visual changes**. All component APIs unchanged. CSS-only edits in `components.css` + `layout.css`, plus one component file (`ConfirmModal.tsx`) migrated to use the new modal classes.
