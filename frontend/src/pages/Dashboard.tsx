@@ -346,10 +346,10 @@ export default function Dashboard() {
 
           {/* Right: live clock */}
           <div className="dashboard-hero-clock">
-            <div
-              className="dashboard-hero-time"
-              style={{ fontFamily: font.mono }}
-            >
+            {/* Phase D v2.38.1: clock now uses Inter Variable with tabular-nums
+                (already on .dashboard-hero-time in components.css) — Linear-style
+                cleaner than the SF Mono fallback that was here. */}
+            <div className="dashboard-hero-time">
               {hh}
               <span className={`dashboard-hero-colon${colon ? '' : ' dashboard-hero-colon--off'}`}>:</span>
               {mm}
