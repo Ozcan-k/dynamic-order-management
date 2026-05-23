@@ -1,0 +1,50 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Reset & Base — global element defaults
+   Phase B (v2.37.1): extracted verbatim from index.css; relocated
+   prefers-reduced-motion override. No focus behavior changes — Phase C
+   primitives polish will define proper :focus-visible rings per component.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+button {
+  font-family: inherit;
+}
+
+* {
+  min-width: 0;
+}
+
+/* ─── Accessibility: reduced motion ──────────────────────────────────────
+   Honor the OS-level setting for users who experience motion-related
+   discomfort. Overrides every transition/animation app-wide. Operator scan
+   audio/haptic feedback is JS-driven and unaffected.
+   ──────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

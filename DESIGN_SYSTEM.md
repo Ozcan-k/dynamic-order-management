@@ -47,6 +47,27 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase B — CSS Partition Map (v2.37.1)
+
+`frontend/src/index.css` is now a 17-line list of `@import` statements. All actual rules live in 6 partials under `frontend/src/styles/`, loaded in cascade order:
+
+| # | File | Contents |
+|---|---|---|
+| 1 | `tokens.css` | Every design token mirrored as a `:root` CSS custom property (`--color-*`, `--space-*`, `--radius-*`, `--shadow-*`, `--font-*`, `--duration-*`, `--ease-*`, `--gray-*`, etc.) |
+| 2 | `reset.css` | Global element reset (`*`, `html`, `body`, `button`) + `prefers-reduced-motion` override |
+| 3 | `layout.css` | `.app-layout`, `.app-content`, `.sidebar*`, `.panel-*`, sidebar chrome (`.sidebar-hamburger`, `.header-signout-btn`, `.sidebar-close-btn`), `.sidebar-mobile-overlay` |
+| 4 | `components.css` | Reusable primitives — `.stat-card*`, `.section-*`, `.count-badge`, `.data-table-wrap*`, `.toolbar-card`, `.btn*`, `.styled-select`, `.empty-state*`, `.stats-grid`, `.spinner*`, `.loading-state`, `.feedback-banner*`, `.pagination*`, `.dashboard-hero*`, `.picker-stat-card`, responsive media-query block (`@media (max-width: 1024px / 768px / 480px)`), `.login-*`, `.shimmer-btn*`, `.scan-input-row`, `celebrate-*` keyframes, `.beam-wrap*`, `.sortable-th*`, `.filter-bar*`, `.bulk-action-bar*` |
+| 5 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` |
+| 6 | `legacy.css` | **Removal candidates** — `.inbound-*` (use `.panel-*`), `.order-table-wrap` (use `.data-table-wrap`), `.picker-admin-*` (use `.btn-*` / `.toolbar-card` / `.styled-select` / `.stats-grid`). To be deleted in Phase I once `src/pages/**` grep returns zero hits. |
+
+**Rules for new code:**
+- Always add new selectors to the correct partial — never write CSS in `index.css` itself.
+- Never use selectors from `legacy.css`; if you find an existing usage you can migrate, do it (or note it for the Phase I cleanup PR).
+- Media queries belong in the same partial as the selector they override (so cascade stays positional within the concatenated bundle).
+- Keep the `@import` order in `index.css` unchanged. Reordering changes cascade and can break rules silently.
+
+---
+
 ## Rules (Non-negotiable)
 
 1. **All UI text must be in English.** No Turkish, no other languages.

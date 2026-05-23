@@ -1,0 +1,31 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Utilities — small reusable helpers
+   Phase B (v2.37.1): new file; .tabular-nums relocated from tokens.css.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Tabular numerals — keeps digits column-aligned. Apply to stat values,
+   clocks, pagination counters, scoreboard cells. Inter's variable axis
+   defaults to proportional figures; opt in here when alignment matters. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Single-line truncation with ellipsis */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
