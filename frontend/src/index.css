@@ -12,5 +12,6 @@
 @import './styles/reset.css';
 @import './styles/layout.css';
 @import './styles/components.css';
+@import './styles/sales-dashboard.css';
 @import './styles/utilities.css';
 @import './styles/legacy.css';

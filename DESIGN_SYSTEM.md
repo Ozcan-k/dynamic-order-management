@@ -47,6 +47,24 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase E — Tier 2 High-Traffic Polish (v2.38.2)
+
+Scope-controlled. Full PickerAdmin/PackerAdmin toolbar normalization (those files carry 160+146 inline-style blocks) deferred to a later sub-phase to keep regression risk low. SalesEntry/SalesOrders inline extraction + MonthCalendar/DaySummaryCell typography refinement deferred to Phase F.
+
+### Row flash on real-time arrival
+- New `@keyframes row-flash` + `.row-flash` class in `components.css` — 250ms primary-tint pulse, `forwards` fill so no layout shift remains.
+- **PickerAdmin / PackerAdmin:** new `freshIds: Set<string>` state + `markFresh(id)` helper (adds ID, removes after 350ms). The socket handlers for `order:staged` / `order:packer-staged` call `markFresh` after `setStagedOrders`. Mount-time Redis-backed pending drain does NOT trigger the flash — only real-time arrivals do, so the signal stays meaningful.
+
+### Sales Dashboard CSS extraction
+- New partial `frontend/src/styles/sales-dashboard.css` loaded in `index.css` between `components.css` and `utilities.css`.
+- Classes: `.sales-hero` / `.sales-hero-label` / `.sales-hero-title` / `.sales-hero-cta` (Phase C button triad: hover bg/shadow, `:focus-visible` ring, `:active` scale), `.sales-stats-grid`, `.sales-stat-card` + `.sales-stat-card--highlight` (green-gradient highlight for Direct Sales), `.sales-stat-card-icon` / `.sales-stat-card-label` / `.sales-stat-card-value`, `.sales-month-chips` / `.sales-month-chips-strong` / `.sales-month-chip` / `.sales-month-chips-loading`.
+- All 13 inline `style={{}}` blocks in `SalesDashboard.tsx` migrated. `StatCard` + `Chip` subcomponents now classname-driven.
+
+### Rule for new sales pages
+Use the `sales-*` classes from `sales-dashboard.css`. Add new sales-specific classes to this same partial (not `components.css`) so the sales suite stays grep-able. Future per-tier polish (SalesEntry, SalesOrders, MonthCalendar, DaySummaryCell) will land in this partial too.
+
+---
+
 ## Phase D — Tier 1 Showcase Polish (v2.38.1)
 
 Login + Dashboard + Sidebar end-to-end. Heavy Dashboard component refactor (inline-styled MetricCard / PipelineStage / Volume Report buttons) deferred to Phase F.
