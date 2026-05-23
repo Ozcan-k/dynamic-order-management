@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Dynamic Order Management — Global Design System CSS
-   Phase B (v2.37.1): src/index.css carved into 6 ordered partials.
+   Phase B (v2.37.1): src/index.css carved into ordered partials.
+   Phase I (v2.39.1): legacy.css deleted after zero JSX consumers verified.
    All tokens are mirrored in src/theme.ts for TypeScript usage.
    See DESIGN_SYSTEM.md for the design system contract.
 
@@ -14,4 +15,3 @@
 @import './styles/components.css';
 @import './styles/sales-dashboard.css';
 @import './styles/utilities.css';
-@import './styles/legacy.css';
