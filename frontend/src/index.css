@@ -3,6 +3,9 @@
    All tokens are mirrored in src/theme.ts for TypeScript usage.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ─── Tokens (Phase A v2.37.0) ──────────────────────────────────────────── */
+@import './styles/tokens.css';
+
 /* ─── Reset ─────────────────────────────────────────────────────────────── */
 
 *, *::before, *::after {
@@ -18,7 +21,7 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #0f172a;
@@ -2119,3 +2122,18 @@ button {
   }
 }
 
+/* ─── Accessibility: reduced motion (Phase A v2.37.0) ────────────────────
+   Honor the OS-level setting for users who experience motion-related
+   discomfort. Overrides every transition/animation app-wide. Operator scan
+   audio/haptic feedback is JS-driven and unaffected.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

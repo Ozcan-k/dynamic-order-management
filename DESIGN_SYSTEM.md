@@ -5,6 +5,48 @@
 
 ---
 
+## Phase A — Modern Minimal Token Foundation (v2.37.0)
+
+Additive token expansion toward a Linear/Vercel modern-minimal aesthetic. **All legacy tokens below remain valid.** New tokens listed here are available for new code and future polish phases (Phase C onward). Mirrored as CSS variables in `frontend/src/styles/tokens.css`.
+
+### Inter Variable font
+`@fontsource-variable/inter/wght.css` is imported in `main.tsx`. `body` font-family now leads with `'Inter Variable'` and falls back to the original system stack. `font-display: swap` (built-in) prevents FOUT-induced layout shift. Apply `font-variant-numeric: tabular-nums` (or the `.tabular-nums` utility class) on stat values, clocks, and counters to keep digits column-aligned.
+
+### Spacing scale (`space` — 4px-based)
+`0 · 1(4) · 2(8) · 3(12) · 4(16) · 5(20) · 6(24) · 8(32) · 10(40) · 12(48) · 16(64)`. Snap legacy odd values (10/14/18/22) to nearest step when migrating.
+
+### Type scale (`fontSize`, `lineHeight`, `tracking`)
+- Sizes: `xs(12) · sm(13) · base(14) · md(16) · lg(20) · xl(24) · 2xl(30) · 3xl(36)`
+- Line heights: `tight(1.15) · snug(1.3) · normal(1.5)`
+- Tracking: `tight(-0.01em) · tighter(-0.02em) · display(-0.03em) · normal(0) · wide(0.04em) · wider(0.1em)`
+
+Use `tracking.display` on hero headings (e.g. Dashboard hero clock).
+
+### Radius — extended
+Added `xs(4px)` and `2xl(16px)` alongside existing `sm/md/lg/xl/full`.
+
+### Shadow — layered + focus rings
+- `xs · sm · md · lg` — modern minimal layered shadows (15,23,42 base, low opacity)
+- `focus` — 3px primary ring for inputs/selects
+- `focusRing` — 2px white + 2px primary, for buttons over coloured backgrounds
+- Legacy `card · cardHover · btn · xl` aliases preserved
+
+### Motion — duration + ease groups
+- `motion.duration`: `instant(80) · fast(150) · base(200) · slow(250) · slower(400)`
+- `motion.ease`: `standard · emphasized · exit` (cubic-bezier curves)
+- Legacy `fast(120) · normal(200) · slow(320)` aliases preserved
+
+### 12-step neutral scale (`colors.gray`)
+`50 → 950`, Linear-flavoured. Use for new surfaces, borders, and text. Existing slate values (`#f1f5f9`, `#e2e8f0`, `#64748b`, etc.) remain valid in legacy classes until per-tier polish migrates them.
+
+### Accessibility — reduced motion
+A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralises all transitions and animations app-wide. **Operator scan audio/haptic feedback is JS-driven and intentionally NOT affected** (`AudioContext`, `navigator.vibrate`, `setTimeout` calls).
+
+### Preserved verbatim (do not change)
+`colors.delay[]`, `colors.delayBg[]`, `colors.delayText[]`, `colors.priority()`, `colors.platform.{SHOPEE,LAZADA,TIKTOK,DIRECT,OTHER}` — saha-doğrulanmış.
+
+---
+
 ## Rules (Non-negotiable)
 
 1. **All UI text must be in English.** No Turkish, no other languages.
