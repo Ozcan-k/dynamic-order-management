@@ -47,6 +47,48 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase I — Legacy Cleanup (v2.39.1) — Visual Polish Program COMPLETE
+
+`legacy.css` deleted after `grep -rE '["'](inbound-header|inbound-body|inbound-section|order-table-wrap|picker-admin-toolbar|picker-admin-select|picker-admin-btn|picker-admin-row|picker-admin-stats-grid)' src/` confirmed zero JSX className consumers (only React Query string keys matched, which are unaffected).
+
+- **Removed:** `frontend/src/styles/legacy.css` (235 lines).
+- **Updated:** `frontend/src/index.css` import order is now `tokens → reset → layout → components → sales-dashboard → utilities` (6 partials).
+- **Net effect:** -2.86 kB CSS bundle.
+
+### Program summary (Phases A → I)
+
+| Phase | Version | Headline |
+|---|---|---|
+| A | 2.37.0 | Token foundation + Inter Variable + prefers-reduced-motion |
+| B | 2.37.1 | `index.css` carved into 6 partials |
+| C | 2.38.0 | Shared primitives: button focus rings, table hover, modal classes |
+| D | 2.38.1 | Tier 1: Login + Dashboard hero clock |
+| E | 2.38.2 | Tier 2: row-flash + SalesDashboard CSS extraction |
+| F | 2.38.3 | Tier 3: page-hero + preset-btn + filter-card + Sales suite migration |
+| G | 2.38.4 | Tier 4: operator-scan typography (zero scan-flow JS touched) |
+| H | 2.39.0 | Motion sweep: route fade-up + row stagger + alert slide-in |
+| I | 2.39.1 | Legacy CSS cleanup — program complete |
+
+### Final partial map (`frontend/src/styles/`)
+
+| # | File | Purpose |
+|---|---|---|
+| 1 | `tokens.css` | `:root` CSS custom properties |
+| 2 | `reset.css` | Element reset + `prefers-reduced-motion` global |
+| 3 | `layout.css` | `.app-layout`, `.sidebar*`, `.panel-*` |
+| 4 | `components.css` | All shared visual primitives (buttons, tables, cards, modals, motion classes, etc.) |
+| 5 | `sales-dashboard.css` | Sales-suite page-specific (`.sales-*`, `.section-card`, `.sales-entry-*`) |
+| 6 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` |
+
+### Carryover defer list (no version bump required)
+These all inherit Phase C primitive polish automatically through shared classes; per-file inline-style extractions can be done incrementally:
+- Inventory pages (`Products`, `Stock`, `Warehouses`, `InventoryItems`)
+- `Reports.tsx`, `Settings.tsx`, `Outbound.tsx`, `Archive.tsx`
+- PickerAdmin/PackerAdmin toolbar inline styles (160+146)
+- Shared modals: `BulkScanModal`, `QuickScanModal`, `GenerateDirectModal`, `DirectOrderFormModal`, `DayDetailModal` (`.modal-*` classes available)
+
+---
+
 ## Phase H — Motion Sweep (v2.39.0)
 
 First phase that introduces **new app-wide motion**. All keyframes neutralized by the global `prefers-reduced-motion: reduce` rule (Phase A reset.css).
