@@ -465,6 +465,62 @@
   font-size: 13px;
 }
 
+/* ─── Motion sweep (Phase H v2.39.0) ─────────────────────────────────────
+   App-wide enter motion. Every keyframe here is neutralized by the global
+   `@media (prefers-reduced-motion: reduce)` rule in reset.css (Phase A).
+   Operator scan pages bypass AppLayout so route-transition skips them
+   automatically. Real-time row updates that re-use existing DOM nodes
+   don't re-trigger CSS animations — they only run once per element. */
+
+/* Route fade-up — wraps {children} in AppLayout, keyed on location.pathname
+   so the wrapper div re-mounts when navigating between routes. */
+@keyframes route-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.route-transition {
+  animation: route-fade-in var(--duration-base) var(--ease-standard);
+}
+
+/* Row stagger — first 12 rows fade-up with 30ms cascade. Apply to a
+   table tbody (or any list container). Rows beyond 12 fall back to a 0ms
+   delay so the list still feels coherent if there are more than 12. */
+@keyframes row-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.row-stagger > * {
+  animation: row-enter var(--duration-base) var(--ease-standard) backwards;
+}
+
+.row-stagger > *:nth-child(1)  { animation-delay: 0ms; }
+.row-stagger > *:nth-child(2)  { animation-delay: 30ms; }
+.row-stagger > *:nth-child(3)  { animation-delay: 60ms; }
+.row-stagger > *:nth-child(4)  { animation-delay: 90ms; }
+.row-stagger > *:nth-child(5)  { animation-delay: 120ms; }
+.row-stagger > *:nth-child(6)  { animation-delay: 150ms; }
+.row-stagger > *:nth-child(7)  { animation-delay: 180ms; }
+.row-stagger > *:nth-child(8)  { animation-delay: 210ms; }
+.row-stagger > *:nth-child(9)  { animation-delay: 240ms; }
+.row-stagger > *:nth-child(10) { animation-delay: 270ms; }
+.row-stagger > *:nth-child(11) { animation-delay: 300ms; }
+.row-stagger > *:nth-child(12) { animation-delay: 330ms; }
+.row-stagger > *:nth-child(n+13) { animation-delay: 0ms; }
+
+/* Alert slide-down — for top-of-page banners (SlaAlertBanner) that appear
+   when an alert fires. Distinct from .row-flash (single-row pulse) and
+   .modal-* (centered overlay). */
+@keyframes alert-slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.alert-slide-in {
+  animation: alert-slide-down var(--duration-slow) var(--ease-emphasized);
+}
+
 /* ─── Page hero strip (Phase F v2.38.3) ──────────────────────────────────
    Reusable blue-gradient header strip used by Sales Dashboard, Marketing
    Report, etc. Sits at top of page-body below PageShell header. */

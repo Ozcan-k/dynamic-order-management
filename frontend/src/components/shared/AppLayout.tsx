@@ -1,9 +1,25 @@
 import { useEffect, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import SlaAlertBanner from '../SlaAlertBanner'
 import { connectSocket, disconnectSocket } from '../../lib/socket'
 import { useAuthStore } from '../../stores/authStore'
 import { MobileSidebarProvider, useMobileSidebar } from '../../lib/mobileSidebar'
+
+/**
+ * Phase H v2.39.0: Wraps page children with a div keyed on pathname so the
+ * .route-transition fade-up re-fires on every navigation. Scan pages
+ * bypass AppLayout entirely, so they're never animated this way (their
+ * timing is field-validated and must not compete with route motion).
+ */
+function PageContent({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return (
+    <div key={location.pathname} className="route-transition">
+      {children}
+    </div>
+  )
+}
 
 function AppLayoutInner({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
@@ -27,7 +43,7 @@ function AppLayoutInner({ children }: { children: ReactNode }) {
 
       <div className="app-content">
         <SlaAlertBanner />
-        {children}
+        <PageContent>{children}</PageContent>
       </div>
     </div>
   )

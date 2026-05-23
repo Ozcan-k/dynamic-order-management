@@ -1706,7 +1706,7 @@ export default function PickerAdmin() {
                 <th style={{ textAlign: 'center' }}>Assign</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="row-stagger">
               {pagedOrders.map((order, i) => {
                 const globalIndex = (safePage - 1) * PAGE_SIZE + i + 1
                 const isSelected = selectedIds.has(order.id)

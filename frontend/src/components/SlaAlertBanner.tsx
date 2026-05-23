@@ -73,7 +73,7 @@ export default function SlaAlertBanner() {
   if (count === 1) {
     const alert = d4Alerts[0]
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', background: '#dc2626', color: '#fff', fontSize: '13px', fontWeight: 500 }}>
+      <div className="alert-slide-in" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', background: '#dc2626', color: '#fff', fontSize: '13px', fontWeight: 500 }}>
         <span>
           <strong>D4 ALERT</strong> — Order{' '}
           <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{alert.trackingNumber}</span>
@@ -90,7 +90,7 @@ export default function SlaAlertBanner() {
 
   // Multiple alerts — summary bar + expandable list
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div className="alert-slide-in" style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Summary row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', background: '#dc2626', color: '#fff', fontSize: '13px', fontWeight: 500 }}>
         <span>
