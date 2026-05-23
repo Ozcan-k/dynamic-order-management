@@ -110,25 +110,27 @@
   color: #e2e8f0;
 }
 
+/* Phase C v2.38.0: active state brightened to #fff (was #60a5fa) — Linear-style. */
 .sidebar-link--active {
   background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  color: #ffffff;
 }
 
+/* Phase C v2.38.0: dropped the box-shadow glow on the left bar — modern minimal
+   doesn't glow. Pure 2px accent rail. */
 .sidebar-link--active::before {
   content: '';
   position: absolute;
   left: -10px;
   top: 8px;
   bottom: 8px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: #2563eb;
-  box-shadow: 0 0 10px rgba(37, 130, 235, 0.6);
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-primary);
 }
 
 .sidebar-link--active .sidebar-link-icon {
-  color: #3b82f6;
+  color: #ffffff;
 }
 
 .sidebar-link-icon {
@@ -137,11 +139,14 @@
   justify-content: center;
   flex-shrink: 0;
   color: #64748b;
-  transition: color 0.15s;
+  transition: color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
 }
 
+/* Phase C v2.38.0: hover slides the icon 2px right — Linear/Vercel micro-shift. */
 .sidebar-link:hover .sidebar-link-icon {
-  color: #94a3b8;
+  color: #e2e8f0;
+  transform: translateX(2px);
 }
 
 .sidebar-link-label {

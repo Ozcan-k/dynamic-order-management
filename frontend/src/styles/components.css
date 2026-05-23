@@ -30,18 +30,20 @@
   flex-shrink: 0;
 }
 
+/* Phase C v2.38.0: tabular-nums keeps multi-digit values column-aligned. */
 .stat-card-value {
   font-size: 22px;
   font-weight: 800;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-card-label {
   font-size: 11px;
   color: #94a3b8;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wide);
   margin-top: 2px;
 }
 
@@ -64,12 +66,15 @@
   gap: 8px;
 }
 
+/* Phase C v2.38.0: refined 11/600 + wide tracking + tabular-nums for numeric counts. */
 .count-badge {
   background: #e0e7ff;
   color: #4f46e5;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 10px;
   border-radius: 9999px;
 }
 
@@ -118,11 +123,13 @@
 }
 
 .data-table-wrap tbody tr {
-  transition: background 0.12s;
+  transition: background var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+/* Phase C v2.38.0: hover tightened to gray.50 (was #fafbff bluish-white). */
 .data-table-wrap tbody tr:hover {
-  background: #fafbff;
+  background: var(--gray-50);
 }
 
 .data-table-wrap tbody tr.row-selected {
@@ -133,7 +140,13 @@
   background: #dbeafe;
 }
 
-/* Delay-level row tinting */
+/* Phase C v2.38.0: keyboard-focus accent for row navigation. */
+.data-table-wrap tbody tr:focus-visible {
+  outline: none;
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+/* Delay-level row tinting — saha-doğrulanmış, do not change. */
 .data-table-wrap tbody tr.row-d2 {
   background: #fffbeb;
 }
@@ -159,7 +172,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-/* ─── Buttons ───────────────────────────────────────────────────────────── */
+/* ─── Buttons (Phase C v2.38.0) ─────────────────────────────────────────── */
+/* Hover: bg-darken + shadow lift (no translateY).
+   Focus-visible: white-on-primary double ring (--shadow-focus-ring).
+   Active: scale(0.98) 80ms — tactile press feedback.
+   Modern minimal: no hover bounce, restrained motion. */
 
 .btn {
   display: inline-flex;
@@ -173,8 +190,21 @@
   font-family: inherit;
   border: none;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard),
+              transform var(--duration-instant) var(--ease-standard);
   white-space: nowrap;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .btn-primary {
@@ -185,7 +215,6 @@
 .btn-primary:hover:not(:disabled) {
   background: #1d4ed8;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-  transform: translateY(-1px);
 }
 
 .btn-outline {
@@ -196,7 +225,6 @@
 
 .btn-outline:hover:not(:disabled) {
   background: #eff6ff;
-  transform: translateY(-1px);
 }
 
 .btn-ghost {
@@ -231,7 +259,6 @@
 .btn-danger-solid:hover:not(:disabled) {
   background: #dc2626;
   box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
-  transform: translateY(-1px);
 }
 
 .btn-danger-solid:disabled {
@@ -239,6 +266,12 @@
   cursor: not-allowed;
   transform: none !important;
   box-shadow: none !important;
+}
+
+/* Solid danger focus ring uses the danger color */
+.btn-danger-solid:focus-visible,
+.btn-danger:focus-visible {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #ef4444;
 }
 
 /* Success button */
@@ -251,7 +284,10 @@
 .btn-success:hover:not(:disabled) {
   background: #15803d;
   box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
-  transform: translateY(-1px);
+}
+
+.btn-success:focus-visible {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #16a34a;
 }
 
 .btn-success:disabled {
@@ -311,12 +347,18 @@
   color: #0f172a;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+.styled-select:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+/* Phase C v2.38.0: unified focus ring across all inputs/selects. */
 .styled-select:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
 }
 
 /* ─── Empty States ──────────────────────────────────────────────────────── */
@@ -407,6 +449,119 @@
   font-size: 13px;
 }
 
+/* ─── Modal primitives (Phase C v2.38.0) ────────────────────────────────── */
+/* Shared backdrop + card classes for createPortal modals. Backdrop uses
+   backdrop-filter: blur(8px) — Linear/Vercel signature. Card scales in
+   from 0.96 → 1 in 200ms emphasized ease. Components handle ESC and click-
+   outside; CSS supplies look + motion only. */
+
+@keyframes modalCardIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: modalBackdropIn var(--duration-base) var(--ease-standard);
+}
+
+.modal-card {
+  background: #fff;
+  border-radius: var(--radius-2xl);
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modalCardIn var(--duration-base) var(--ease-emphasized);
+}
+
+.modal-card--wide {
+  max-width: 640px;
+}
+
+.modal-header {
+  padding: 20px 24px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-header--danger {
+  background: linear-gradient(135deg, #fef2f2, #fff5f5);
+}
+
+.modal-header--primary {
+  background: linear-gradient(135deg, #eff6ff, #f7faff);
+}
+
+.modal-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.modal-icon--danger {
+  border: 1.5px solid var(--color-danger);
+  color: var(--color-danger);
+}
+
+.modal-icon--primary {
+  border: 1.5px solid var(--color-primary);
+  color: var(--color-primary);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.modal-body {
+  padding: 18px 24px 22px;
+}
+
+.modal-message {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.modal-detail {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+}
+
+.modal-footer {
+  padding: 12px 24px 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--color-border);
+  background: #fafbfc;
+}
+
 /* ─── Feedback Banner ───────────────────────────────────────────────────── */
 
 .feedback-banner {
@@ -453,6 +608,7 @@
 .pagination-info {
   font-size: 12px;
   color: #94a3b8;
+  font-variant-numeric: tabular-nums;
 }
 
 .pagination-controls {
@@ -472,11 +628,19 @@
   font-weight: 400;
   background: transparent;
   color: #64748b;
-  transition: all 0.15s;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .pagination-page-btn:hover:not(:disabled) {
   background: #f1f5f9;
+}
+
+.pagination-page-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .pagination-page-btn--active {
@@ -1374,11 +1538,16 @@
   background: #f8fafc;
   color: #0f172a;
   min-width: 140px;
+  transition: background var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+/* Phase C v2.38.0: aligned to the unified input focus ring. */
 .filter-bar-input:focus {
   background: #fff;
-  border-color: #93c5fd;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
 }
 
 .filter-bar-reset {

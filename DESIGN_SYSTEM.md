@@ -47,6 +47,61 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase C — Shared Primitives Polish (v2.38.0)
+
+First phase with **real visual changes**. All component APIs unchanged. CSS-only edits in `components.css` + `layout.css`, plus one component file (`ConfirmModal.tsx`) migrated to use the new modal classes.
+
+### Buttons (`.btn*`)
+- Hover: bg-darken + shadow lift only — **no `translateY(-1px)`** (modern minimal doesn't bounce).
+- Focus-visible: `box-shadow: var(--shadow-focus-ring)` (white-on-primary doubled ring, Linear signature). Per-variant semantic rings for danger/success.
+- Active: `transform: scale(0.98)` over 80ms — tactile press feedback.
+- Transition narrowed from `all 0.15s ease` to explicit properties using the new motion tokens.
+
+### Tables (`.data-table-wrap tbody tr`)
+- Hover bg: `var(--gray-50)` (was bluish `#fafbff`).
+- Keyboard focus: `box-shadow: inset 2px 0 0 var(--color-primary)` (left accent rail).
+- `.row-d2/d3/d4` saha-doğrulanmış tints **untouched**.
+
+### Inputs / Selects / Pagination
+- Unified focus: `border-color: var(--color-primary)` + `box-shadow: var(--shadow-focus)` (3px ring).
+- `.styled-select` gains a `:hover` border-strong fade.
+- `.pagination-page-btn` and `.pagination-info` gain `font-variant-numeric: tabular-nums`.
+
+### Sidebar (`.sidebar-link*`)
+- Active state: glow dropped (`box-shadow` removed from `::before`); pure 2px accent rail.
+- Active label + icon color: `#ffffff` (was washed `#60a5fa`).
+- Hover: `transform: translateX(2px)` on `.sidebar-link-icon` over 150ms.
+
+### Badges + StatCard typography
+- `.count-badge`: 11/600 + `--tracking-wide` + `tabular-nums` (was 12/700).
+- `.stat-card-value`: gains `tabular-nums`.
+- `.stat-card-label`: 600/600 + `--tracking-wide` (was 500).
+- Colors and sizes preserved.
+
+### Modal primitives (new)
+
+Use these for any new modal. Apply via `createPortal` to `document.body`.
+
+| Class | Purpose |
+|---|---|
+| `.modal-backdrop` | Fixed-inset overlay, `backdrop-filter: blur(8px)`, `rgba(15,23,42,0.55)`, click-outside handler attaches here |
+| `.modal-card` | White card, `--radius-2xl`, `--shadow-lg`, scales in `0.96 → 1` in 200ms emphasized ease, max-width 440px |
+| `.modal-card--wide` | Variant: max-width 640px |
+| `.modal-header` + `.modal-header--danger/--primary` | Header strip with gradient bg by tone |
+| `.modal-icon` + `.modal-icon--danger/--primary` | 40px circle icon — tinted border + color |
+| `.modal-title` | 16/700 |
+| `.modal-body` | 18px/24px padding |
+| `.modal-message` | 14/400 with 1.5 line-height |
+| `.modal-detail` | Inset secondary note — `--color-surface-alt` bg, 13px |
+| `.modal-footer` | Right-aligned button row, top border, `--color-surface-alt` tint |
+| `@keyframes modalCardIn` | Scale-in keyframe — referenced by `.modal-card` |
+
+Components handle ESC/click-outside JS. CSS supplies look + motion only.
+
+`ConfirmModal` is the reference implementation — see `components/shared/ConfirmModal.tsx`. Migrate other modals (`BulkScanModal`, `QuickScanModal`, `GenerateDirectModal`, `SlaHistoryModal`, `DayDetailModal`, `DirectOrderFormModal`) when touching their pages in Phases E/F.
+
+---
+
 ## Phase B — CSS Partition Map (v2.37.1)
 
 `frontend/src/index.css` is now a 17-line list of `@import` statements. All actual rules live in 6 partials under `frontend/src/styles/`, loaded in cascade order:
