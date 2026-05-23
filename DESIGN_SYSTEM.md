@@ -47,6 +47,27 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 
 ---
 
+## Phase H — Motion Sweep (v2.39.0)
+
+First phase that introduces **new app-wide motion**. All keyframes neutralized by the global `prefers-reduced-motion: reduce` rule (Phase A reset.css).
+
+### New motion classes (`components.css`)
+
+| Class | Keyframe | What | Where applied |
+|---|---|---|---|
+| `.route-transition` | `route-fade-in` | opacity 0→1 + translateY 8px→0 in 200ms standard ease | `AppLayout` wraps `{children}` in `<div key={location.pathname} className="route-transition">`; re-fires on every route change. **Scan pages bypass AppLayout, so they're auto-skipped.** |
+| `.row-stagger` | `row-enter` | opacity 0→1 + translateY 4px→0; 30ms cascade for the first 12 children, 0ms thereafter | `PickerAdmin.tsx` + `PackerAdmin.tsx` main orders `<tbody>`. **Not** on the staged-orders list (Phase E `.row-flash` handles that). |
+| `.alert-slide-in` | `alert-slide-down` | translateY(-100%)→0 + opacity 0→1 in 250ms emphasized ease | `SlaAlertBanner.tsx` both variants. Banner is conditionally rendered, so animation only runs when the first D4 alert fires. |
+
+### Rule for new motion
+- **Always** use `--duration-*` + `--ease-*` tokens — never hard-coded ms or cubic-bezier.
+- **Always** trust the global `prefers-reduced-motion` override — never write per-component `@media (prefers-reduced-motion)` blocks.
+- **Never** wrap scan-flow pages (`InboundScan`, `PickerMobile`, `PackerMobile`, `StockScan`, `PickerAdminScan`, `PackerAdminScan`, `ScanLogin`) in any route or page-level motion. Their timing is field-validated and must not compete with cosmetic animation.
+- Use `key={location.pathname}` on a wrapper div to re-trigger a CSS animation on route change (cheaper than a JS animation library).
+- For real-time list arrivals that should pulse, use Phase E's `.row-flash` (color flash, no layout shift). For initial-mount cascade, use `.row-stagger` (opacity + translateY). Don't combine on the same element.
+
+---
+
 ## Phase G — Tier 4 Operator-Scan Typography (v2.38.4)
 
 Ultra-surgical. **Zero scan-flow JS touched** — every operator-critical timer / audio / haptic / decode guard is provably untouched (verified by `git diff` before commit).
