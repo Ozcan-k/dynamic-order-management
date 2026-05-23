@@ -306,7 +306,7 @@ function ChartsGrid({ rows, trends, loading }: {
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₱${(Number(v) / 1000).toFixed(0)}k`} />
-            <Tooltip formatter={(v: number) => formatPHP(v)} />
+            <Tooltip formatter={(v) => formatPHP(Number(v))} />
             <Bar dataKey="value" fill="#15803d" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -318,7 +318,7 @@ function ChartsGrid({ rows, trends, loading }: {
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-            <Tooltip formatter={(v: number) => `${v} order${v !== 1 ? 's' : ''}`} />
+            <Tooltip formatter={(v) => { const n = Number(v); return `${n} order${n !== 1 ? 's' : ''}`; }} />
             <Bar dataKey="value" fill="#7c3aed" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -330,7 +330,7 @@ function ChartsGrid({ rows, trends, loading }: {
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => `${v} h`} />
+            <Tooltip formatter={(v) => `${Number(v)} h`} />
             <Bar dataKey="value" fill="#1d4ed8" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
