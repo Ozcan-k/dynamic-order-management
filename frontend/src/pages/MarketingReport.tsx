@@ -108,86 +108,48 @@ export default function MarketingReport() {
       title="Marketing Report"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
-      {/* Range filter strip */}
-      <div style={{
-        background: 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)',
-        color: '#fff',
-        borderRadius: '14px',
-        padding: '16px 18px',
-        marginBottom: '14px',
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: '14px',
-        boxShadow: '0 4px 12px rgba(29,78,216,0.18)',
-      }}>
-        <div style={{ flex: '1 1 auto', minWidth: '200px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Range filter strip — uses shared .page-hero + .preset-btn (Phase F) */}
+      <div className="page-hero">
+        <div className="page-hero-content">
+          <div className="page-hero-label">
             <span>Date Range</span>
             {isToday && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-                background: 'rgba(34,197,94,0.22)', color: '#86efac',
-                border: '1px solid rgba(134,239,172,0.35)',
-                padding: '2px 8px', borderRadius: 9999,
-              }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%', background: '#4ade80',
-                  boxShadow: '0 0 0 2px rgba(74,222,128,0.3)',
-                  animation: 'mktPulse 1.4s ease-in-out infinite',
-                }} />
+              <span className="live-pill">
+                <span className="live-pill-dot" />
                 LIVE
               </span>
             )}
           </div>
-          <div style={{ fontSize: '18px', fontWeight: 700 }}>
+          <div className="page-hero-title">
             {isToday ? `Today · ${today}` : `${from} → ${to}`}
           </div>
-          <style>{`@keyframes mktPulse { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }`}</style>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {PRESET_RANGES.map((p) => (
+        <div className="page-hero-actions">
+          <div className="preset-btn-group">
+            {PRESET_RANGES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPresetId(p.id)}
+                className={`preset-btn${presetId === p.id ? ' preset-btn--active' : ''}`}
+              >{p.label}</button>
+            ))}
             <button
-              key={p.id}
               type="button"
-              onClick={() => setPresetId(p.id)}
-              style={{
-                padding: '8px 14px',
-                fontSize: '13px',
-                fontWeight: 700,
-                border: 'none',
-                borderRadius: '9999px',
-                background: presetId === p.id ? '#fff' : 'rgba(255,255,255,0.18)',
-                color: presetId === p.id ? '#1d4ed8' : '#fff',
-                cursor: 'pointer',
-              }}
-            >{p.label}</button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setPresetId('custom')}
-            style={{
-              padding: '8px 14px',
-              fontSize: '13px',
-              fontWeight: 700,
-              border: 'none',
-              borderRadius: '9999px',
-              background: presetId === 'custom' ? '#fff' : 'rgba(255,255,255,0.18)',
-              color: presetId === 'custom' ? '#1d4ed8' : '#fff',
-              cursor: 'pointer',
-            }}
-          >Custom</button>
-        </div>
-        {presetId === 'custom' && (
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <input type="date" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)}
-              style={{ padding: '8px 10px', borderRadius: '8px', border: 'none', fontWeight: 600, color: '#0f172a' }} />
-            <span>→</span>
-            <input type="date" value={customTo} min={customFrom} max={today} onChange={(e) => setCustomTo(e.target.value)}
-              style={{ padding: '8px 10px', borderRadius: '8px', border: 'none', fontWeight: 600, color: '#0f172a' }} />
+              onClick={() => setPresetId('custom')}
+              className={`preset-btn${presetId === 'custom' ? ' preset-btn--active' : ''}`}
+            >Custom</button>
           </div>
-        )}
+          {presetId === 'custom' && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="date" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)}
+                style={{ padding: '8px 10px', borderRadius: '8px', border: 'none', fontWeight: 600, color: '#0f172a' }} />
+              <span>→</span>
+              <input type="date" value={customTo} min={customFrom} max={today} onChange={(e) => setCustomTo(e.target.value)}
+                style={{ padding: '8px 10px', borderRadius: '8px', border: 'none', fontWeight: 600, color: '#0f172a' }} />
+            </div>
+          )}
+        </div>
       </div>
 
       <Totals rows={leaderboardQuery.data ?? []} loading={leaderboardQuery.isLoading} />

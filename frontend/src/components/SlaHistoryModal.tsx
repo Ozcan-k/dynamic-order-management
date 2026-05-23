@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { colors, radius, shadow, font } from '../theme'
+import { colors, radius, font } from '../theme'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,63 +64,30 @@ export default function SlaHistoryModal({ orderId, trackingNumber, onClose }: Pr
   })
 
   const modal = (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1010,
-        background: 'rgba(15,23,42,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-      }}
-    >
+    <div className="modal-backdrop" onClick={onClose}>
       <div
+        className="modal-card modal-card--wide"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          background: colors.surface,
-          borderRadius: radius.lg,
-          boxShadow: shadow.xl,
-          width: '100%',
-          maxWidth: '520px',
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
+        style={{ maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
       >
         {/* Header */}
         <div
-          style={{
-            padding: '16px 20px',
-            borderBottom: `1px solid ${colors.border}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexShrink: 0,
-          }}
+          className="modal-header"
+          style={{ justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${colors.border}` }}
         >
           <div>
             <div style={{ fontSize: font.sm, color: colors.textSecondary, marginBottom: '2px' }}>
               SLA Escalation History
             </div>
-            <div style={{ fontWeight: 600, fontSize: font.base, color: colors.textPrimary, fontFamily: 'monospace' }}>
+            <div className="modal-title" style={{ fontFamily: 'monospace' }}>
               {trackingNumber}
             </div>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: colors.textSecondary,
-              fontSize: '20px',
-              lineHeight: 1,
-              padding: '4px',
-            }}
+            aria-label="Close"
+            className="btn btn-ghost btn-sm"
+            style={{ padding: '4px 10px', fontSize: 16, lineHeight: 1 }}
           >
             ×
           </button>

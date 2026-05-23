@@ -128,10 +128,10 @@ export default function SalesEntry() {
       title="Daily Activity Entry"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
-      {/* Top controls */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '14px' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Report Date</span>
+      {/* Top controls — Phase F: report-date picker + progress + save-state chips */}
+      <div className="sales-entry-toolbar">
+        <label className="filter-field">
+          <span className="filter-field-label">Report Date</span>
           <input
             type="date"
             value={date}
@@ -142,46 +142,15 @@ export default function SalesEntry() {
               next.set('date', e.target.value)
               setSearchParams(next, { replace: true })
             }}
-            style={{
-              fontSize: '13px',
-              padding: '7px 10px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              background: '#fff',
-              outline: 'none',
-            }}
+            className="filter-field-input"
           />
         </label>
 
-        <div style={{
-          marginLeft: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          fontSize: '12px',
-          color: '#64748b',
-        }}>
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '5px 10px',
-            background: progress.done === progress.total ? '#dcfce7' : '#f1f5f9',
-            color: progress.done === progress.total ? '#166534' : '#475569',
-            borderRadius: '9999px',
-            fontWeight: 600,
-            fontSize: '11px',
-          }}>
+        <div className="sales-entry-status">
+          <span className={`sales-entry-progress${progress.done === progress.total ? ' sales-entry-progress--done' : ''}`}>
             {progress.done}/{progress.total} sections
           </span>
-          <span style={{
-            padding: '5px 10px',
-            background: mutation.isPending ? '#fef9c3' : '#eff6ff',
-            color: mutation.isPending ? '#854d0e' : '#1d4ed8',
-            borderRadius: '9999px',
-            fontWeight: 600,
-            fontSize: '11px',
-          }}>
+          <span className={`sales-entry-save${mutation.isPending ? ' sales-entry-save--saving' : ''}`}>
             {saveLabel}
           </span>
         </div>
@@ -193,17 +162,10 @@ export default function SalesEntry() {
       </div>
 
       {!store && (
-        <div style={{
-          padding: '40px 20px',
-          textAlign: 'center',
-          background: '#fff',
-          border: '1px dashed #cbd5e1',
-          borderRadius: '12px',
-          color: '#64748b',
-        }}>
-          <div style={{ fontSize: '32px', marginBottom: '8px' }}>🏬</div>
-          <strong style={{ display: 'block', color: '#0f172a', marginBottom: '4px' }}>Select a store to begin</strong>
-          <span style={{ fontSize: '13px' }}>Pick one of the stores above. You can switch any time — each store has its own daily report.</span>
+        <div className="empty-state">
+          <div className="empty-state-icon">🏬</div>
+          <div className="empty-state-title">Select a store to begin</div>
+          <div className="empty-state-desc">Pick one of the stores above. You can switch any time — each store has its own daily report.</div>
         </div>
       )}
 
@@ -275,52 +237,30 @@ interface SectionCardProps {
 
 function SectionCard({ title, badge, badgeTone, children, isOpenSection, forceOpen }: SectionCardProps) {
   return (
-    <section style={{
-      background: '#fff',
-      border: '1px solid #e2e8f0',
-      borderRadius: '14px',
-      boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-      overflow: 'hidden',
-    }}>
+    <section className="section-card">
       <button
         type="button"
         onClick={forceOpen}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 16px',
-          background: isOpenSection ? '#f8fafc' : '#fff',
-          border: 'none',
-          borderBottom: isOpenSection ? '1px solid #e2e8f0' : 'none',
-          cursor: 'pointer',
-          textAlign: 'left',
-        }}
+        className={`section-card-header${isOpenSection ? ' section-card-header--open' : ''}`}
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <strong style={{ fontSize: '14px', color: '#0f172a' }}>{title}</strong>
+        <span className="section-card-header-title">
+          <strong>{title}</strong>
           {badge && (
-            <span style={{
-              fontSize: '10px',
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: '9999px',
-              background: badgeTone === 'warn' ? '#fef9c3' : '#eff6ff',
-              color: badgeTone === 'warn' ? '#854d0e' : '#1d4ed8',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-            }}>
+            <span className={`section-card-badge section-card-badge--${badgeTone ?? 'info'}`}>
               {badge}
             </span>
           )}
         </span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpenSection ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+        <svg
+          width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className={`section-card-chevron${isOpenSection ? ' section-card-chevron--open' : ''}`}
+        >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
       {isOpenSection && (
-        <div style={{ padding: '16px', background: '#f8fafc' }}>
+        <div className="section-card-body">
           {children}
         </div>
       )}
