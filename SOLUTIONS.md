@@ -5,6 +5,73 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-23] Prod 502 Bad Gateway after v2.40.0 (vite 5→6 + framer-motion bump) — rolled back to v2.39.1 as v2.40.1; root-cause fix deferred to post-Filipin
+
+### Problem
+At ~00:33 UTC the user reported `https://domwarehouse.com` returning **nginx 502 Bad Gateway**. The merge that broke prod was v2.40.0 (commit `44af48c`, merged `766e1af`), a deps-only change with no application code touched:
+- `frontend/package.json`: added `framer-motion ^12.40.0`, bumped `vite ^5.4.10 → ^6.4.2`
+- `package-lock.json`: regenerated
+
+The CD pipeline reported full success in 4m0s (run `26347544418`): backend + frontend images built, pushed to GHCR, Vultr deploy script ran, `dom_postgres Healthy`, `dom_redis Healthy`, `dom_backend Started`, `dom_frontend Started`, `prisma db push` "already in sync", `Successfully executed commands to all hosts`. Despite all green CD signals, nginx upstream timed out and served 502.
+
+### Root cause (hypothesis — not confirmed with live container logs; rollback prioritized)
+`frontend/Dockerfile` runs `CMD ["npx", "vite", "--host"]` — i.e. **Vite's dev server is the prod surface** (this has been the case since the project began; documented in SOLUTIONS.md [2026-05-19] addendum as something to migrate but never executed). Vite 6's dev-server runtime API has multiple behavior changes vs. Vite 5:
+- `server.allowedHosts` semantics tightened
+- `/@vite/client` HMR token injection
+- WebSocket upgrade handshake
+- Plugin API surface changed (potential `@vitejs/plugin-basic-ssl@2.3.0` interaction)
+
+The container's `Started` status in the deploy log only proves the process spawned, not that it bound to :5173 successfully. Most likely the dev server boot crashed shortly after start (or failed to listen on 0.0.0.0:5173), leaving nginx with no upstream to proxy to → 502.
+
+Backend was identical to v2.39.1 (no source changes), so the 502 was definitively frontend-side.
+
+### Immediate fix (v2.40.1) — emergency rollback
+1. `git checkout test && git revert 44af48c` — clean revert of the deps bump commit
+2. Bumped `CLAUDE.md` "Mevcut versiyon" to v2.40.1
+3. Updated `ARCHITECTURE.md` Version 2.40.1 + Status block with rollback rationale and the deferred action items
+4. `git commit --amend -F` (folded the doc sync into the revert commit)
+5. Tagged `v2.40.1-test`, pushed test
+6. Merged to main with `--no-ff`, tagged `v2.40.1`, pushed main + tag
+7. CD run `26348760835` completed in 2m41s (success). Containers recreated with v2.39.1 code. Post-deploy probe:
+   - `curl https://domwarehouse.com` → **HTTP 200** (431-byte SPA index.html)
+   - `curl https://domwarehouse.com/health` → **HTTP 200** (backend OK)
+
+Total downtime: ~70 minutes (deploy at 00:33 UTC → rollback live at 01:42 UTC).
+
+Frontend deps restored to v2.39.1 lockfile state — `framer-motion` removed (had zero consumers; was queued for future motion work and can be re-added any time without coupling to a vite major).
+
+### Root-cause fix (DEFERRED — do not start until Filipin operasyonu bittiğini kullanıcı söyleyene kadar)
+The proper fix is to stop running Vite dev server in prod and serve the built static bundle instead. This is the same migration that SOLUTIONS.md [2026-05-19] addendum tracked as "v2.36.0" but was never executed. Doing it now would mean:
+
+1. **`frontend/Dockerfile` → multi-stage:**
+   - **build stage:** `node:20-alpine` runs `npm ci` + `npm run build --workspace=shared` + `cd frontend && npm run build` (`vite build`) — produces `dist/`
+   - **runtime stage:** `nginx:alpine` + `COPY --from=build /app/frontend/dist /usr/share/nginx/html` + `COPY nginx.conf /etc/nginx/conf.d/default.conf` + `EXPOSE 80`
+2. **New `frontend/nginx.conf`:**
+   - SPA fallback: `location / { try_files $uri /index.html; }`
+   - Proxy all backend routes from `vite.config.ts proxyRoutes` (`/auth /users /orders /assign /reports /health /picker-admin /packer-admin /picker /packer /outbound /archive /sales /marketing /stock /products /warehouses`) to backend container via `proxy_pass http://backend:3000`
+   - `/socket.io`: same proxy + WebSocket upgrade headers (`proxy_http_version 1.1`, `proxy_set_header Upgrade $http_upgrade`, `proxy_set_header Connection "upgrade"`, long `proxy_read_timeout`) — Socket.io will break without these
+3. **`docker-compose.yml`:** frontend port mapping `5173:80` (container nginx on :80, host still :5173 to keep the outer nginx/firewall config untouched)
+4. **`vite.config.ts` `server.*` block** (proxy, https, hmr, watch, allowedHosts): keep for local dev; has zero effect in prod after the migration since `vite` is no longer running in the container
+5. **Smoke test before merge to main — mandatory:** login + handheld scan flow (audio/haptic must still fire) + at least one real-time socket event (e.g. PickerAdmin staged-orders list updating on a fresh scan from another tab). The proxy + WebSocket rewiring is the high-risk surface.
+6. **After migration ships green, v2.40.0 (vite 6 + framer-motion) can be retried** — at that point the bump is build-time only, so a CI build failure catches it before prod ever sees it.
+
+Estimated work: ~30-40 min including smoke test.
+
+**Why deferred:** Filipin operasyonu sürüyor; mevcut v2.39.1 prod stabil; bu migration ne kadar küçük görünse de proxy + WebSocket yollarını dokunduğu için sıfır olmayan regression riski var. Kullanıcı operasyon bitti deyince ele alınacak. Bu kadar süre içinde frontend dep upgrade önerme.
+
+### Files affected by the rollback
+- `frontend/package.json` — `vite ^6.4.2 → ^5.4.10`, `framer-motion` removed
+- `package-lock.json` — regenerated
+- `CLAUDE.md` — version `v2.40.0 → v2.40.1`
+- `ARCHITECTURE.md` — Version `2.40.0 → 2.40.1`, Status block rewritten with rollback rationale + deferred root-cause fix plan
+
+### Generalised rule
+**CD reporting "Container Started" + "Successfully executed commands" does not prove the upstream is serving traffic.** The Vultr deploy script ends with `docker image prune -f` whose exit code is what `appleboy/ssh-action` checks, so the green tick only means the script ran to completion, not that the app is healthy. For deps-only commits that bump a tool whose runtime lives inside the prod container (Vite, Webpack, etc.), assume the surface contract may have shifted even if no application code changed. The structural fix is to stop coupling prod to a dev-server runtime at all (see deferred fix above); the interim guardrail is to **probe the public URL after every CD run that touches frontend deps** and roll back fast if it 502s.
+
+Memory pairing: `feedback_verify_deploy.md` (deploy persist bug — verify the container, not the code) catches the *other* shape of this failure; this incident is the reverse — the deploy was honest, but the new code itself couldn't serve.
+
+---
+
 ## [2026-05-20] Thermal sticker product name ellipsis-truncated ("Dried Di…") — fix took two attempts
 
 ### Problem
