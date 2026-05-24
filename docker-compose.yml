@@ -59,17 +59,10 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: dom_frontend
     restart: unless-stopped
-    environment:
-      VITE_BACKEND_URL: http://backend:3000
-      VITE_DISABLE_HMR: ${VITE_DISABLE_HMR:-}
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - backend
-    volumes:
-      - ./frontend/src:/app/frontend/src
-      - ./shared/src:/app/shared/src
-      - ./certs:/app/certs:ro
 
 volumes:
   postgres_data:

@@ -5,6 +5,65 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-24] `vite build` + nginx static-serve migration shipped (v2.41.0) — root-cause fix for the 2026-05-23 prod 502 incident
+
+### Context
+The 2026-05-23 prod 502 incident (v2.40.0 vite 5→6 bump) and the persistent `wss://...?token=...` console-noise (v2.35.2 partial fix) both have the same root cause: `frontend/Dockerfile` runs `CMD ["npx", "vite", "--host"]`, so the **Vite dev server is the prod surface**. Filipin operasyonu sürerken bu migration ertelendi; 2026-05-24'te kullanıcı "operasyon durdu, başla" deyince ele alındı.
+
+### What shipped
+**1. `frontend/Dockerfile` → multi-stage:**
+- **builder** (`node:20-alpine`): `npm ci` → `COPY shared/` + `COPY frontend/` → `npm run build --workspace=shared` (produces `shared/dist/`) → `npm run build --workspace=frontend` (= `tsc -b && vite build`, produces `frontend/dist/`)
+- **runtime** (`nginx:alpine`): `RUN rm -f /etc/nginx/conf.d/default.conf` → `COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf` → `COPY --from=builder /app/frontend/dist /usr/share/nginx/html` → `EXPOSE 80` → `CMD ["nginx", "-g", "daemon off;"]`
+
+**2. New `frontend/nginx.conf`:**
+- `gzip on` with broad MIME list
+- `location /assets/`: `expires 1y` + `add_header Cache-Control "public, immutable"` (Vite hashes filenames — content-addressed → safe forever)
+- `location = /index.html`: `add_header Cache-Control "no-cache, must-revalidate"` (new deploy picks up immediately)
+- `location /socket.io/`: `proxy_pass http://backend:3000` + `proxy_http_version 1.1` + `proxy_set_header Upgrade $http_upgrade` + `proxy_set_header Connection "upgrade"` + 7d read/send timeout — **WebSocket scan realtime is non-negotiable**; this location is declared BEFORE the regex proxy block so it wins prefix-matching
+- `location ~ ^/(auth|users|orders|assign|reports|health|picker-admin|packer-admin|picker|packer|outbound|archive|sales|marketing|stock|products|warehouses)(/|$)`: backend proxy mirroring `vite.config.ts:8 proxyRoutes`. Wrapped with `if ($http_accept ~* "text/html") { rewrite ^ /index.html last; }` to mirror Vite proxy `bypass` callback — browser navigations to `/sales` etc. serve the SPA, while XHR/fetch with `Accept: application/json` proxy to backend. `client_max_body_size 25m`.
+- `location /`: `try_files $uri $uri/ /index.html` — SPA fallback for everything else (`/login`, `/inventory/stock`, etc.)
+
+**3. `docker-compose.yml` frontend service:**
+- `ports: "5173:5173"` → `ports: "5173:80"` (host port preserved → Vultr outer nginx `proxy_pass http://localhost:5173` needs no edit; container-internal port changed from Vite 5173 to nginx 80)
+- Removed `volumes:` block (`./frontend/src`, `./shared/src`, `./certs`) — code is now baked into the image at build time. **Side benefit:** CD `git pull` no longer auto-reloads every live browser session (the failure mode rejected in SOLUTIONS.md [2026-05-19] addendum is now structurally impossible)
+- Removed `VITE_BACKEND_URL` + `VITE_DISABLE_HMR` env vars — frontend uses relative paths, nginx handles routing
+
+**4. `vite.config.ts`:** unchanged. The `server.*` block (proxy, https, hmr, watch, allowedHosts) keeps working for `npm run dev` local development; has zero effect in the prod container because `vite` is no longer running there.
+
+### Local smoke test results (Docker Desktop, pre-push)
+| # | Test | Result |
+|---|---|---|
+| 1 | `docker compose build frontend` | ✓ vite v5.4.21 prod build green; 1610 KB JS (gzip 427 KB), 44 KB CSS (gzip 9 KB), 8 Inter woff2 files |
+| 2 | `docker exec dom_frontend nginx -t` | ✓ syntax ok, test successful |
+| 3 | `curl http://localhost:5173/` | ✓ 200 + SPA `index.html`; **`<script type="module" crossorigin src="/assets/index-DmSvx-Z2.js">` is the only script tag — `@vite/client` is GONE** (sentinel) |
+| 4 | `curl -H "Accept: application/json" /health` | ✓ backend `{"status":"ok","timestamp":"..."}` |
+| 5 | `curl -H "Accept: text/html" /sales` | ✓ 200 + SPA `index.html` (browser-nav fallback rewrite working) |
+| 6 | `curl -H "Accept: application/json" /sales` | ✓ backend 404 `{"error":"Route not found: GET /sales"}` (proxy verified — 404 originates from Fastify, Content-Type application/json) |
+| 7 | `curl -I /assets/index-DmSvx-Z2.js` | ✓ `Expires: <+1y>` + `Cache-Control: max-age=31536000` + `Cache-Control: public, immutable` (double Cache-Control header is cosmetic — browsers honor the immutable variant) |
+| 8 | `curl -I /index.html` | ✓ `Cache-Control: no-cache, must-revalidate` |
+| 9 | `curl ... /socket.io/?EIO=4&transport=websocket` upgrade | ✓ **HTTP 101 Switching Protocols** — WebSocket upgrade through nginx proxy working (scan realtime preserved) |
+| 10 | browser DevTools console | ✓ `[socket] connected, id: FZ7JvzQhEhM4B2a9AAA4` (real socket id, not undefined-fallback); **zero `[vite]` connect / wss retry messages** (the multi-year noise that v2.35.2 couldn't silence is now structurally absent) |
+
+Pre-existing pre-existing noise (NOT migration-caused): `[socket] connected, id: undefined` double-fire from `frontend/src/lib/socket.ts:16` (handshake fires `connect` before `socket.id` is assigned, then again with the real id), and `recharts width(-1)/height(-1)` `ResponsiveContainer` zero-height warning on Reports/MarketingReport init. Both pre-date this migration.
+
+### What's pending
+- **User browser smoke test** on `http://localhost:5173` — 5-role login (admin/picker/packer/sales_agent/stock_keeper), StockScan flow with 2s green banner + 3-note beep + 4-pulse vibrate, SPA refresh test on `/sales` `/picker-admin` `/inventory/stock`
+- **Optional Vultr host nginx upstream pre-check** — SSH `cat /etc/nginx/sites-enabled/domwarehouse.com | grep proxy_pass` to confirm it targets `http://localhost:5173` (host port preserved, so this should be fine; pre-check is the safe-paranoid step)
+- **Main merge + Vultr deploy** — awaiting user approval after browser smoke passes
+
+### Rollback path (kept simple)
+Single `git revert <merge-commit>` on `main` undoes Dockerfile + nginx.conf + docker-compose.yml in one shot; `docker compose up -d --build` on Vultr brings the v2.40.2 dev-server-in-prod state back in ~2 min. All three files are single-file changes with no cross-file coupling.
+
+### Note for next vite/dep bump
+With this migration live, frontend dep upgrades (including the originally-planned vite 5→6 bump that crashed prod as v2.40.0) become **build-time only** — a CI build failure catches them before prod ever sees the new image. Retrying the framer-motion + vite 6 bump now becomes a low-risk PR; v2.40.0's failure mode is structurally eliminated.
+
+### URL change — local dev
+Old: `https://localhost:5173` (Vite dev server, self-signed cert via `@vitejs/plugin-basic-ssl`)
+New: `http://localhost:5173` (nginx container HTTP only; TLS terminated by outer nginx on Vultr in prod)
+The `frontend/certs/` mount is gone; local HTTPS development via the dev server is unaffected (`npm run dev` still uses `vite.config.ts` `server.https` if certs exist).
+
+---
+
 ## [2026-05-23] Prod 502 Bad Gateway after v2.40.0 (vite 5→6 + framer-motion bump) — rolled back to v2.39.1 as v2.40.1; root-cause fix deferred to post-Filipin
 
 ### Problem
