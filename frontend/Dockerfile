@@ -1,4 +1,5 @@
-FROM node:20-alpine
+# ── Stage 1: Build shared + frontend ─────────────────────────────────────────
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -7,18 +8,29 @@ COPY package.json package-lock.json* ./
 COPY shared/package.json ./shared/
 COPY frontend/package.json ./frontend/
 
-# Install all dependencies
+# Install all dependencies (full install — vite + tsc needed in build stage)
 RUN npm ci
 
 # Copy source
 COPY shared/ ./shared/
 COPY frontend/ ./frontend/
 
-# Build shared package so frontend can resolve @dom/shared
+# Build shared first so frontend can resolve @dom/shared during vite build
 RUN npm run build --workspace=shared
 
-WORKDIR /app/frontend
+# Build frontend → /app/frontend/dist
+RUN npm run build --workspace=frontend
 
-EXPOSE 5173
+# ── Stage 2: Nginx static serve ──────────────────────────────────────────────
+FROM nginx:alpine AS runner
 
-CMD ["npx", "vite", "--host"]
+# Replace default site with our SPA + proxy config
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built SPA
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
