@@ -36,6 +36,7 @@ enum MovementType {
   IN
   USED
   TRANSFER
+  ADJUSTMENT_OUT
 }
 
 enum SalesPlatform {

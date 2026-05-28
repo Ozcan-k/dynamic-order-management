@@ -11,7 +11,7 @@ export enum UserRole {
 
 export type StockStatus = 'PENDING' | 'IN_STOCK' | 'OUT_OF_STOCK'
 export type StockUnit = 'KG' | 'PCS'
-export type MovementType = 'IN' | 'USED' | 'TRANSFER'
+export type MovementType = 'IN' | 'USED' | 'TRANSFER' | 'ADJUSTMENT_OUT'
 
 export interface StockItemSummary {
   id: string
