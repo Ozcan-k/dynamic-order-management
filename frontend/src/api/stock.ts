@@ -70,6 +70,17 @@ export interface StockSummaryRow {
   lowStock: boolean
 }
 
+export interface StockOutSummaryRow {
+  productId: string
+  productCode: string
+  productName: string
+  categoryId: string
+  categoryName: string
+  defaultUnit: StockUnit
+  boxCount: number
+  totalQuantity: number
+}
+
 export interface ScanResultItem {
   id: string
   productName: string
@@ -191,6 +202,20 @@ export function useStockSummary() {
     queryKey: ['stock-summary'],
     queryFn: async () => {
       const res = await api.get<{ summary: StockSummaryRow[] }>('/stock/summary')
+      return res.data.summary
+    },
+    staleTime: 5_000,
+    refetchInterval: 30_000,
+  })
+}
+
+export function useStockOutSummary(from: string, to: string) {
+  return useQuery({
+    queryKey: ['stock-out-summary', from, to],
+    queryFn: async () => {
+      const res = await api.get<{ summary: StockOutSummaryRow[] }>(
+        `/stock/out-summary?from=${from}&to=${to}`,
+      )
       return res.data.summary
     },
     staleTime: 5_000,

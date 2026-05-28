@@ -207,6 +207,7 @@ const NAV_ITEMS: NavItem[] = [
       { path: '/inventory/items', label: 'Inventory', icon: <StockIcon />, roles: [UserRole.ADMIN] },
       { path: '/inventory/warehouses', label: 'Warehouse', icon: <StockIcon />, roles: [UserRole.ADMIN] },
       { path: '/inventory/stock', label: 'Stock', icon: <StockIcon />, roles: [UserRole.ADMIN] },
+      { path: '/inventory/stock-out', label: 'Stock Out', icon: <StockIcon />, roles: [UserRole.ADMIN] },
     ],
   },
   {
