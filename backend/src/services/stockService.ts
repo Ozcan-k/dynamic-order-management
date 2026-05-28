@@ -727,6 +727,83 @@ export async function listMovements(
   }))
 }
 
+export interface StockOutSummaryRow {
+  productId: string
+  productCode: string
+  productName: string
+  categoryId: string
+  categoryName: string
+  defaultUnit: StockUnit
+  boxCount: number
+  totalQuantity: number
+}
+
+export async function getOutSummary(
+  tenantId: string,
+  from: Date,
+  to: Date,
+): Promise<StockOutSummaryRow[]> {
+  const movements = await prisma.stockMovement.findMany({
+    where: {
+      type: 'USED',
+      scannedAt: { gte: from, lte: to },
+      stockItem: { tenantId },
+    },
+    select: {
+      stockItem: {
+        select: {
+          quantity: true,
+          product: {
+            select: {
+              id: true,
+              productCode: true,
+              name: true,
+              defaultUnit: true,
+              category: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  type Bucket = {
+    productId: string
+    productCode: string
+    productName: string
+    categoryId: string
+    categoryName: string
+    defaultUnit: StockUnit
+    boxCount: number
+    totalQuantity: number
+  }
+  const byProduct = new Map<string, Bucket>()
+  for (const m of movements) {
+    const p = m.stockItem.product
+    let bucket = byProduct.get(p.id)
+    if (!bucket) {
+      bucket = {
+        productId: p.id,
+        productCode: p.productCode,
+        productName: p.name,
+        categoryId: p.category.id,
+        categoryName: p.category.name,
+        defaultUnit: p.defaultUnit,
+        boxCount: 0,
+        totalQuantity: 0,
+      }
+      byProduct.set(p.id, bucket)
+    }
+    bucket.boxCount += 1
+    bucket.totalQuantity += m.stockItem.quantity
+  }
+
+  return Array.from(byProduct.values()).sort((a, b) => {
+    const cat = a.categoryName.localeCompare(b.categoryName)
+    return cat !== 0 ? cat : a.productName.localeCompare(b.productName)
+  })
+}
+
 // ─── Aggregates / Stats ──────────────────────────────────────────────────────
 
 export interface WarehouseBreakdown {

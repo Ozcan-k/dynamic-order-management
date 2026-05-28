@@ -40,7 +40,8 @@ Previous (v2.29.0, deployed 2026-05-02, merge commit `13fb7c2`) — Packer flow 
 - Physical waybills are scanned using barcode scanners to enter orders into the system
 - 50–100 staff members use the system simultaneously
 - Daily volume: ~10,000 orders
-- Data retention: minimum 6 months
+- Data retention: minimum 6 months (180 days) for `Order` and its child tables (`OrderStatusHistory`, `PickerAssignment`, `PackerAssignment`, `SlaEscalation`)
+- **Stock module data is exempt from retention.** `StockItem` and `StockMovement` rows are never archived or hard-deleted; they accumulate as a permanent history so the Stock Out page and movement reports stay queryable indefinitely. Do not add archive/cleanup logic to stock tables.
 
 ### Core Workflow
 ```

@@ -24,6 +24,7 @@ import Products from './pages/inventory/Products'
 import InventoryItems from './pages/inventory/InventoryItems'
 import Warehouses from './pages/inventory/Warehouses'
 import StockSummary from './pages/inventory/StockSummary'
+import StockOut from './pages/inventory/StockOut'
 import StockScan from './pages/StockScan'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
@@ -261,6 +262,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
                 <AppLayout><StockSummary /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/stock-out"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><StockOut /></AppLayout>
               </ProtectedRoute>
             }
           />

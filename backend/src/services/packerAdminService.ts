@@ -6,7 +6,7 @@ export async function getPickerCompleteOrders(tenantId: string) {
   return prisma.order.findMany({
     where: {
       tenantId,
-      status: { in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED] },
+      status: OrderStatus.PICKER_COMPLETE,
       archivedAt: null,
     },
     select: {

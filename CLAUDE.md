@@ -42,7 +42,7 @@ git push origin main --tags
 | Yeni özellik, phase tamamlandı | MINOR → v1.1.0 |
 | Büyük mimari değişiklik | MAJOR → v2.0.0 |
 
-**Mevcut versiyon:** `v2.41.0`
+**Mevcut versiyon:** `v2.42.0`
 
 ### Kesinlikle commit edilmeyecekler:
 - `.env`
@@ -58,3 +58,4 @@ git push origin main --tags
 - Phase'leri sırayla yap: Phase 1 → 2 → ... → 14, ek olarak DC + 10b + SALES (ARCHITECTURE.md Section 15). Şu an Phase 12 partial, 13-14 henüz başlanmadı.
 - Her phase kodu önce `test`'e gider, kullanıcı onayı sonrası `main`'e geçer.
 - Her push öncesi `git pull origin <branch> --rebase` ile remote'u kontrol et.
+- **Retention politikası:** Order ve child tabloları (OrderStatusHistory, PickerAssignment, PackerAssignment, SlaEscalation) 180 gün sonra hard-delete olur (`backend/src/services/archiveService.ts`). Stock tabloları (`StockItem`, `StockMovement`) bu politikadan **muaftır** ve history olarak süresiz tutulur. Stock'a retention/cleanup logic'i EKLEMEYİN — Stock Out raporu için tüm USED movements'in indefinitely queryable kalması şart.

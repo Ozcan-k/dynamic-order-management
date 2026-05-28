@@ -11,6 +11,7 @@ import {
   listMovements,
   getStats,
   getSummary,
+  getOutSummary,
   adjustStock,
 } from '../services/stockService'
 
@@ -52,6 +53,11 @@ const AdjustSchema = z.object({
 const MovementsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+})
+
+const OutSummaryQuerySchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from must be YYYY-MM-DD'),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to must be YYYY-MM-DD'),
 })
 
 export default async function stockRoutes(fastify: FastifyInstance) {
@@ -228,6 +234,23 @@ export default async function stockRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const summary = await getSummary(tenantId)
+      return reply.send({ summary })
+    },
+  )
+
+  // GET /stock/out-summary — ADMIN: per-product USED movement totals in a date range
+  fastify.get(
+    '/out-summary',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    async (request, reply) => {
+      const parsed = OutSummaryQuerySchema.safeParse(request.query)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() })
+      }
+      const { tenantId } = request.user as JWTPayload
+      const from = new Date(`${parsed.data.from}T00:00:00.000Z`)
+      const to = new Date(`${parsed.data.to}T23:59:59.999Z`)
+      const summary = await getOutSummary(tenantId, from, to)
       return reply.send({ summary })
     },
   )
