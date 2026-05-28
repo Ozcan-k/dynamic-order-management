@@ -646,7 +646,7 @@ export async function adjustStock(
       await tx.stockMovement.create({
         data: {
           stockItemId: c.id,
-          type: 'USED',
+          type: 'ADJUSTMENT_OUT',
           fromWarehouseId: input.warehouseId,
           scannedById,
         },

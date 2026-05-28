@@ -105,7 +105,7 @@ interface BulkResultEntry {
   productName?: string
   qty?: number
   unit?: 'KG' | 'PCS'
-  type?: 'IN' | 'USED' | 'TRANSFER'
+  type?: 'IN' | 'USED' | 'TRANSFER' | 'ADJUSTMENT_OUT'
   noChange?: boolean
   error?: string
 }
