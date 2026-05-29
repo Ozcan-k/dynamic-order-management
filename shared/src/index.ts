@@ -100,3 +100,73 @@ export function detectPlatform(trackingNumber: string): Platform {
   if (tn.startsWith('DR')) return Platform.DIRECT
   return Platform.OTHER
 }
+
+// ─── Incident Report Module ──────────────────────────────────────────────────
+
+export enum IncidentType {
+  WRONG_ITEM_PICKED            = 'WRONG_ITEM_PICKED',
+  WRONG_ITEM_PACKED            = 'WRONG_ITEM_PACKED',
+  MISSING_ITEM                 = 'MISSING_ITEM',
+  WRONG_QUANTITY               = 'WRONG_QUANTITY',
+  PARCEL_DAMAGE                = 'PARCEL_DAMAGE',
+  LOST_PARCEL                  = 'LOST_PARCEL',
+  UNSCANNED_PARCEL             = 'UNSCANNED_PARCEL',
+  LATE_PROCESSING              = 'LATE_PROCESSING',
+  INVENTORY_DISCREPANCY        = 'INVENTORY_DISCREPANCY',
+  DAMAGED_INVENTORY            = 'DAMAGED_INVENTORY',
+  LOW_PRODUCTIVITY             = 'LOW_PRODUCTIVITY',
+  FAILURE_TO_FOLLOW_SOP        = 'FAILURE_TO_FOLLOW_SOP',
+  UNAUTHORIZED_ABSENCE         = 'UNAUTHORIZED_ABSENCE',
+  MISCONDUCT                   = 'MISCONDUCT',
+  COMPANY_PROPERTY_DAMAGE      = 'COMPANY_PROPERTY_DAMAGE',
+  SAFETY_INCIDENT              = 'SAFETY_INCIDENT',
+  UNDERTIME                    = 'UNDERTIME',
+  FAILURE_TO_SUBMIT_REPORTS    = 'FAILURE_TO_SUBMIT_REPORTS',
+  FAILURE_POSTING_SCHEDULE     = 'FAILURE_POSTING_SCHEDULE',
+  POOR_QUALITY_CONTENT         = 'POOR_QUALITY_CONTENT',
+  UNAUTHORIZED_RECORDING       = 'UNAUTHORIZED_RECORDING',
+  WRONG_SALES_ENCODING         = 'WRONG_SALES_ENCODING',
+  COURIER_COORDINATION_FAILURE = 'COURIER_COORDINATION_FAILURE',
+  FAILURE_TURN_OVER_PARCELS    = 'FAILURE_TURN_OVER_PARCELS',
+  MISMATCH_PARCEL_COUNT        = 'MISMATCH_PARCEL_COUNT',
+}
+
+export const INCIDENT_TYPE_LABELS: Record<IncidentType, string> = {
+  [IncidentType.WRONG_ITEM_PICKED]:            'Wrong Item Picked',
+  [IncidentType.WRONG_ITEM_PACKED]:            'Wrong Item Packed',
+  [IncidentType.MISSING_ITEM]:                 'Missing Item',
+  [IncidentType.WRONG_QUANTITY]:               'Wrong Quantity',
+  [IncidentType.PARCEL_DAMAGE]:                'Parcel Damage',
+  [IncidentType.LOST_PARCEL]:                  'Lost Parcel / Missing Parcel',
+  [IncidentType.UNSCANNED_PARCEL]:             'Unscanned / Unprocessed Parcel',
+  [IncidentType.LATE_PROCESSING]:              'Late Processing / SLA Failure',
+  [IncidentType.INVENTORY_DISCREPANCY]:        'Inventory Discrepancy',
+  [IncidentType.DAMAGED_INVENTORY]:            'Damaged Inventory',
+  [IncidentType.LOW_PRODUCTIVITY]:             'Low Productivity / KPI Failure',
+  [IncidentType.FAILURE_TO_FOLLOW_SOP]:        'Failure to Follow SOP',
+  [IncidentType.UNAUTHORIZED_ABSENCE]:         'Unauthorized Absence / Abandonment / Tardiness',
+  [IncidentType.MISCONDUCT]:                   'Misconduct / Insubordination',
+  [IncidentType.COMPANY_PROPERTY_DAMAGE]:      'Company Property Damage or Loss',
+  [IncidentType.SAFETY_INCIDENT]:              'Safety Incident / Workplace Accident',
+  [IncidentType.UNDERTIME]:                    'Undertime',
+  [IncidentType.FAILURE_TO_SUBMIT_REPORTS]:    'Failure to Submit Reports',
+  [IncidentType.FAILURE_POSTING_SCHEDULE]:     'Failure to Follow Posting Schedule',
+  [IncidentType.POOR_QUALITY_CONTENT]:         'Poor Quality Content Output',
+  [IncidentType.UNAUTHORIZED_RECORDING]:       'Unauthorized Recording',
+  [IncidentType.WRONG_SALES_ENCODING]:         'Wrong Sales Encoding',
+  [IncidentType.COURIER_COORDINATION_FAILURE]: 'Courier Coordination Failure',
+  [IncidentType.FAILURE_TURN_OVER_PARCELS]:    'Failure to Properly Turn Over Parcels',
+  [IncidentType.MISMATCH_PARCEL_COUNT]:        'Mismatch in Parcel Count',
+}
+
+/** Incident types that require parcel context (tracking number + platform + shop) */
+export const PARCEL_INCIDENT_TYPES: ReadonlyArray<IncidentType> = [
+  IncidentType.WRONG_ITEM_PICKED,
+  IncidentType.WRONG_ITEM_PACKED,
+  IncidentType.MISSING_ITEM,
+  IncidentType.PARCEL_DAMAGE,
+] as const
+
+export function requiresParcelContext(type: IncidentType): boolean {
+  return PARCEL_INCIDENT_TYPES.includes(type)
+}

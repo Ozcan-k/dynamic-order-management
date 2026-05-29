@@ -79,6 +79,34 @@ enum Platform {
   OTHER
 }
 
+enum IncidentType {
+  WRONG_ITEM_PICKED
+  WRONG_ITEM_PACKED
+  MISSING_ITEM
+  WRONG_QUANTITY
+  PARCEL_DAMAGE
+  LOST_PARCEL
+  UNSCANNED_PARCEL
+  LATE_PROCESSING
+  INVENTORY_DISCREPANCY
+  DAMAGED_INVENTORY
+  LOW_PRODUCTIVITY
+  FAILURE_TO_FOLLOW_SOP
+  UNAUTHORIZED_ABSENCE
+  MISCONDUCT
+  COMPANY_PROPERTY_DAMAGE
+  SAFETY_INCIDENT
+  UNDERTIME
+  FAILURE_TO_SUBMIT_REPORTS
+  FAILURE_POSTING_SCHEDULE
+  POOR_QUALITY_CONTENT
+  UNAUTHORIZED_RECORDING
+  WRONG_SALES_ENCODING
+  COURIER_COORDINATION_FAILURE
+  FAILURE_TURN_OVER_PARCELS
+  MISMATCH_PARCEL_COUNT
+}
+
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -117,6 +145,10 @@ model User {
   statusHistoryChanges OrderStatusHistory[]
   salesActivities      SalesDailyActivity[] @relation("SalesActivityAgent")
   salesOrders          SalesDirectOrder[]   @relation("SalesOrderAgent")
+  incidentsAsEmployee  Incident[]           @relation("IncidentEmployee")
+  incidentsReported    Incident[]           @relation("IncidentReportedBy")
+  incidentsCreated     Incident[]           @relation("IncidentCreatedBy")
+  brandingUpdates      CompanyBranding[]    @relation("BrandingUpdatedBy")
 
   @@unique([tenantId, username])
   @@map("users")
@@ -390,8 +422,8 @@ model StockItem {
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   movements StockMovement[]
 
   @@index([tenantId, status])
@@ -417,4 +449,57 @@ model StockMovement {
   @@index([stockItemId])
   @@index([scannedAt])
   @@map("stock_movements")
+}
+
+// ─── Incident Report Module ──────────────────────────────────────────────────
+// Formal HR/operations incident documentation. Independent of order pipeline.
+
+model Incident {
+  id                 String       @id @default(uuid())
+  tenantId           String       @map("tenant_id")
+  incidentType       IncidentType @map("incident_type")
+  incidentDate       DateTime     @map("incident_date")
+  employeeUserId     String       @map("employee_user_id")
+  employeeFullName   String       @map("employee_full_name")
+  employeeEmail      String       @map("employee_email")
+  recipientEmail     String       @map("recipient_email")
+  reportedByUserId   String       @map("reported_by_user_id")
+  reportedByFullName String       @map("reported_by_full_name")
+  reportedByRole     String       @map("reported_by_role")
+  adminDescription   String       @map("admin_description") @db.Text
+  trackingNumber     String?      @map("tracking_number")
+  platform           Platform?
+  shopName           String?      @map("shop_name")
+  signedFilePath     String?      @map("signed_file_path")
+  signedFileMime     String?      @map("signed_file_mime")
+  signedUploadedAt   DateTime?    @map("signed_uploaded_at")
+  emailSentAt        DateTime?    @map("email_sent_at")
+  emailSentTo        String?      @map("email_sent_to")
+  createdById        String       @map("created_by")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  employee   User @relation("IncidentEmployee", fields: [employeeUserId], references: [id], onDelete: Restrict)
+  reportedBy User @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  createdBy  User @relation("IncidentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, incidentDate(sort: Desc)])
+  @@index([tenantId, employeeUserId])
+  @@index([tenantId, incidentType])
+  @@map("incidents")
+}
+
+model CompanyBranding {
+  id          String   @id @default(uuid())
+  tenantId    String   @unique @map("tenant_id")
+  companyName String   @map("company_name")
+  logoPath    String?  @map("logo_path")
+  logoMime    String?  @map("logo_mime")
+  updatedById String   @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  updatedBy User @relation("BrandingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("company_branding")
 }
