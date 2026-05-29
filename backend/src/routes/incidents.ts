@@ -11,6 +11,7 @@ import {
 import { requireRole } from '../middleware/rbac'
 import {
   createIncident,
+  updateIncident,
   listIncidents,
   getIncidentById,
   getIncidentStats,
@@ -28,12 +29,16 @@ import { isSmtpConfigured, sendIncidentEmail } from '../services/incidentEmailSe
 const MAX_SIGNED_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_SIGNED_MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'] as const
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
 const ListQuerySchema = z.object({
   page:           z.coerce.number().int().min(1).default(1),
   pageSize:       z.coerce.number().int().min(1).max(100).default(25),
   search:         z.string().max(120).optional(),
   type:           z.nativeEnum(IncidentType).optional(),
   employeeUserId: z.string().uuid().optional(),
+  from:           z.string().regex(DATE_RE).optional(),
+  to:             z.string().regex(DATE_RE).optional(),
 })
 
 const CreateBodySchema = z.object({
@@ -180,6 +185,46 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         shopName:           body.shopName?.trim(),
       })
       return reply.code(201).send(created)
+    },
+  )
+
+  // ─── Update ──────────────────────────────────────────────────────────────────
+
+  fastify.patch(
+    '/:id',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const parsed = CreateBodySchema.safeParse(request.body)
+      if (!parsed.success) return reply.code(400).send({ error: 'Invalid body', details: parsed.error.flatten() })
+      const body = parsed.data
+
+      if (requiresParcelContext(body.incidentType)) {
+        if (!body.trackingNumber || !body.platform || !body.shopName) {
+          return reply.code(400).send({
+            error: 'Tracking number, platform and shop name are required for this incident type.',
+          })
+        }
+      }
+
+      const { tenantId } = request.user as JWTPayload
+      const updated = await updateIncident(tenantId, id, {
+        incidentType:       body.incidentType,
+        incidentDate:       new Date(body.incidentDate),
+        employeeUserId:     body.employeeUserId,
+        employeeFullName:   body.employeeFullName.trim(),
+        employeeEmail:      body.employeeEmail.trim(),
+        recipientEmail:     body.recipientEmail.trim(),
+        reportedByUserId:   body.reportedByUserId,
+        reportedByFullName: body.reportedByFullName.trim(),
+        reportedByRole:     body.reportedByRole.trim(),
+        adminDescription:   body.adminDescription.trim(),
+        trackingNumber:     body.trackingNumber?.trim(),
+        platform:           body.platform,
+        shopName:           body.shopName?.trim(),
+      })
+      if (!updated) return reply.code(404).send({ error: 'Incident not found' })
+      return reply.send(updated)
     },
   )
 

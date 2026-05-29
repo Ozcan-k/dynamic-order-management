@@ -5,9 +5,11 @@ import {
   useIncidentTypes,
   useSelectableUsers,
   useCreateIncident,
+  useUpdateIncident,
   fetchRememberedFullName,
   lookupTrackingNumber,
   type CreateIncidentInput,
+  type Incident,
   type SelectableUser,
 } from '../../api/incidents'
 import { useAuthStore } from '../../stores/authStore'
@@ -15,37 +17,43 @@ import { useAuthStore } from '../../stores/authStore'
 interface Props {
   onClose: () => void
   onCreated: () => void
+  /** When provided, the modal edits this incident instead of creating a new one. */
+  editing?: Incident
 }
 
-export default function CreateIncidentModal({ onClose, onCreated }: Props) {
+export default function CreateIncidentModal({ onClose, onCreated, editing }: Props) {
+  const isEdit      = !!editing
   const currentUser = useAuthStore((s) => s.user)
   const types       = useIncidentTypes()
   const users       = useSelectableUsers()
   const create      = useCreateIncident()
+  const update      = useUpdateIncident()
+  const saving      = create.isPending || update.isPending
 
   const today = new Date().toISOString().slice(0, 10)
 
-  const [incidentType,       setIncidentType]       = useState<IncidentType | ''>('')
-  const [incidentDate,       setIncidentDate]       = useState<string>(today)
-  const [employeeUserId,     setEmployeeUserId]     = useState<string>('')
-  const [employeeFullName,   setEmployeeFullName]   = useState<string>('')
-  const [employeeEmail,      setEmployeeEmail]      = useState<string>('')
-  const [recipientEmail,     setRecipientEmail]     = useState<string>('')
-  const [reportedByUserId,   setReportedByUserId]   = useState<string>('')
-  const [reportedByFullName, setReportedByFullName] = useState<string>('')
-  const [reportedByRole,     setReportedByRole]     = useState<string>('')
-  const [adminDescription,   setAdminDescription]   = useState<string>('')
-  const [trackingNumber,     setTrackingNumber]     = useState<string>('')
-  const [platform,           setPlatform]           = useState<Platform | ''>('')
-  const [shopName,           setShopName]           = useState<string>('')
+  const [incidentType,       setIncidentType]       = useState<IncidentType | ''>(editing?.incidentType ?? '')
+  const [incidentDate,       setIncidentDate]       = useState<string>(editing ? editing.incidentDate.slice(0, 10) : today)
+  const [employeeUserId,     setEmployeeUserId]     = useState<string>(editing?.employeeUserId ?? '')
+  const [employeeFullName,   setEmployeeFullName]   = useState<string>(editing?.employeeFullName ?? '')
+  const [employeeEmail,      setEmployeeEmail]      = useState<string>(editing?.employeeEmail ?? '')
+  const [recipientEmail,     setRecipientEmail]     = useState<string>(editing?.recipientEmail ?? '')
+  const [reportedByUserId,   setReportedByUserId]   = useState<string>(editing?.reportedByUserId ?? '')
+  const [reportedByFullName, setReportedByFullName] = useState<string>(editing?.reportedByFullName ?? '')
+  const [reportedByRole,     setReportedByRole]     = useState<string>(editing?.reportedByRole ?? '')
+  const [adminDescription,   setAdminDescription]   = useState<string>(editing?.adminDescription ?? '')
+  const [trackingNumber,     setTrackingNumber]     = useState<string>(editing?.trackingNumber ?? '')
+  const [platform,           setPlatform]           = useState<Platform | ''>(editing?.platform ?? '')
+  const [shopName,           setShopName]           = useState<string>(editing?.shopName ?? '')
   const [error,              setError]              = useState<string | null>(null)
 
   const typeMeta = useMemo(() => types.data?.find((t) => t.value === incidentType), [types.data, incidentType])
   const needsParcel = !!typeMeta?.requiresParcel
 
   // Pre-fill the "Reported By" block with the logged-in admin once the user list arrives.
+  // Skipped in edit mode — we keep the original reporter.
   useEffect(() => {
-    if (!currentUser || reportedByUserId) return
+    if (isEdit || !currentUser || reportedByUserId) return
     setReportedByUserId(currentUser.id)
     setReportedByRole(currentUser.role)
     // Try to remember a previously-typed full name for this admin
@@ -53,7 +61,7 @@ export default function CreateIncidentModal({ onClose, onCreated }: Props) {
       if (name) setReportedByFullName(name)
       else setReportedByFullName(currentUser.username)
     }).catch(() => setReportedByFullName(currentUser.username))
-  }, [currentUser, reportedByUserId])
+  }, [isEdit, currentUser, reportedByUserId])
 
   function handleEmployeePicked(userId: string, list: SelectableUser[]) {
     setEmployeeUserId(userId)
@@ -109,11 +117,12 @@ export default function CreateIncidentModal({ onClose, onCreated }: Props) {
     }
 
     try {
-      await create.mutateAsync(input)
+      if (editing) await update.mutateAsync({ id: editing.id, input })
+      else         await create.mutateAsync(input)
       onCreated()
       onClose()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create incident'
+      const msg = err instanceof Error ? err.message : `Failed to ${editing ? 'update' : 'create'} incident`
       setError(msg)
     }
   }
@@ -131,9 +140,9 @@ export default function CreateIncidentModal({ onClose, onCreated }: Props) {
         style={{ maxWidth: 720, width: '92vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
       >
         <div className="modal-header modal-header--primary">
-          <div className="modal-icon modal-icon--primary">+</div>
+          <div className="modal-icon modal-icon--primary">{isEdit ? '✎' : '+'}</div>
           <div style={{ flex: 1 }}>
-            <div className="modal-title">Create Incident Report</div>
+            <div className="modal-title">{isEdit ? 'Edit Incident Report' : 'Create Incident Report'}</div>
             <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Formal HR documentation — all fields are saved verbatim to the PDF.</div>
           </div>
         </div>
@@ -299,9 +308,9 @@ export default function CreateIncidentModal({ onClose, onCreated }: Props) {
           </div>
 
           <div className="modal-footer">
-            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={create.isPending}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending} style={{ minWidth: 140 }}>
-              {create.isPending ? 'Creating…' : 'Create Incident'}
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving} style={{ minWidth: 140 }}>
+              {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create Incident')}
             </button>
           </div>
         </form>

@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { INCIDENT_TYPE_LABELS, IncidentType } from '@dom/shared'
 import {
   type Incident,
-  incidentPdfUrl,
-  incidentSignedUrl,
+  downloadIncidentPdf,
+  downloadSignedFile,
   useUploadSignedFile,
   useSendIncidentEmail,
 } from '../../api/incidents'
@@ -22,6 +22,34 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [signedBusy, setSignedBusy] = useState(false)
+
+  async function handleDownloadPdf() {
+    setFeedback(null)
+    setPdfBusy(true)
+    try {
+      await downloadIncidentPdf(incident.id)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'PDF download failed'
+      setFeedback({ kind: 'err', text: msg })
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  async function handleDownloadSigned() {
+    setFeedback(null)
+    setSignedBusy(true)
+    try {
+      await downloadSignedFile(incident.id)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed'
+      setFeedback({ kind: 'err', text: msg })
+    } finally {
+      setSignedBusy(false)
+    }
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -94,10 +122,12 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
 
           {/* Action buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <a
-              href={incidentPdfUrl(incident.id)} target="_blank" rel="noreferrer"
-              className="btn btn-outline" style={{ textDecoration: 'none' }}
-            >⬇ Download PDF</a>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={handleDownloadPdf}
+              disabled={pdfBusy}
+            >{pdfBusy ? 'Preparing…' : '⬇ Download PDF'}</button>
 
             <button
               type="button"
@@ -123,10 +153,15 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
           </div>
 
           {incident.signedFilePath && (
-            <a
-              href={incidentSignedUrl(incident.id)} target="_blank" rel="noreferrer"
-              style={{ fontSize: 12, color: 'var(--color-primary)', textAlign: 'center' }}
-            >View signed file</a>
+            <button
+              type="button"
+              onClick={handleDownloadSigned}
+              disabled={signedBusy}
+              style={{
+                fontSize: 12, color: 'var(--color-primary)', textAlign: 'center',
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              }}
+            >{signedBusy ? 'Preparing…' : 'Download signed file'}</button>
           )}
 
           {feedback && (

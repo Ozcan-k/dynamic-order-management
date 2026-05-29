@@ -106,6 +106,8 @@ export interface ListIncidentsQuery {
   search?: string
   type?: IncidentType
   employeeUserId?: string
+  from?: string
+  to?: string
 }
 
 export function useIncidents(query: ListIncidentsQuery) {
@@ -153,6 +155,19 @@ export function useCreateIncident() {
   })
 }
 
+export function useUpdateIncident() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: CreateIncidentInput }) => {
+      const res = await api.patch<Incident>(`/incidents/${id}`, input)
+      return res.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
 export function useUploadSignedFile() {
   const qc = useQueryClient()
   return useMutation({
@@ -183,12 +198,30 @@ export function useSendIncidentEmail() {
   })
 }
 
-// ─── URLs (download links) ─────────────────────────────────────────────────
+// ─── Authenticated file downloads ───────────────────────────────────────────
+// A plain <a href> navigation does not carry the auth cookie/baseURL, so it hits
+// the SPA fallback and renders the login screen. Fetch as a blob through the api
+// client (withCredentials) instead, then trigger a save.
 
-export function incidentPdfUrl(id: string): string {
-  return `/incidents/${id}/pdf`
+function saveBlob(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
 }
 
-export function incidentSignedUrl(id: string): string {
-  return `/incidents/${id}/signed`
+export async function downloadIncidentPdf(id: string) {
+  const res = await api.get(`/incidents/${id}/pdf`, { responseType: 'blob' })
+  saveBlob(res.data as Blob, `incident-${id.slice(0, 8)}.pdf`)
+}
+
+export async function downloadSignedFile(id: string) {
+  const res = await api.get(`/incidents/${id}/signed`, { responseType: 'blob' })
+  const mime = String(res.headers['content-type'] ?? '')
+  const ext = mime.includes('pdf') ? 'pdf' : mime.includes('png') ? 'png' : 'jpg'
+  saveBlob(res.data as Blob, `incident-${id.slice(0, 8)}-signed.${ext}`)
 }
