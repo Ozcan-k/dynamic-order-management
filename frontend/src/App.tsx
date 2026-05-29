@@ -20,6 +20,7 @@ import SalesDashboard from './pages/SalesDashboard'
 import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
+import IncidentReport from './pages/IncidentReport'
 import Products from './pages/inventory/Products'
 import InventoryItems from './pages/inventory/InventoryItems'
 import Warehouses from './pages/inventory/Warehouses'
@@ -225,6 +226,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
                 <AppLayout><MarketingReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/incident-report"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                <AppLayout><IncidentReport /></AppLayout>
               </ProtectedRoute>
             }
           />

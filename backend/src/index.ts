@@ -1,10 +1,12 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
 import { Prisma } from '@prisma/client'
+import multipart from '@fastify/multipart'
 import helmetPlugin from './plugins/helmet'
 import corsPlugin from './plugins/cors'
 import rateLimitPlugin from './plugins/rateLimit'
 import authPlugin from './plugins/auth'
+import { ensureUploadDirs } from './lib/uploads'
 import { redis } from './lib/redis'
 import { prisma } from './lib/prisma'
 import { initSocket } from './lib/socket'
@@ -27,6 +29,8 @@ import marketingRoutes from './routes/marketing'
 import stockRoutes from './routes/stock'
 import productRoutes from './routes/products'
 import warehouseRoutes from './routes/warehouses'
+import incidentRoutes from './routes/incidents'
+import brandingRoutes from './routes/branding'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -44,6 +48,15 @@ async function start() {
   await fastify.register(corsPlugin)
   await fastify.register(rateLimitPlugin)
   await fastify.register(authPlugin)
+  await fastify.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB — signed incident files
+      files:    1,
+      fields:   10,
+    },
+  })
+
+  await ensureUploadDirs()
 
   await fastify.register(authRoutes, { prefix: '/auth' })
   await fastify.register(userRoutes, { prefix: '/users' })
@@ -60,6 +73,8 @@ async function start() {
   await fastify.register(stockRoutes, { prefix: '/stock' })
   await fastify.register(productRoutes, { prefix: '/products' })
   await fastify.register(warehouseRoutes, { prefix: '/warehouses' })
+  await fastify.register(incidentRoutes, { prefix: '/incidents' })
+  await fastify.register(brandingRoutes, { prefix: '/branding' })
   if (process.env.NODE_ENV !== 'production') {
     await fastify.register(devTestRoutes)
   }
