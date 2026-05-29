@@ -5,6 +5,123 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-28] Incident Report module shipped (v2.43.0) — LIVE on prod, SMTP setup pending
+
+### Context
+Yeni admin-only modül: çalışan olaylarını (wrong-item, missing-item, parcel-damage, SOP failure, misconduct vs. 25 tip) resmî PDF rapor olarak belgelemek. PDF letterhead için per-tenant company name + logo upload edilebiliyor. Raporlar imzalanmak üzere indirilip, imzalı PDF/JPG geri yüklenebiliyor, ve recipient + employee email'e SMTP üzerinden gönderilebiliyor.
+
+### What shipped (single ship — v2.43.0-test → main merge `0ecb13d`)
+**25 dosya, +2730 / -12 satır.** Detaylı scope `ARCHITECTURE.md` Section 7.10'da.
+
+1. **Prisma schema** (single source: `backend/prisma/schema.prisma`):
+   - `IncidentType` enum — 25 değer (`Incident Report Type.txt` taxonomy'sine birebir uyumlu): WRONG_ITEM_PICKED, WRONG_ITEM_PACKED, MISSING_ITEM, WRONG_QUANTITY, PARCEL_DAMAGE, LOST_PARCEL, UNSCANNED_PARCEL, LATE_PROCESSING, INVENTORY_DISCREPANCY, DAMAGED_INVENTORY, LOW_PRODUCTIVITY, FAILURE_TO_FOLLOW_SOP, UNAUTHORIZED_ABSENCE, MISCONDUCT, COMPANY_PROPERTY_DAMAGE, SAFETY_INCIDENT, UNDERTIME, FAILURE_TO_SUBMIT_REPORTS, FAILURE_POSTING_SCHEDULE, POOR_QUALITY_CONTENT, UNAUTHORIZED_RECORDING, WRONG_SALES_ENCODING, COURIER_COORDINATION_FAILURE, FAILURE_TURN_OVER_PARCELS, MISMATCH_PARCEL_COUNT.
+   - `incidents` tablosu — `tenantId`, `incidentType`, `incidentDate`, employee block (`employeeUserId` FK + `employeeFullName` + `employeeEmail`), `recipientEmail`, reportedBy block (`reportedByUserId` FK + `reportedByFullName` + `reportedByRole`), `adminDescription` (TEXT), conditional parcel block (`trackingNumber? / platform? / shopName?` — sadece 4 tip için), signed file persistence (`signedFilePath? / signedFileMime? / signedUploadedAt?`), email tracking (`emailSentAt? / emailSentTo?`), audit (`createdById`, `createdAt`, `updatedAt`). Index'ler: `(tenantId, incidentDate DESC)`, `(tenantId, employeeUserId)`, `(tenantId, incidentType)`.
+   - `company_branding` tablosu — per-tenant 1 satır (`tenantId @unique`, `companyName`, `logoPath?`, `logoMime?`, `updatedById`, `updatedAt`).
+   - CD `prisma db push --schema=backend/prisma/schema.prisma` ile auto-sync edildi.
+
+2. **`shared/src/index.ts` — single source of truth for the 4-vs-21 split:**
+   ```ts
+   export const PARCEL_INCIDENT_TYPES = [
+     IncidentType.WRONG_ITEM_PICKED,
+     IncidentType.WRONG_ITEM_PACKED,
+     IncidentType.MISSING_ITEM,
+     IncidentType.PARCEL_DAMAGE,
+   ] as const
+   export function requiresParcelContext(type: IncidentType): boolean { ... }
+   ```
+   `INCIDENT_TYPE_LABELS` map (human label'lar). Hem backend (zod validation + PDF template) hem frontend (dropdown + conditional render) bu tek kaynağı tüketiyor.
+
+3. **Backend services (4 yeni):**
+   - `incidentService.ts` — CRUD, list+stats+pivot, lookup-tn (TN → Order'dan platform+shop autofill), signed file FS persistence, `getRememberedFullName()` (aynı user önceki incident'larda hangi Full Name ile geçtiyse onu öneriyor — User'a yeni kolon eklemeden formal isim sorununu çözüyor).
+   - `incidentPdfService.ts` — PDFKit ile A4 letterhead. Layout: logo (70×70) + company name + INCIDENT REPORT etiketi + Report ID (`INC-YYYY-XXXXXX`) + Issue Date / Incident Information bloğu (Type/Date/Employee/Reported By 4 alan 2 kolon) / Parcel Reference (sadece 4 tip için Tracking+Platform+Shop) / Statement of Incident (tip'e özel resmî template paragrafı — 25 template tek `Record<IncidentType, (ctx) => string>` map'inde, isim+tarih+TN/Platform/Shop substitution otomatik) / boxed admin description (justified) / Employee Statement/Defense (boş ruled box — 5 kesik çizgi) / 2 imza bloğu (Employee · Reporting Officer + isim + Date: ____).
+   - `incidentEmailService.ts` — nodemailer transporter (mevcut SMTP_HOST/PORT/USER/PASS/FROM env vars — slaD4Email + nightlyReport zaten kullanıyor; ayrı SMTP_INCIDENT_* prefix kullanılmadı). `isSmtpConfigured()` true/false. PDF attachment olarak gider, recipient + employee email'e.
+   - `brandingService.ts` — getBranding, upsertBranding (logo dosyasını fs.writeFile ile `/app/uploads/branding/{tenantId}.{ext}`'e yazıyor, eski logo varsa siliyor), readLogoBuffer.
+
+4. **Backend routes (2 yeni):**
+   - `/incidents` (12 endpoint): GET / (paginated list with search/type/employeeUserId filters), GET /stats (total + this month + top type + `smtpConfigured` flag), GET /pivot (employee × type count matrix), GET /types (25 değer + label + requiresParcel flag), GET /lookup-tn?tn=... (Order'dan platform+shop), GET /selectable-users (active user listesi), GET /remembered-name/:userId, POST / (zod validate + create), GET /:id, GET /:id/pdf (anlık üretilen unsigned PDF stream), POST /:id/signed (multipart signed file upload, max 10MB, PDF/PNG/JPG), GET /:id/signed (signed file stream), POST /:id/email (SMTP setse PDF attach + send + markEmailSent; setlenmeden 503).
+   - `/branding` (3 endpoint): GET / (current branding info), GET /logo (logo image stream), POST / (multipart: companyName field + optional logo file — PNG/JPG/WebP, max 2MB).
+   - Hepsi `requireRole(UserRole.ADMIN)` middleware'i ile gated.
+
+5. **Infra:**
+   - `@fastify/multipart@^8.3.1` eklendi backend'e.
+   - `docker-compose.yml` backend service'e named volume mount: `backend_uploads:/app/uploads` (yeni `backend_uploads` volume root-level `volumes:` listesinde). Logo + signed files CD redeploy'larından sağ çıkıyor.
+   - `frontend/vite.config.ts` `proxyRoutes` listesi: `/incidents`, `/branding` eklendi.
+   - `frontend/nginx.conf` regex location: `(incidents|branding)` alternation listesine eklendi (yoksa SPA fallback sessizce HTML serve eder, bu kuralın detayı SOLUTIONS.md [2026-05-02]'de).
+
+6. **Frontend (4 yeni dosya + 3 mevcut dosya edit):**
+   - `pages/IncidentReport.tsx` — `/incident-report` route. Page hero (logo + company name + Branding cogwheel + Create Incident butonu), 4 stat card, filter card (search + type dropdown), Table A (Recent Incidents — 25/page paginated, # / Date / Type / Employee / Reported By / Email Sent / Signed / Actions(Open)), Table B (Employee × IncidentType pivot — sticky 1. kolon + horizontal scroll, count'lar bold/regular tinted).
+   - `pages/incident/CreateIncidentModal.tsx` — wide modal. Incident Type dropdown + Date / Employee dropdown (User listesi `username · role`) → Full Name + Email autofill / Recipient Email / Reported By auto-fill from session + editable Full Name + Role / parcel block (4 tip seçilince görünür — TN + Platform + Shop + Lookup button TN'den Order match → platform+shop autofill) / Description textarea.
+   - `pages/incident/ViewIncidentModal.tsx` — Recent table'da Open'a tıklanınca açılır. Incident özeti + admin description preview + 3 buton (Download PDF, Upload Signed multipart, Send Email disabled-when-not-SMTP).
+   - `pages/incident/CompanySettingsModal.tsx` — cogwheel'den açılır. Company name input + logo upload (PNG/JPG/WebP max 2MB) + preview + Save.
+   - `api/incidents.ts` + `api/branding.ts` — TanStack Query hooks (useIncidents, useIncidentStats, useIncidentPivot, useIncidentTypes, useSelectableUsers, useCreateIncident, useUploadSignedFile, useSendIncidentEmail, useBranding, useUpdateBranding) + non-hook helpers (fetchRememberedFullName, lookupTrackingNumber, incidentPdfUrl, incidentSignedUrl, brandingLogoUrl).
+   - `App.tsx` — `/incident-report` route, `ProtectedRoute allowedRoles={[ADMIN]}`.
+   - `Sidebar.tsx` — yeni `IncidentIcon` (warning triangle SVG) + nav entry "Incident Report" placed directly under "Marketing Report", `roles: [UserRole.ADMIN]`.
+   - `shared/src/index.ts` — IncidentType enum + INCIDENT_TYPE_LABELS + PARCEL_INCIDENT_TYPES + requiresParcelContext().
+
+7. **Docs sync (same commit, per `feedback_docs_sync.md` rule):**
+   - `ARCHITECTURE.md` Section 7.10 (Incident Report Module) fully written + status header replaced + Frontend Structure tree (+5 entries: IncidentReport.tsx, incident/3 modal, api/incidents.ts, api/branding.ts) + Backend Structure tree (+6 entries: routes/incidents.ts, routes/branding.ts, services/incident*Service.ts (3), services/brandingService.ts, lib/uploads.ts) + Route Access Control table (+1 line: `/incident-report → ADMIN only`).
+   - `CLAUDE.md` "Mevcut versiyon" → v2.43.0.
+   - `MEMORY.md` (auto-memory) — new entry `project_dom_v243.md` pointer added.
+
+### Pre-push verification
+| # | Check | Result |
+|---|---|---|
+| 1 | `npx prisma format && npx prisma validate` | ✓ schema valid |
+| 2 | `npx prisma generate` (local Windows) | ✓ Client generated to `node_modules/@prisma/client` |
+| 3 | Backend `npx tsc --noEmit` (after `npm run build --workspace=shared` so the new IncidentType + helpers compile through) | ✓ clean |
+| 4 | Frontend `npm run build` (= `tsc -b && vite build`) | ✓ green, 9.62s, CSS 44.02 kB / JS 1652.51 kB |
+
+### Post-deploy verification (LIVE on https://domwarehouse.com)
+User browser-tested on 2026-05-28 and confirmed:
+- Page hero loads with company branding (logo + name)
+- Create Incident modal works end-to-end (Employee dropdown populates, parcel block conditional appearance for the 4 types, TN Lookup autofills Platform + Shop from existing Order)
+- Recent Incidents table populates + paginates
+- Pivot table builds Employee × Type matrix with sticky first column
+- PDF download produces formal letterhead with 25-template substitution
+- Signed file re-upload (PDF/JPG, max 10MB) persists to `backend_uploads` volume
+
+### Open item — SMTP credentials
+**Status:** prod `/opt/dom/.env` has no SMTP_HOST set, so the Send Email button is disabled in the UI with a "SMTP not configured" tooltip. **All other module functionality works without SMTP.**
+
+When the user provides SMTP credentials, add the following to `/opt/dom/.env` on the Vultr host (`ssh root@45.32.107.63`, then edit `/opt/dom/.env`):
+
+```bash
+SMTP_HOST=smtp.gmail.com         # or whatever provider — e.g. smtp.sendgrid.net, smtp.office365.com
+SMTP_PORT=587                    # 587 STARTTLS, 465 SSL
+SMTP_USER=...                    # email address or API username
+SMTP_PASS=...                    # ⚠ Gmail: must be an "App Password", NOT the account password (Google Account → Security → 2FA → App passwords)
+SMTP_FROM="Your Company <noreply@company.com>"
+SMTP_SECURE=false                # true for 465, false for 587 STARTTLS
+```
+
+Then:
+```bash
+cd /opt/dom && docker compose restart dom_backend
+```
+
+Verification path:
+1. `curl https://domwarehouse.com/incidents/stats` (with ADMIN cookie) should now return `smtpConfigured: true`.
+2. UI: open `/incident-report` → click any incident's Open → Send Email button should be enabled (no tooltip).
+3. Send a test incident email → verify it arrives at both `recipientEmail` and `employeeEmail`.
+4. If send fails server-side, check `docker logs dom_backend --tail=200` for the nodemailer error (auth failure, relay rejection, DNS, etc.).
+
+**Reusing existing env vars on purpose:** the same SMTP credentials power `slaD4Email` and `nightlyReport` workers (already in prod when those features were built). The Incident Report module deliberately re-uses them instead of a separate `INCIDENT_SMTP_*` prefix so there's one set of credentials to provision and manage.
+
+### Key design decisions (so future-you doesn't re-deliberate)
+- **User schema has no `firstName`/`lastName`** — only `username` + optional `email` + `role`. To produce formal PDFs (e.g. "Juan Dela Cruz" instead of "picker1") without a schema migration, the Create Incident modal pairs the User dropdown with a separate **"Full Name (as on PDF)" text input**. The first time admin types a name for a given user, `getRememberedFullName()` looks it up on subsequent incidents from `incidents.employeeFullName` / `incidents.reportedByFullName` so they don't have to retype.
+- **Unsigned PDFs are NEVER persisted to disk.** Each download/email request regenerates the PDF in-memory from current DB row + current branding. This means: (a) the document always reflects the latest data, (b) a logo upload after the incident was created immediately appears on the next download, (c) no stale "first-generated" snapshot rots on disk.
+- **Only signed re-uploads hit disk** at `/app/uploads/incidents/{incidentId}-signed.{ext}` on the `backend_uploads` Docker named volume. Old signed file is deleted when a new one is uploaded.
+- **Parcel context is enforced server-side** — for the 4 types in `PARCEL_INCIDENT_TYPES`, zod rejects requests where `trackingNumber || platform || shopName` is missing. Frontend conditional-renders the block, but server doesn't trust the UI.
+- **Send Email button gating** — UI calls `/incidents/stats` which returns `smtpConfigured: !!process.env.SMTP_HOST`. If false, button is `disabled` with tooltip; backend POST `/incidents/:id/email` returns 503 if called anyway.
+- **Module is independent of order pipeline** — no shared tables, no shared queries, no shared queues. Adding/changing inventory or order schemas does not affect incidents.
+
+### Generalised lessons (memory'ye eklendi)
+- **Adding a new IncidentType later:** 4 noktayı birlikte güncelle — `shared/src/index.ts` enum + INCIDENT_TYPE_LABELS map + (parcel-tipi ise PARCEL_INCIDENT_TYPES'a ekle) + `backend/src/services/incidentPdfService.ts TEMPLATES` Record. Aksi takdirde enum kabul edilir ama PDF render'da fallback yapar (template fonksiyonu yoksa `TEMPLATES[type]` undefined → runtime crash). Prisma'da enum'a yeni değer eklemek `db push --accept-data-loss` gerektirir.
+- **`@fastify/multipart` register'ı global** — `index.ts`'te tek register, route'lar `request.parts({ limits })` ile per-route override yapar.
+- **`/app/uploads` path'i tek source** — `backend/src/lib/uploads.ts UPLOADS_ROOT`. Production'da `/app/uploads` (Docker volume), dev'de `./uploads`. Yeni upload feature eklerken bu helper'ı kullan, hardcode path yazma.
+
+---
+
 ## [2026-05-24] `vite build` + nginx static-serve migration shipped (v2.41.0) — root-cause fix for the 2026-05-23 prod 502 incident
 
 ### Context
