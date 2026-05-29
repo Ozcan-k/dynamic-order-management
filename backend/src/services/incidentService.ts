@@ -48,18 +48,74 @@ export async function createIncident(input: CreateIncidentInput) {
   return prisma.incident.create({ data })
 }
 
+export interface UpdateIncidentInput {
+  incidentType: IncidentType
+  incidentDate: Date
+  employeeUserId: string
+  employeeFullName: string
+  employeeEmail: string
+  recipientEmail: string
+  reportedByUserId: string
+  reportedByFullName: string
+  reportedByRole: string
+  adminDescription: string
+  trackingNumber?: string
+  platform?: Platform
+  shopName?: string
+}
+
+export async function updateIncident(tenantId: string, id: string, input: UpdateIncidentInput) {
+  const existing = await prisma.incident.findFirst({ where: { id, tenantId }, select: { id: true } })
+  if (!existing) return null
+
+  const data: Prisma.IncidentUncheckedUpdateInput = {
+    incidentType: input.incidentType,
+    incidentDate: input.incidentDate,
+    employeeUserId: input.employeeUserId,
+    employeeFullName: input.employeeFullName,
+    employeeEmail: input.employeeEmail,
+    recipientEmail: input.recipientEmail,
+    reportedByUserId: input.reportedByUserId,
+    reportedByFullName: input.reportedByFullName,
+    reportedByRole: input.reportedByRole,
+    adminDescription: input.adminDescription,
+  }
+
+  // Parcel context fields are only kept for parcel-type incidents; otherwise cleared
+  // so a type change away from a parcel type doesn't leave stale TN/platform/shop.
+  if (requiresParcelContext(input.incidentType as IncidentTypeEnum)) {
+    data.trackingNumber = input.trackingNumber ?? null
+    data.platform = input.platform ?? null
+    data.shopName = input.shopName ?? null
+  } else {
+    data.trackingNumber = null
+    data.platform = null
+    data.shopName = null
+  }
+
+  return prisma.incident.update({ where: { id }, data })
+}
+
 export interface ListIncidentsQuery {
   page: number
   pageSize: number
   search?: string
   type?: IncidentType
   employeeUserId?: string
+  /** Inclusive date range on incidentDate, as YYYY-MM-DD strings. */
+  from?: string
+  to?: string
 }
 
 export async function listIncidents(tenantId: string, q: ListIncidentsQuery) {
   const where: Prisma.IncidentWhereInput = { tenantId }
   if (q.type) where.incidentType = q.type
   if (q.employeeUserId) where.employeeUserId = q.employeeUserId
+  if (q.from || q.to) {
+    where.incidentDate = {}
+    if (q.from) where.incidentDate.gte = new Date(`${q.from}T00:00:00.000Z`)
+    if (q.to)   where.incidentDate.lte = new Date(`${q.to}T23:59:59.999Z`)
+  }
   if (q.search) {
     where.OR = [
       { employeeFullName: { contains: q.search, mode: 'insensitive' } },
@@ -73,7 +129,9 @@ export async function listIncidents(tenantId: string, q: ListIncidentsQuery) {
     prisma.incident.count({ where }),
     prisma.incident.findMany({
       where,
-      orderBy: { incidentDate: 'desc' },
+      // createdAt as tie-breaker so the genuinely most-recent entry sits on top
+      // when several incidents share the same incidentDate.
+      orderBy: [{ incidentDate: 'desc' }, { createdAt: 'desc' }],
       skip: (q.page - 1) * q.pageSize,
       take: q.pageSize,
     }),

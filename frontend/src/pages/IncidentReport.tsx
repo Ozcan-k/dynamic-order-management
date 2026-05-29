@@ -12,16 +12,46 @@ import CreateIncidentModal     from './incident/CreateIncidentModal'
 import ViewIncidentModal       from './incident/ViewIncidentModal'
 import CompanySettingsModal    from './incident/CompanySettingsModal'
 
+const PRESET_RANGES = [
+  { id: 'all', label: 'All time', days: 0 },
+  { id: '7',   label: 'Last 7 days',  days: 7 },
+  { id: '30',  label: 'Last 30 days', days: 30 },
+  { id: '90',  label: 'Last 90 days', days: 90 },
+] as const
+
+function todayManila(): string {
+  const ms = Date.now() + 8 * 60 * 60 * 1000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+function shiftDate(dateStr: string, days: number): string {
+  const ms = new Date(`${dateStr}T00:00:00.000Z`).getTime() + days * 24 * 60 * 60 * 1000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
 export default function IncidentReport() {
   const [page,        setPage]        = useState(1)
   const [search,      setSearch]      = useState('')
   const [typeFilter,  setTypeFilter]  = useState<IncidentType | ''>('')
+
+  const today = todayManila()
+  const [presetId,   setPresetId]   = useState<string>('all')
+  const [customFrom, setCustomFrom] = useState<string>(shiftDate(today, -29))
+  const [customTo,   setCustomTo]   = useState<string>(today)
+
+  const { from, to } = useMemo(() => {
+    if (presetId === 'all') return { from: undefined, to: undefined }
+    if (presetId === 'custom') return { from: customFrom, to: customTo }
+    const days = PRESET_RANGES.find((p) => p.id === presetId)?.days ?? 30
+    return { from: shiftDate(today, -(days - 1)), to: today }
+  }, [presetId, customFrom, customTo, today])
 
   const stats    = useIncidentStats()
   const incidents = useIncidents({
     page, pageSize: 25,
     search: search.trim() || undefined,
     type:   typeFilter || undefined,
+    from, to,
   })
   const pivot     = useIncidentPivot()
   const branding  = useBranding()
@@ -30,6 +60,7 @@ export default function IncidentReport() {
   const [createOpen,   setCreateOpen]   = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [viewing,      setViewing]      = useState<Incident | null>(null)
+  const [editing,      setEditing]      = useState<Incident | null>(null)
 
   const totalPages = Math.max(1, Math.ceil((incidents.data?.total ?? 0) / 25))
   const smtpConfigured = !!stats.data?.smtpConfigured
@@ -111,6 +142,44 @@ export default function IncidentReport() {
           </div>
         </div>
 
+        {/* ── Date range strip (filters the Recent Incidents table) ──────────── */}
+        <div className="page-hero">
+          <div className="page-hero-content">
+            <div className="page-hero-label">Date Range</div>
+            <div className="page-hero-title">
+              {presetId === 'all' ? 'All time' : `${from} → ${to}`}
+            </div>
+          </div>
+          <div className="page-hero-actions">
+            <div className="preset-btn-group">
+              {PRESET_RANGES.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { setPresetId(p.id); setPage(1) }}
+                  className={`preset-btn${presetId === p.id ? ' preset-btn--active' : ''}`}
+                >{p.label}</button>
+              ))}
+              <button
+                type="button"
+                onClick={() => { setPresetId('custom'); setPage(1) }}
+                className={`preset-btn${presetId === 'custom' ? ' preset-btn--active' : ''}`}
+              >Custom</button>
+            </div>
+            {presetId === 'custom' && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="date" value={customFrom} max={customTo}
+                  onChange={(e) => { setCustomFrom(e.target.value); setPage(1) }}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }} />
+                <span>→</span>
+                <input type="date" value={customTo} min={customFrom} max={today}
+                  onChange={(e) => { setCustomTo(e.target.value); setPage(1) }}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }} />
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* ── Table A: Recent Incidents ─────────────────────────────────────── */}
         <SectionCard title="Recent Incidents" count={incidents.data?.total ?? 0}>
           <div className="data-table-wrap">
@@ -155,7 +224,10 @@ export default function IncidentReport() {
                         : <span className="count-badge" style={{ background: '#f1f5f9', color: '#64748b' }}>—</span>}
                     </Td>
                     <Td style={{ textAlign: 'right' }}>
-                      <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
+                      <div style={{ display: 'inline-flex', gap: 6 }}>
+                        <button className="btn btn-sm btn-outline" onClick={() => setEditing(row)}>Edit</button>
+                        <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
+                      </div>
                     </Td>
                   </tr>
                 ))}
@@ -214,6 +286,13 @@ export default function IncidentReport() {
       {createOpen && (
         <CreateIncidentModal
           onClose={() => setCreateOpen(false)}
+          onCreated={() => { stats.refetch(); incidents.refetch(); pivot.refetch() }}
+        />
+      )}
+      {editing && (
+        <CreateIncidentModal
+          editing={editing}
+          onClose={() => setEditing(null)}
           onCreated={() => { stats.refetch(); incidents.refetch(); pivot.refetch() }}
         />
       )}

@@ -1165,7 +1165,7 @@ PENDING and OUT_OF_STOCK rows are excluded from every aggregate above. Frontend 
 
 ---
 
-### 7.10 Incident Report Module ✅ Built (v2.43.0)
+### 7.10 Incident Report Module ✅ Built (v2.43.0; v2.44.0 added edit + date-range filter + blob PDF download)
 **Visible to:** Admin only
 **Sidebar:** "Incident Report" — placed directly under "Marketing Report".
 **Route:** `/incident-report`.
@@ -1212,7 +1212,7 @@ Branding header gracefully degrades when no logo has been uploaded yet (Company 
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | Paginated list. Query: `page`, `pageSize`, `search` (matches employee name / tracking / emails), `type`, `employeeUserId` |
+| GET | `/` | Paginated list. Query: `page`, `pageSize`, `search` (matches employee name / tracking / emails), `type`, `employeeUserId`, `from`/`to` (inclusive `incidentDate` range, `YYYY-MM-DD`). Ordered by `incidentDate desc, createdAt desc` |
 | GET | `/stats` | `{ total, thisMonth, topType: {type,count} \| null, smtpConfigured }` |
 | GET | `/pivot` | Employee × type pivot matrix sorted by total desc |
 | GET | `/types` | The 25 IncidentType values with their human labels + `requiresParcel` flag |
@@ -1220,6 +1220,7 @@ Branding header gracefully degrades when no logo has been uploaded yet (Company 
 | GET | `/selectable-users` | Active users in the tenant — feeds the Employee dropdown |
 | GET | `/remembered-name/:userId` | Returns the most-recent `employeeFullName` or `reportedByFullName` previously typed for that user (so the form pre-fills a real name instead of a username) |
 | POST | `/` | Create (JSON body validated by zod) |
+| PATCH | `/:id` | Update an existing incident (same zod body as create). Parcel fields (TN/platform/shop) are cleared when the type is changed to a non-parcel type |
 | GET | `/:id` | Single incident |
 | GET | `/:id/pdf` | Stream the unsigned PDF (regenerated each request) |
 | POST | `/:id/signed` | Multipart upload of the signed PDF/PNG/JPG (max 10 MB) |
@@ -1240,9 +1241,9 @@ Re-uses the existing `SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM`
 
 #### Frontend (page + modals)
 
-- `frontend/src/pages/IncidentReport.tsx` — page hero (logo + company name + 2 CTAs) · 4 stat cards · filter card · Table A (Recent Incidents, 25/page) · Table B (Pivot — employees × 25 incident types, sticky first column + horizontal scroll)
-- `frontend/src/pages/incident/CreateIncidentModal.tsx` — wide modal with grid form. Conditional 3-field parcel block (TN + Platform + Shop) appears only for the 4 parcel-context types. TN "Lookup" button calls `/incidents/lookup-tn` to auto-fill Platform + Shop from a matching Order. Employee dropdown auto-fills Full Name (from `getRememberedFullName()`) + Email (from `User.email`). Reported By block auto-fills from the current admin session
-- `frontend/src/pages/incident/ViewIncidentModal.tsx` — opened from any row in Table A. Shows admin description + 3-button action row (Download PDF · Upload Signed · Send Email) + status of signed/email
+- `frontend/src/pages/IncidentReport.tsx` — page hero (logo + company name + 2 CTAs) · 4 stat cards · filter card · marketing-style date-range strip (All time / 7 / 30 / 90 / Custom) that filters Table A only · Table A (Recent Incidents, 25/page; each row has **Edit** + **Open** actions) · Table B (Pivot — employees × 25 incident types, sticky first column + horizontal scroll)
+- `frontend/src/pages/incident/CreateIncidentModal.tsx` — wide modal with grid form, reused for both create and **edit** (optional `editing` prop). Conditional 3-field parcel block (TN + Platform + Shop) appears only for the 4 parcel-context types. TN "Lookup" button calls `/incidents/lookup-tn` to auto-fill Platform + Shop from a matching Order. Employee dropdown auto-fills Full Name (from `getRememberedFullName()`) + Email (from `User.email`). Reported By block auto-fills from the current admin session (create mode only)
+- `frontend/src/pages/incident/ViewIncidentModal.tsx` — opened from any row in Table A. Shows admin description + 3-button action row (Download PDF · Upload Signed · Send Email) + status of signed/email. PDF + signed file are fetched as authenticated blobs via the api client (`downloadIncidentPdf`/`downloadSignedFile`) — a plain `<a href>` would hit the SPA fallback and render the login screen
 - `frontend/src/pages/incident/CompanySettingsModal.tsx` — cogwheel modal in the page hero. Edit company name + replace logo
 - `frontend/src/api/incidents.ts` + `frontend/src/api/branding.ts` — TanStack Query hooks; the only places that touch axios for this module
 
