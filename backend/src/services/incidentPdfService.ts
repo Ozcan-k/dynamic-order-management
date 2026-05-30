@@ -31,7 +31,7 @@ export async function generateIncidentPdfBuffer(incident: Incident): Promise<Buf
     doc.on('end',  () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    drawHeader(doc, incident, branding.companyName || 'Company Name', logo)
+    drawHeader(doc, incident, branding, logo)
     doc.moveDown(0.5)
     drawIncidentInfo(doc, incident)
     if (requiresParcelContext(incident.incidentType as IncidentType)) {
@@ -40,6 +40,7 @@ export async function generateIncidentPdfBuffer(incident: Incident): Promise<Buf
     drawStatement(doc, incident)
     drawAdminDescription(doc, incident)
     drawEmployeeStatementBox(doc)
+    drawWitness(doc, incident)
     drawSignatures(doc, incident)
 
     doc.end()
@@ -54,10 +55,19 @@ const COLOR_LABEL      = '#475569'
 const COLOR_TEXT       = '#0f172a'
 const COLOR_SUBTLE_BG  = '#f8fafc'
 
-function drawHeader(doc: PDFKit.PDFDocument, incident: Incident, companyName: string, logo: { buffer: Buffer; mime: string } | null) {
+interface HeaderBranding {
+  companyName: string
+  address: string | null
+  email: string | null
+  contactNumber: string | null
+}
+
+function drawHeader(doc: PDFKit.PDFDocument, incident: Incident, branding: HeaderBranding, logo: { buffer: Buffer; mime: string } | null) {
   const startY = doc.y
   const leftX = doc.page.margins.left
   const rightX = doc.page.width - doc.page.margins.right
+  const textX = leftX + 85
+  const textW = rightX - textX - 150 // leave room for the right-aligned report id/date block
 
   // Logo
   if (logo) {
@@ -66,13 +76,21 @@ function drawHeader(doc: PDFKit.PDFDocument, incident: Incident, companyName: st
     } catch { /* invalid image, skip */ }
   }
 
-  // Company name + report label
+  // Company name + report label + contact line (left column, flows downward)
   doc.font('Helvetica-Bold').fontSize(18).fillColor(COLOR_PRIMARY)
-     .text(companyName, leftX + 85, startY + 6, { width: 280 })
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLOR_TEXT)
-     .text('INCIDENT REPORT', leftX + 85, startY + 32, { width: 280, characterSpacing: 1.5 })
+     .text(branding.companyName || 'Company Name', textX, startY + 4, { width: textW })
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(COLOR_TEXT)
+     .text('INCIDENT REPORT', textX, doc.y + 2, { width: textW, characterSpacing: 1.5 })
 
-  // Right side: report id + issue date
+  const contactLine = [branding.address, branding.contactNumber, branding.email]
+    .map((s) => s?.trim()).filter(Boolean).join('   ·   ')
+  if (contactLine) {
+    doc.font('Helvetica').fontSize(8).fillColor(COLOR_LABEL)
+       .text(contactLine, textX, doc.y + 3, { width: textW })
+  }
+  const leftBottom = doc.y
+
+  // Right side: report id + issue date (absolute, anchored to startY)
   const reportId = `INC-${incident.createdAt.getFullYear()}-${shortId(incident.id)}`
   const issueDate = formatDate(incident.createdAt)
   doc.font('Helvetica').fontSize(9).fillColor(COLOR_LABEL)
@@ -84,11 +102,12 @@ function drawHeader(doc: PDFKit.PDFDocument, incident: Incident, companyName: st
   doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_TEXT)
      .text(issueDate,    rightX - 140, startY + 48, { width: 140, align: 'right' })
 
-  // Divider
-  doc.moveTo(leftX, startY + 80).lineTo(rightX, startY + 80)
+  // Divider sits below the tallest of: logo, left text column, right id/date block
+  const dividerY = Math.max(leftBottom, startY + 62, startY + 72) + 8
+  doc.moveTo(leftX, dividerY).lineTo(rightX, dividerY)
      .lineWidth(1).strokeColor(COLOR_PRIMARY).stroke()
 
-  doc.y = startY + 90
+  doc.y = dividerY + 10
   doc.x = leftX
 }
 
@@ -216,18 +235,41 @@ function drawEmployeeStatementBox(doc: PDFKit.PDFDocument) {
   doc.x = leftX
 }
 
+function drawWitness(doc: PDFKit.PDFDocument, incident: Incident) {
+  if (!incident.witnessName) return
+  const leftX = doc.page.margins.left
+  const rightX = doc.page.width - doc.page.margins.right
+  const width = rightX - leftX
+
+  ensureSpaceOnPage(doc, 70)
+  sectionTitle(doc, 'Witness')
+  const rowY = doc.y
+  const colW = width / 2
+  drawField(doc, leftX,        rowY, colW - 10, 'Witness Name', incident.witnessName)
+  drawField(doc, leftX + colW, rowY, colW - 10, 'Position',     incident.witnessPosition || '—')
+
+  doc.y = rowY + 36
+  doc.x = leftX
+}
+
 function drawSignatures(doc: PDFKit.PDFDocument, incident: Incident) {
   const leftX = doc.page.margins.left
   const rightX = doc.page.width - doc.page.margins.right
   const width = rightX - leftX
-  const colW = (width - 20) / 2
+  const hasWitness = !!incident.witnessName
+  const cols = hasWitness ? 3 : 2
+  const gap = 20
+  const colW = (width - gap * (cols - 1)) / cols
 
   ensureSpaceOnPage(doc, 100)
   sectionTitle(doc, 'Acknowledgement & Signatures')
 
   const startY = doc.y
-  drawSignatureBlock(doc, leftX,              startY, colW, 'Employee Signature',          incident.employeeFullName)
-  drawSignatureBlock(doc, leftX + colW + 20,  startY, colW, 'Reporting Officer Signature', incident.reportedByFullName)
+  drawSignatureBlock(doc, leftX,                       startY, colW, 'Employee Signature',          incident.employeeFullName)
+  drawSignatureBlock(doc, leftX + (colW + gap),        startY, colW, 'Reporting Officer Signature', incident.reportedByFullName)
+  if (hasWitness) {
+    drawSignatureBlock(doc, leftX + 2 * (colW + gap),  startY, colW, 'Witness Signature',           incident.witnessName ?? '')
+  }
 }
 
 function drawSignatureBlock(doc: PDFKit.PDFDocument, x: number, y: number, w: number, label: string, name: string) {

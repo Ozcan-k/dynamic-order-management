@@ -33,7 +33,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // POST /orders/scan — ADMIN, INBOUND_ADMIN
   fastify.post(
     '/scan',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ScanSchema.safeParse(request.body)
       if (!result.success) {
@@ -57,7 +57,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // POST /orders/handheld-scan — phone signals desktop to open QuickScanModal (no DB write)
   fastify.post(
     '/handheld-scan',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = z.object({ trackingNumber: z.string().min(1).max(100) }).safeParse(request.body)
       if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
@@ -81,7 +81,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // POST /orders/handheld-bulk-scan — phone signals desktop to open BulkScanModal (no DB write)
   fastify.post(
     '/handheld-bulk-scan',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = z.object({ trackingNumbers: z.array(z.string().min(1).max(100)).min(1).max(200) }).safeParse(request.body)
       if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
@@ -97,7 +97,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // GET /orders/pending-handheld — desktop polls on page load to catch missed socket events
   fastify.get(
     '/pending-handheld',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { userId } = request.user as JWTPayload
       const [single, bulkRaw] = await Promise.all([
@@ -112,7 +112,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // POST /orders/bulk-scan — ADMIN, INBOUND_ADMIN
   fastify.post(
     '/bulk-scan',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = BulkScanSchema.safeParse(request.body)
       if (!result.success) {
@@ -131,7 +131,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // GET /orders/shops — ADMIN, INBOUND_ADMIN
   fastify.get(
     '/shops',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const shops = await getDistinctShopNames(tenantId)
@@ -145,7 +145,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -161,7 +161,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -173,7 +173,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // POST /orders/generate-direct — generate a unique DR tracking number (no DB write)
   fastify.post(
     '/generate-direct',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       try {
@@ -188,7 +188,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // DELETE /orders/:id — ADMIN, INBOUND_ADMIN
   fastify.delete(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const { tenantId } = request.user as JWTPayload
@@ -208,7 +208,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {

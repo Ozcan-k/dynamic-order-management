@@ -5,12 +5,14 @@ import {
   useIncidentStats,
   useIncidentPivot,
   useIncidentTypes,
+  useDeleteIncident,
   type Incident,
 } from '../api/incidents'
 import { useBranding, brandingLogoUrl } from '../api/branding'
 import CreateIncidentModal     from './incident/CreateIncidentModal'
 import ViewIncidentModal       from './incident/ViewIncidentModal'
 import CompanySettingsModal    from './incident/CompanySettingsModal'
+import ConfirmModal            from '../components/shared/ConfirmModal'
 
 const PRESET_RANGES = [
   { id: 'all', label: 'All time', days: 0 },
@@ -61,6 +63,8 @@ export default function IncidentReport() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [viewing,      setViewing]      = useState<Incident | null>(null)
   const [editing,      setEditing]      = useState<Incident | null>(null)
+  const [deleting,     setDeleting]     = useState<Incident | null>(null)
+  const deleteIncident = useDeleteIncident()
 
   const totalPages = Math.max(1, Math.ceil((incidents.data?.total ?? 0) / 25))
   const smtpConfigured = !!stats.data?.smtpConfigured
@@ -227,6 +231,11 @@ export default function IncidentReport() {
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                         <button className="btn btn-sm btn-outline" onClick={() => setEditing(row)}>Edit</button>
                         <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
+                        <button
+                          className="btn btn-sm btn-outline"
+                          style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                          onClick={() => setDeleting(row)}
+                        >Delete</button>
                       </div>
                     </Td>
                   </tr>
@@ -305,6 +314,23 @@ export default function IncidentReport() {
           smtpConfigured={smtpConfigured}
           onClose={() => setViewing(null)}
           onChanged={() => { incidents.refetch(); stats.refetch() }}
+        />
+      )}
+      {deleting && (
+        <ConfirmModal
+          title="Delete Incident Report"
+          message={`Are you sure you want to delete the ${INCIDENT_TYPE_LABELS[deleting.incidentType as IncidentType]} report for ${deleting.employeeFullName}?`}
+          detail="This permanently deletes the report and its signed file. This action cannot be undone."
+          confirmLabel="Delete"
+          tone="danger"
+          busy={deleteIncident.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={async () => {
+            try {
+              await deleteIncident.mutateAsync(deleting.id)
+              setDeleting(null)
+            } catch { /* keep modal open so the user can retry */ }
+          }}
         />
       )}
     </div>

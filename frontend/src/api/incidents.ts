@@ -24,6 +24,8 @@ export interface Incident {
   trackingNumber: string | null
   platform: Platform | null
   shopName: string | null
+  witnessName: string | null
+  witnessPosition: string | null
   signedFilePath: string | null
   signedFileMime: string | null
   signedUploadedAt: string | null
@@ -68,6 +70,8 @@ export interface CreateIncidentInput {
   trackingNumber?: string
   platform?: Platform
   shopName?: string
+  witnessName?: string
+  witnessPosition?: string
 }
 
 // ─── Lookups ────────────────────────────────────────────────────────────────
@@ -160,6 +164,19 @@ export function useUpdateIncident() {
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: CreateIncidentInput }) => {
       const res = await api.patch<Incident>(`/incidents/${id}`, input)
+      return res.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
+export function useDeleteIncident() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.delete<{ id: string }>(`/incidents/${id}`)
       return res.data
     },
     onSuccess: () => {

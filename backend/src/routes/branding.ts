@@ -10,7 +10,7 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
   // GET /branding — current branding info
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const data = await getBranding(tenantId)
@@ -35,11 +35,14 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
   // POST /branding — multipart upload: companyName (field) + logo (optional file)
   fastify.post(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId, userId } = request.user as JWTPayload
 
       let companyName: string | null = null
+      let address: string | null = null
+      let email: string | null = null
+      let contactNumber: string | null = null
       let logoBuffer: Buffer | null = null
       let logoMime: string | null = null
 
@@ -48,6 +51,12 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
         if (part.type === 'field') {
           if (part.fieldname === 'companyName') {
             companyName = String(part.value ?? '').trim()
+          } else if (part.fieldname === 'address') {
+            address = String(part.value ?? '').trim() || null
+          } else if (part.fieldname === 'email') {
+            email = String(part.value ?? '').trim() || null
+          } else if (part.fieldname === 'contactNumber') {
+            contactNumber = String(part.value ?? '').trim() || null
           }
         } else if (part.type === 'file' && part.fieldname === 'logo') {
           if (!ALLOWED_LOGO_MIMES.includes(part.mimetype as typeof ALLOWED_LOGO_MIMES[number])) {
@@ -69,6 +78,9 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
         tenantId,
         updatedById: userId,
         companyName,
+        address,
+        email,
+        contactNumber,
         logo: logoBuffer && logoMime ? { buffer: logoBuffer, mime: logoMime } : undefined,
       })
       return reply.send(dto)

@@ -35,7 +35,7 @@ const BulkActionSchema = z.object({
 })
 
 export default async function pickerAdminRoutes(fastify: FastifyInstance) {
-  const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PICKER_ADMIN)]
+  const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN)]
 
   // GET /picker-admin/orders
   fastify.get('/orders', { preHandler }, async (request, reply) => {

@@ -43,7 +43,7 @@ const queryClient = new QueryClient({
 function RootRoute() {
   const user = useAuthStore((s) => s.user)
   if (!user) return <Navigate to="/login" replace />
-  if (user.role === UserRole.ADMIN || user.role === UserRole.INBOUND_ADMIN) {
+  if (user.role === UserRole.ADMIN || user.role === UserRole.INBOUND_ADMIN || user.role === UserRole.WAREHOUSE_ADMIN) {
     return <AppLayout><Dashboard /></AppLayout>
   }
   const homeByRole: Record<string, string> = {
@@ -101,7 +101,7 @@ export default function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Inbound /></AppLayout>
               </ProtectedRoute>
             }
@@ -109,7 +109,7 @@ export default function App() {
           <Route
             path="/picker-admin"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><PickerAdmin /></AppLayout>
               </ProtectedRoute>
             }
@@ -117,7 +117,7 @@ export default function App() {
           <Route
             path="/packer-admin"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><PackerAdmin /></AppLayout>
               </ProtectedRoute>
             }
@@ -125,7 +125,7 @@ export default function App() {
           <Route
             path="/outbound"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Outbound /></AppLayout>
               </ProtectedRoute>
             }
@@ -133,7 +133,7 @@ export default function App() {
           <Route
             path="/archive"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Archive /></AppLayout>
               </ProtectedRoute>
             }
@@ -141,7 +141,7 @@ export default function App() {
           <Route
             path="/reports"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Reports /></AppLayout>
               </ProtectedRoute>
             }
@@ -158,7 +158,7 @@ export default function App() {
           <Route
             path="/inbound-scan"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <InboundScan />
               </ProtectedRoute>
             }
@@ -166,7 +166,7 @@ export default function App() {
           <Route
             path="/picker-admin-scan"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <PickerAdminScan />
               </ProtectedRoute>
             }
@@ -174,7 +174,7 @@ export default function App() {
           <Route
             path="/packer-admin-scan"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <PackerAdminScan />
               </ProtectedRoute>
             }
@@ -232,7 +232,7 @@ export default function App() {
           <Route
             path="/incident-report"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><IncidentReport /></AppLayout>
               </ProtectedRoute>
             }
@@ -245,7 +245,7 @@ export default function App() {
           <Route
             path="/inventory/products"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Products /></AppLayout>
               </ProtectedRoute>
             }
@@ -253,7 +253,7 @@ export default function App() {
           <Route
             path="/inventory/items"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><InventoryItems /></AppLayout>
               </ProtectedRoute>
             }
@@ -261,7 +261,7 @@ export default function App() {
           <Route
             path="/inventory/warehouses"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Warehouses /></AppLayout>
               </ProtectedRoute>
             }
@@ -269,7 +269,7 @@ export default function App() {
           <Route
             path="/inventory/stock"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><StockSummary /></AppLayout>
               </ProtectedRoute>
             }
@@ -277,7 +277,7 @@ export default function App() {
           <Route
             path="/inventory/stock-out"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><StockOut /></AppLayout>
               </ProtectedRoute>
             }
@@ -288,7 +288,7 @@ export default function App() {
           <Route
             path="/stock/scan"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.STOCK_KEEPER]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN]}>
                 <StockScan />
               </ProtectedRoute>
             }

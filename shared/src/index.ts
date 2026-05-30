@@ -7,6 +7,7 @@ export enum UserRole {
   PACKER = 'PACKER',
   SALES_AGENT = 'SALES_AGENT',
   STOCK_KEEPER = 'STOCK_KEEPER',
+  WAREHOUSE_ADMIN = 'WAREHOUSE_ADMIN',
 }
 
 export type StockStatus = 'PENDING' | 'IN_STOCK' | 'OUT_OF_STOCK'
