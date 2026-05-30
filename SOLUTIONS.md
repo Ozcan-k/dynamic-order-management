@@ -5,6 +5,41 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-05-30] Stock Out raporunu kirleten test-dönemi manuel Remove'ları temizlendi (data-only, no code change)
+
+### Context
+Stock Out sayfası (`/inventory/stock-out`, `getOutSummary`) sadece `type='USED'` hareketlerini sayıyor. Kurulum/test döneminde (05-10→05-24) eklenip Stock sayfasından **admin "Remove Box"** ile çıkarılan test ürünleri, o tarihte prod henüz `ADJUSTMENT_OUT` fix'ini görmediği için `USED` olarak yazılmış ve gerçek scan çıkışlarıyla birlikte Stock Out raporunda görünüyordu. Kullanıcı bunların raporda görünmemesini istedi; sadece scan ile çıkış yapılan miktar kalsın.
+
+### Kök sorun: Remove vs Scan veride ayırt edilemez
+Eski kodda **"Admin Remove Box" da "Scan Out" da birebir aynı `USED` kaydını** yazıyordu (`type`, `from_warehouse`, `scanned_by` aynı). Ayırt etmeyi denediğimiz tüm sinyaller başarısız:
+- **`scanned_by`** → Remove ADMIN rolüyle yapılır ama aynı hesaplar scan da yapıyor; Cranberry/Almond gibi "admin sildim" denen ürünlerin USED'leri bile personel (Zairah/bilal/Zedric) üzerindeydi.
+- **`ADJ-` batch öneki** → sadece manuel ADD'lerde var; tüm 342 USED içinde sadece 2 satır.
+- **Birebir-aynı `scanned_at` kümesi** (tek-transaction Remove imzası) → sorgu **0 satır** döndü. Bulk çıkışlar ~3ms aralıklı = **bulk-scan** (her kutu ayrı `POST /stock/scan`), Remove değil.
+
+Sonuç: veritabanında Remove'u Scan'den ayıran **hiçbir alan yok** → otomatik tespit imkânsız.
+
+### Çözüm: zaman-kesimli purge, iki pass (kullanıcı kararı)
+Günlük USED dağılımı test churn'ünü gösterdi (05-16:53, 05-20:50, 05-21:52, 05-22:44 = dev bulk'lar). Prod'da (`dom_postgres`, `dom_user/dom_db`), her pass'te **yedek → SELECT count önizleme → DELETE**:
+
+1. **Yedek:** `CREATE TABLE stock_movements_bak_0530 AS SELECT * FROM stock_movements;` (2826 satır — ilk silmeden önce, tüm orijinal state'i tutar).
+2. **Pass 1 (05-25 öncesi):** Kullanıcı önce kesim olarak 2026-05-25'i seçti. `DELETE ... WHERE type='USED' AND (scanned_at AT TIME ZONE 'UTC')::date < DATE '2026-05-25'` → **244** silindi, 98 kaldı.
+3. **Pass 2 (fix-deploy'a kadar):** Kullanıcı "bütün history'deki Remove'lar gitsin" deyince kesim, fix-öncesi pencerenin tamamına uzatıldı. **Kilit tarih:** `adjustStock REMOVE → ADJUSTMENT_OUT` fix'i (commit `5501daf`) main'e **2026-05-28 07:16:46 UTC** merge + CD ~3dk → canlı ~07:20. Bu andan önce Remove `USED`, sonra `ADJUSTMENT_OUT`. Güvenli tampon **07:30 UTC** ile: `DELETE ... WHERE type='USED' AND (scanned_at AT TIME ZONE 'UTC') < TIMESTAMP '2026-05-28 07:30:00'` → **62** silindi.
+
+**Toplam:** 306 fix-öncesi `USED` silindi; kalan **36** USED (05-28 öğleden sonrası + 05-29/30) hepsi fix-sonrası saf scan. `IN`/`TRANSFER` ve hareketi silinen `OUT_OF_STOCK` stok kalemleri dokunulmadı (ikincisi ne Stock Out'ta ne mevcut stokta görünür, zararsız).
+
+**Neden zaman kesimi yeterli:** Fix-öncesi pencerede Remove ile scan ayırt edilemese de, kullanıcı o penceredeki gerçek scan'lerin de silinmesini (kabul edilebilir bedel) onayladı; fix-sonrası pencerede zaten silinecek Remove yok (hepsi `ADJUSTMENT_OUT`). Yani fix-deploy anı, "tüm Remove'ları garanti temizle, sonrasına dokunma" için doğal ve kesin sınır.
+
+### Going-forward zaten canlıydı (deploy gerekmedi)
+`adjustStock REMOVE → ADJUSTMENT_OUT` fix'i commit **`5501daf` (v2.42.1)** ile yapılmış; prod enum'unda `ADJUSTMENT_OUT` mevcut (`pg_enum` kontrolüyle doğrulandı). Yani prod v2.44.0 zaten Remove'ları `ADJUSTMENT_OUT` yazıp Stock Out'tan dışlıyor; `getOutSummary` sadece `USED` sayıyor; `deleteItem` cascade ile hareketi siliyor. Prod'da `ADJUSTMENT_OUT` satırı olmamasının sebebi fix sonrası ekrandan henüz Remove yapılmamış olması, kod eksikliği değil.
+
+### Learnings
+- **"Hiç `ADJUSTMENT_OUT` satırı yok" ≠ "kod deploy değil".** Enum/şema deploy'unu doğrulamak için satır değil **`pg_enum`** sorgula. İlk başta bu ayrımı atlayıp "prod eski kod" diye yanlış çıkarım yaptım.
+- Geçmiş hareket tipleri ayırt edilemez olduğunda, forensik tahmin yerine **kullanıcı bilgisine dayalı tarih/ürün kesimi** + önce `SELECT` önizleme + yedek tablo en güvenli yol.
+- Prod destructive SQL akışı: **backup tablo → SELECT count önizleme → DELETE** (hepsi `docker exec -i dom_postgres psql -U dom_user -d dom_db -c "..."`; heredoc kapanışı girinti yüzünden takılıyor, tek satır `-c` tercih et).
+- Yedek `stock_movements_bak_0530` birkaç gün sonra `DROP TABLE` ile kaldırılabilir.
+
+---
+
 ## [2026-05-28] Incident Report module shipped (v2.43.0) — LIVE on prod, SMTP setup pending
 
 ### Context

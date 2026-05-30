@@ -5,6 +5,7 @@ import { colors } from '../../theme'
 import { useAuthStore } from '../../stores/authStore'
 import { useStockOutSummary } from '../../api/stock'
 import { useProductCategories } from '../../api/products'
+import { formatQty } from '../../lib/format'
 
 const StockOutIcon = (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,7 +175,7 @@ export default function StockOut() {
                     <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{row.productCode}</td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.boxCount}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                      {row.totalQuantity} <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 11 }}>{row.defaultUnit === 'KG' ? 'kg' : 'pcs'}</span>
+                      {formatQty(row.totalQuantity)} <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 11 }}>{row.defaultUnit === 'KG' ? 'kg' : 'pcs'}</span>
                     </td>
                   </tr>
                 ))}
