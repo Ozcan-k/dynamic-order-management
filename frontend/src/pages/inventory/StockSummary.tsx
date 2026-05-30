@@ -18,6 +18,7 @@ import {
   type ProductInput,
 } from '../../api/products'
 import { useWarehouses, type Warehouse } from '../../api/warehouses'
+import { formatQty } from '../../lib/format'
 import type { StockUnit } from '@dom/shared'
 
 const StockIcon = (
@@ -146,7 +147,7 @@ export default function StockSummary() {
                       onMouseEnter={() => row.boxCount > 0 && setHoverProductId(row.productId)}
                       onMouseLeave={() => setHoverProductId(null)}
                     >
-                      {row.inStockQuantity} <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 11 }}>{row.defaultUnit === 'KG' ? 'kg' : 'pcs'}</span>
+                      {formatQty(row.inStockQuantity)} <span style={{ color: colors.textMuted, fontWeight: 400, fontSize: 11 }}>{row.defaultUnit === 'KG' ? 'kg' : 'pcs'}</span>
                       {hoverProductId === row.productId && row.byWarehouse.length > 0 && (
                         <WarehouseTooltip rows={row.byWarehouse} unit={row.defaultUnit} />
                       )}
@@ -227,7 +228,7 @@ function WarehouseTooltip({ rows, unit }: { rows: WarehouseBreakdown[]; unit: St
         <div key={r.warehouseId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0' }}>
           <span style={{ color: '#e2e8f0' }}>{r.warehouseName}</span>
           <span style={{ color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-            {r.boxes} box · {r.quantity} {u}
+            {r.boxes} box · {formatQty(r.quantity)} {u}
           </span>
         </div>
       ))}
@@ -391,14 +392,14 @@ function EditProductModal({
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: colors.textPrimary, padding: '6px 12px', background: '#f1f5f9', borderRadius: 8 }}>
                 <span>Total</span>
                 <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {summaryRow.boxCount} box · {summaryRow.inStockQuantity} {unitLabel}
+                  {summaryRow.boxCount} box · {formatQty(summaryRow.inStockQuantity)} {unitLabel}
                 </span>
               </div>
               {summaryRow.byWarehouse.map((b) => (
                 <div key={b.warehouseId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: colors.textSecondary, padding: '4px 12px' }}>
                   <span>{b.warehouseName}</span>
                   <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {b.boxes} box · {b.quantity} {unitLabel}
+                    {b.boxes} box · {formatQty(b.quantity)} {unitLabel}
                   </span>
                 </div>
               ))}
