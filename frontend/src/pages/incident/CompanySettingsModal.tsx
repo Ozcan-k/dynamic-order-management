@@ -10,14 +10,20 @@ export default function CompanySettingsModal({ onClose }: Props) {
   const branding = useBranding()
   const update   = useUpdateBranding()
 
-  const [companyName, setCompanyName] = useState<string>('')
-  const [logo,        setLogo]        = useState<File | null>(null)
-  const [preview,     setPreview]     = useState<string | null>(null)
-  const [error,       setError]       = useState<string | null>(null)
+  const [companyName,   setCompanyName]   = useState<string>('')
+  const [address,       setAddress]       = useState<string>('')
+  const [email,         setEmail]         = useState<string>('')
+  const [contactNumber, setContactNumber] = useState<string>('')
+  const [logo,          setLogo]          = useState<File | null>(null)
+  const [preview,       setPreview]       = useState<string | null>(null)
+  const [error,         setError]         = useState<string | null>(null)
 
   // Initial fill from server data
   if (branding.data && !companyName && !logo) {
-    if (branding.data.companyName) setCompanyName(branding.data.companyName)
+    if (branding.data.companyName)   setCompanyName(branding.data.companyName)
+    if (branding.data.address)       setAddress(branding.data.address)
+    if (branding.data.email)         setEmail(branding.data.email)
+    if (branding.data.contactNumber) setContactNumber(branding.data.contactNumber)
   }
 
   function handleLogoPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -39,7 +45,13 @@ export default function CompanySettingsModal({ onClose }: Props) {
       return
     }
     try {
-      await update.mutateAsync({ companyName: companyName.trim(), logo })
+      await update.mutateAsync({
+        companyName: companyName.trim(),
+        address: address.trim(),
+        email: email.trim(),
+        contactNumber: contactNumber.trim(),
+        logo,
+      })
       onClose()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to save branding'
@@ -75,6 +87,37 @@ export default function CompanySettingsModal({ onClose }: Props) {
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14 }}
               />
             </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Address</span>
+              <textarea
+                value={address} rows={2}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Unit / Street, City, Province, ZIP"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14, resize: 'vertical', fontFamily: 'inherit' }}
+              />
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Contact Number</span>
+                <input
+                  type="text" value={contactNumber}
+                  onChange={(e) => setContactNumber(e.target.value)}
+                  placeholder="+63 9XX XXX XXXX"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14 }}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase' }}>Email</span>
+                <input
+                  type="email" value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="company@email.com"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14 }}
+                />
+              </label>
+            </div>
 
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 6 }}>Logo</div>

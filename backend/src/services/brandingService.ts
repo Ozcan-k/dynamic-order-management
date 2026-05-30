@@ -6,6 +6,9 @@ import { BRANDING_DIR, extFromMime, ensureUploadDirs } from '../lib/uploads'
 export interface BrandingDto {
   id: string | null
   companyName: string
+  address: string | null
+  email: string | null
+  contactNumber: string | null
   hasLogo: boolean
   logoMime: string | null
   updatedAt: string | null
@@ -14,11 +17,17 @@ export interface BrandingDto {
 export async function getBranding(tenantId: string): Promise<BrandingDto> {
   const row = await prisma.companyBranding.findUnique({ where: { tenantId } })
   if (!row) {
-    return { id: null, companyName: '', hasLogo: false, logoMime: null, updatedAt: null }
+    return {
+      id: null, companyName: '', address: null, email: null, contactNumber: null,
+      hasLogo: false, logoMime: null, updatedAt: null,
+    }
   }
   return {
     id: row.id,
     companyName: row.companyName,
+    address: row.address,
+    email: row.email,
+    contactNumber: row.contactNumber,
     hasLogo: !!row.logoPath,
     logoMime: row.logoMime,
     updatedAt: row.updatedAt.toISOString(),
@@ -41,6 +50,9 @@ export interface UpsertBrandingInput {
   tenantId: string
   updatedById: string
   companyName: string
+  address?: string | null
+  email?: string | null
+  contactNumber?: string | null
   logo?: { buffer: Buffer; mime: string } | null
 }
 
@@ -66,6 +78,9 @@ export async function upsertBranding(input: UpsertBrandingInput): Promise<Brandi
 
   const data = {
     companyName: input.companyName,
+    address: input.address ?? null,
+    email: input.email ?? null,
+    contactNumber: input.contactNumber ?? null,
     updatedById: input.updatedById,
     ...(logoPath !== undefined ? { logoPath, logoMime } : {}),
   }
@@ -79,6 +94,9 @@ export async function upsertBranding(input: UpsertBrandingInput): Promise<Brandi
   return {
     id: row.id,
     companyName: row.companyName,
+    address: row.address,
+    email: row.email,
+    contactNumber: row.contactNumber,
     hasLogo: !!row.logoPath,
     logoMime: row.logoMime,
     updatedAt: row.updatedAt.toISOString(),

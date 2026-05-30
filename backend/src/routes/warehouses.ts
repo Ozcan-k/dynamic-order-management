@@ -21,7 +21,7 @@ const WarehousePatchSchema = WarehouseBodySchema.partial()
 export default async function warehouseRoutes(fastify: FastifyInstance) {
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const warehouses = await listWarehouses(tenantId)
@@ -31,7 +31,7 @@ export default async function warehouseRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = WarehouseBodySchema.safeParse(request.body)
       if (!result.success) {
@@ -50,7 +50,7 @@ export default async function warehouseRoutes(fastify: FastifyInstance) {
 
   fastify.put(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const idResult = UUID.safeParse((request.params as { id: string }).id)
       if (!idResult.success) return reply.code(400).send({ error: 'Invalid warehouse id' })
@@ -72,7 +72,7 @@ export default async function warehouseRoutes(fastify: FastifyInstance) {
 
   fastify.delete(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const idResult = UUID.safeParse((request.params as { id: string }).id)
       if (!idResult.success) return reply.code(400).send({ error: 'Invalid warehouse id' })

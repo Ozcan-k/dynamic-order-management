@@ -66,7 +66,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // corresponds to a real StockItem row in the picked warehouse from print time.
   fastify.post(
     '/labels',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = GenerateLabelsSchema.safeParse(request.body)
       if (!result.success) {
@@ -94,7 +94,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // GET /stock/items — ADMIN
   fastify.get(
     '/items',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ListItemsQuerySchema.safeParse(request.query)
       if (!result.success) {
@@ -111,7 +111,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // the operator confirms the batch commit. Does not mutate status.
   fastify.get(
     '/lookup/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const id = (request.params as { id: string }).id
       if (!UUID_RE.test(id)) {
@@ -134,7 +134,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // TRANSFER moves IN_STOCK from current warehouse to toWarehouseId.
   fastify.post(
     '/scan',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ScanSchema.safeParse(request.body)
       if (!result.success) {
@@ -156,7 +156,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // with an ADJ-prefixed batch number so they are auditable.
   fastify.post(
     '/adjust',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = AdjustSchema.safeParse(request.body)
       if (!result.success) {
@@ -183,7 +183,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // DELETE /stock/items/:id — ADMIN
   fastify.delete(
     '/items/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const id = (request.params as { id: string }).id
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
@@ -204,7 +204,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // GET /stock/movements — ADMIN
   fastify.get(
     '/movements',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = MovementsQuerySchema.safeParse(request.query)
       if (!result.success) {
@@ -219,7 +219,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // GET /stock/stats — ADMIN: dashboard KPI numbers
   fastify.get(
     '/stats',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const stats = await getStats(tenantId)
@@ -230,7 +230,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // GET /stock/summary — ADMIN: per-product aggregates for Stock page
   fastify.get(
     '/summary',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const summary = await getSummary(tenantId)
@@ -241,7 +241,7 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   // GET /stock/out-summary — ADMIN: per-product USED movement totals in a date range
   fastify.get(
     '/out-summary',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const parsed = OutSummaryQuerySchema.safeParse(request.query)
       if (!parsed.success) {

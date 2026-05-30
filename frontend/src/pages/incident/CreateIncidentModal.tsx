@@ -45,6 +45,8 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
   const [trackingNumber,     setTrackingNumber]     = useState<string>(editing?.trackingNumber ?? '')
   const [platform,           setPlatform]           = useState<Platform | ''>(editing?.platform ?? '')
   const [shopName,           setShopName]           = useState<string>(editing?.shopName ?? '')
+  const [witnessName,        setWitnessName]        = useState<string>(editing?.witnessName ?? '')
+  const [witnessPosition,    setWitnessPosition]    = useState<string>(editing?.witnessPosition ?? '')
   const [error,              setError]              = useState<string | null>(null)
 
   const typeMeta = useMemo(() => types.data?.find((t) => t.value === incidentType), [types.data, incidentType])
@@ -110,6 +112,8 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
       reportedByRole,
       adminDescription,
     }
+    if (witnessName.trim())     input.witnessName     = witnessName.trim()
+    if (witnessPosition.trim()) input.witnessPosition = witnessPosition.trim()
     if (needsParcel) {
       input.trackingNumber = trackingNumber.trim()
       input.platform       = platform as Platform
@@ -233,6 +237,26 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
                   type="text" required value={reportedByRole}
                   onChange={(e) => setReportedByRole(e.target.value)}
                   placeholder="e.g. Admin / Supervisor"
+                  style={inputStyle}
+                />
+              </Field>
+            </Row>
+
+            <SectionLabel>Witness (optional)</SectionLabel>
+            <Row>
+              <Field label="Witness Name">
+                <input
+                  type="text" value={witnessName}
+                  onChange={(e) => setWitnessName(e.target.value)}
+                  placeholder="e.g. Pedro Reyes"
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Witness Position">
+                <input
+                  type="text" value={witnessPosition}
+                  onChange={(e) => setWitnessPosition(e.target.value)}
+                  placeholder="e.g. Team Lead / Supervisor"
                   style={inputStyle}
                 />
               </Field>

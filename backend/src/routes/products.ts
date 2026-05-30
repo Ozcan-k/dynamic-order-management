@@ -37,7 +37,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/categories',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const categories = await listCategories(tenantId)
@@ -47,7 +47,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/categories',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = CategoryBodySchema.safeParse(request.body)
       if (!result.success) {
@@ -66,7 +66,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.delete(
     '/categories/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const idResult = UUID.safeParse((request.params as { id: string }).id)
       if (!idResult.success) return reply.code(400).send({ error: 'Invalid category id' })
@@ -86,7 +86,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ListProductsQuerySchema.safeParse(request.query)
       if (!result.success) {
@@ -100,7 +100,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ProductBodySchema.safeParse(request.body)
       if (!result.success) {
@@ -119,7 +119,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.put(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const idResult = UUID.safeParse((request.params as { id: string }).id)
       if (!idResult.success) return reply.code(400).send({ error: 'Invalid product id' })
@@ -141,7 +141,7 @@ export default async function productRoutes(fastify: FastifyInstance) {
 
   fastify.delete(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const idResult = UUID.safeParse((request.params as { id: string }).id)
       if (!idResult.success) return reply.code(400).send({ error: 'Invalid product id' })

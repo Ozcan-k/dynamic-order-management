@@ -19,6 +19,7 @@ enum UserRole {
   PACKER
   SALES_AGENT
   STOCK_KEEPER
+  WAREHOUSE_ADMIN
 }
 
 enum StockStatus {
@@ -470,6 +471,8 @@ model Incident {
   trackingNumber     String?      @map("tracking_number")
   platform           Platform?
   shopName           String?      @map("shop_name")
+  witnessName        String?      @map("witness_name")
+  witnessPosition    String?      @map("witness_position")
   signedFilePath     String?      @map("signed_file_path")
   signedFileMime     String?      @map("signed_file_mime")
   signedUploadedAt   DateTime?    @map("signed_uploaded_at")
@@ -492,9 +495,12 @@ model Incident {
 model CompanyBranding {
   id          String   @id @default(uuid())
   tenantId    String   @unique @map("tenant_id")
-  companyName String   @map("company_name")
-  logoPath    String?  @map("logo_path")
-  logoMime    String?  @map("logo_mime")
+  companyName   String   @map("company_name")
+  address       String?  @map("address")
+  email         String?  @map("email")
+  contactNumber String?  @map("contact_number")
+  logoPath      String?  @map("logo_path")
+  logoMime      String?  @map("logo_mime")
   updatedById String   @map("updated_by")
   updatedAt   DateTime @updatedAt @map("updated_at")
   createdAt   DateTime @default(now()) @map("created_at")

@@ -32,7 +32,7 @@ const BulkAssignSchema = z.object({
 })
 
 export default async function packerAdminRoutes(fastify: FastifyInstance) {
-  const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PACKER_ADMIN)]
+  const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN)]
 
   // GET /packer-admin/orders — PICKER_COMPLETE + PACKER_ASSIGNED orders (admin queue view)
   fastify.get('/orders', { preHandler }, async (request, reply) => {

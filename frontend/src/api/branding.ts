@@ -4,6 +4,9 @@ import { api } from './client'
 export interface Branding {
   id: string | null
   companyName: string
+  address: string | null
+  email: string | null
+  contactNumber: string | null
   hasLogo: boolean
   logoMime: string | null
   updatedAt: string | null
@@ -20,9 +23,15 @@ export function useBranding() {
 export function useUpdateBranding() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ companyName, logo }: { companyName: string; logo: File | null }) => {
+    mutationFn: async (
+      { companyName, address, email, contactNumber, logo }:
+      { companyName: string; address: string; email: string; contactNumber: string; logo: File | null },
+    ) => {
       const form = new FormData()
       form.append('companyName', companyName)
+      form.append('address', address)
+      form.append('email', email)
+      form.append('contactNumber', contactNumber)
       if (logo) form.append('logo', logo)
       const res = await api.post<Branding>('/branding', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

@@ -12,6 +12,7 @@ import { requireRole } from '../middleware/rbac'
 import {
   createIncident,
   updateIncident,
+  deleteIncident,
   listIncidents,
   getIncidentById,
   getIncidentStats,
@@ -55,6 +56,8 @@ const CreateBodySchema = z.object({
   trackingNumber:     z.string().max(80).optional(),
   platform:           z.nativeEnum(Platform).optional(),
   shopName:           z.string().max(120).optional(),
+  witnessName:        z.string().max(120).optional(),
+  witnessPosition:    z.string().max(80).optional(),
 })
 
 const LookupTnSchema = z.object({
@@ -70,7 +73,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const parsed = ListQuerySchema.safeParse(request.query)
       if (!parsed.success) return reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() })
@@ -82,7 +85,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/stats',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const stats = await getIncidentStats(tenantId)
@@ -92,7 +95,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/pivot',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const data = await getIncidentPivot(tenantId)
@@ -102,7 +105,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/types',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (_request, reply) => {
       const list = Object.entries(INCIDENT_TYPE_LABELS).map(([value, label]) => ({
         value,
@@ -115,7 +118,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/lookup-tn',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const parsed = LookupTnSchema.safeParse(request.query)
       if (!parsed.success) return reply.code(400).send({ error: 'Invalid query' })
@@ -128,7 +131,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/selectable-users',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const users = await listSelectableUsers(tenantId)
@@ -138,7 +141,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/remembered-name/:userId',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { userId } = request.params as { userId: string }
       const { tenantId } = request.user as JWTPayload
@@ -151,7 +154,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const parsed = CreateBodySchema.safeParse(request.body)
       if (!parsed.success) return reply.code(400).send({ error: 'Invalid body', details: parsed.error.flatten() })
@@ -183,6 +186,8 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         trackingNumber:     body.trackingNumber?.trim(),
         platform:           body.platform,
         shopName:           body.shopName?.trim(),
+        witnessName:        body.witnessName?.trim(),
+        witnessPosition:    body.witnessPosition?.trim(),
       })
       return reply.code(201).send(created)
     },
@@ -192,7 +197,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.patch(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const parsed = CreateBodySchema.safeParse(request.body)
@@ -222,9 +227,25 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         trackingNumber:     body.trackingNumber?.trim(),
         platform:           body.platform,
         shopName:           body.shopName?.trim(),
+        witnessName:        body.witnessName?.trim(),
+        witnessPosition:    body.witnessPosition?.trim(),
       })
       if (!updated) return reply.code(404).send({ error: 'Incident not found' })
       return reply.send(updated)
+    },
+  )
+
+  // ─── Delete ──────────────────────────────────────────────────────────────────
+
+  fastify.delete(
+    '/:id',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const { tenantId } = request.user as JWTPayload
+      const deleted = await deleteIncident(tenantId, id)
+      if (!deleted) return reply.code(404).send({ error: 'Incident not found' })
+      return reply.send(deleted)
     },
   )
 
@@ -232,7 +253,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/:id',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const { tenantId } = request.user as JWTPayload
@@ -244,7 +265,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/:id/pdf',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const { tenantId } = request.user as JWTPayload
@@ -262,7 +283,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/:id/signed',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const { tenantId } = request.user as JWTPayload
@@ -287,7 +308,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.get(
     '/:id/signed',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { id } = request.params as { id: string }
       const { tenantId } = request.user as JWTPayload
@@ -303,7 +324,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     '/:id/email',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       void SendEmailBodySchema // declared for future fields
       if (!isSmtpConfigured()) {

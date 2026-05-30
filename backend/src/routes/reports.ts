@@ -27,7 +27,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
   // GET /reports/dashboard — ADMIN, INBOUND_ADMIN
   fastify.get(
     '/dashboard',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
 
@@ -98,7 +98,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
   // GET /reports/range-totals?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD — ADMIN, INBOUND_ADMIN
   fastify.get(
     '/range-totals',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const { startDate, endDate } = request.query as { startDate?: string; endDate?: string }
@@ -135,7 +135,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
   // Returns per-day inbound + outbound counts for the last N days (sparkline data).
   fastify.get(
     '/dashboard-trends',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const rawDays = (request.query as { days?: string }).days
@@ -197,7 +197,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -306,7 +306,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -548,7 +548,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -649,7 +649,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -727,7 +727,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -871,7 +871,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -1015,7 +1015,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -1171,7 +1171,7 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
   // POST /reports/trigger-nightly — ADMIN only, dev/test use
   fastify.post(
     '/trigger-nightly',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (_request, reply) => {
       try {
         await runNightlyReport()

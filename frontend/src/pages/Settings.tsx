@@ -38,6 +38,14 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     badgeText: '#1e40af',
     hasEmail: true,
   },
+  [UserRole.WAREHOUSE_ADMIN]: {
+    label: 'Warehouse Admin',
+    pluralLabel: 'Warehouse Admins',
+    color: '#4338ca',
+    badgeBg: '#e0e7ff',
+    badgeText: '#3730a3',
+    hasEmail: false,
+  },
   [UserRole.INBOUND_ADMIN]: {
     label: 'Inbound Admin',
     pluralLabel: 'Inbound Admins',
@@ -747,6 +755,7 @@ export default function Settings() {
             <UserRoleCard role={UserRole.INBOUND_ADMIN} users={byRole(UserRole.INBOUND_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
             <UserRoleCard role={UserRole.PICKER_ADMIN} users={byRole(UserRole.PICKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
             <UserRoleCard role={UserRole.PACKER_ADMIN} users={byRole(UserRole.PACKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+            <UserRoleCard role={UserRole.WAREHOUSE_ADMIN} users={byRole(UserRole.WAREHOUSE_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
 
           <SectionHeader

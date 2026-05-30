@@ -10,7 +10,7 @@ import {
 export default async function outboundRoutes(fastify: FastifyInstance) {
   const preHandler = [
     fastify.authenticate,
-    requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN),
+    requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
   ]
 
   // GET /outbound/grouped?date=YYYY-MM-DD — OUTBOUND orders grouped by carrier → shop

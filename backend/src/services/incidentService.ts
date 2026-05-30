@@ -21,6 +21,8 @@ export interface CreateIncidentInput {
   trackingNumber?: string
   platform?: Platform
   shopName?: string
+  witnessName?: string
+  witnessPosition?: string
 }
 
 export async function createIncident(input: CreateIncidentInput) {
@@ -37,6 +39,8 @@ export async function createIncident(input: CreateIncidentInput) {
     reportedByFullName: input.reportedByFullName,
     reportedByRole: input.reportedByRole,
     adminDescription: input.adminDescription,
+    witnessName: input.witnessName?.trim() || null,
+    witnessPosition: input.witnessPosition?.trim() || null,
   }
 
   if (requiresParcelContext(input.incidentType as IncidentTypeEnum)) {
@@ -62,6 +66,8 @@ export interface UpdateIncidentInput {
   trackingNumber?: string
   platform?: Platform
   shopName?: string
+  witnessName?: string
+  witnessPosition?: string
 }
 
 export async function updateIncident(tenantId: string, id: string, input: UpdateIncidentInput) {
@@ -79,6 +85,8 @@ export async function updateIncident(tenantId: string, id: string, input: Update
     reportedByFullName: input.reportedByFullName,
     reportedByRole: input.reportedByRole,
     adminDescription: input.adminDescription,
+    witnessName: input.witnessName?.trim() || null,
+    witnessPosition: input.witnessPosition?.trim() || null,
   }
 
   // Parcel context fields are only kept for parcel-type incidents; otherwise cleared
@@ -94,6 +102,20 @@ export async function updateIncident(tenantId: string, id: string, input: Update
   }
 
   return prisma.incident.update({ where: { id }, data })
+}
+
+/** Permanently deletes an incident (and its signed file, if any). Returns null if not found. */
+export async function deleteIncident(tenantId: string, id: string): Promise<{ id: string } | null> {
+  const existing = await prisma.incident.findFirst({
+    where: { id, tenantId },
+    select: { id: true, signedFilePath: true },
+  })
+  if (!existing) return null
+  if (existing.signedFilePath) {
+    try { await fs.unlink(existing.signedFilePath) } catch { /* ignore */ }
+  }
+  await prisma.incident.delete({ where: { id: existing.id } })
+  return { id: existing.id }
 }
 
 export interface ListIncidentsQuery {

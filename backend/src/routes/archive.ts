@@ -28,7 +28,7 @@ export default async function archiveRoutes(fastify: FastifyInstance) {
   // GET /archive — paginated archived orders
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = ListQuerySchema.safeParse(request.query)
       if (!result.success) return reply.code(400).send({ error: 'Invalid query params', details: result.error.flatten() })
@@ -42,7 +42,7 @@ export default async function archiveRoutes(fastify: FastifyInstance) {
   // GET /archive/stats — summary counts
   fastify.get(
     '/stats',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const stats = await getArchiveStats(tenantId)
@@ -53,7 +53,7 @@ export default async function archiveRoutes(fastify: FastifyInstance) {
   // POST /archive/trigger — manual archive for caller's tenant
   fastify.post(
     '/trigger',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
 
@@ -92,7 +92,7 @@ export default async function archiveRoutes(fastify: FastifyInstance) {
   // POST /archive/bulk-delete — hard delete a set of archived orders
   fastify.post(
     '/bulk-delete',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
     async (request, reply) => {
       const result = BulkDeleteSchema.safeParse(request.body)
       if (!result.success) return reply.code(400).send({ error: 'Invalid request body', details: result.error.flatten() })
