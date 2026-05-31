@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import {
@@ -233,22 +234,7 @@ export default function ReturnScanMobile() {
         >Sign Out</button>
       </header>
 
-      {cameraOn ? (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100dvh', background: '#000', zIndex: 50, overflow: 'hidden' }}>
-          <video ref={videoRef} playsInline muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <div style={{ width: '82%', maxWidth: 340, aspectRatio: '2/1', border: '3px solid #3b82f6d9', borderRadius: 14, boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }} />
-          </div>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '12px 12px 16px', background: 'linear-gradient(to bottom, rgba(15,23,42,0.92), rgba(15,23,42,0))', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={stopCamera} aria-label="Close camera"
-              style={{ width: 42, height: 42, borderRadius: 21, background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', fontSize: 22, fontWeight: 700, cursor: 'pointer', paddingBottom: 4 }}
-            >×</button>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>Aim at the waybill barcode</div>
-          </div>
-        </div>
-      ) : (
-        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: '16px 14px 28px', maxWidth: 560, width: '100%', margin: '0 auto' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: '16px 14px 28px', maxWidth: 560, width: '100%', margin: '0 auto' }}>
           {/* Type segmented toggle */}
           <Section label="Type">
             <div style={{ display: 'flex', gap: 8 }}>
@@ -356,7 +342,31 @@ export default function ReturnScanMobile() {
               </div>
             </section>
           )}
-        </main>
+      </main>
+
+      {/* Camera overlay — full screen via portal to document.body, so no ancestor
+          stacking/transform/overflow context can shrink or clip it (same proven
+          pattern as components/ScanInput.tsx). */}
+      {cameraOn && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.7)', flexShrink: 0 }}>
+            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 16 }}>Scan Waybill</span>
+            <button
+              onClick={stopCamera}
+              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#f1f5f9', padding: '8px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            >Cancel</button>
+          </div>
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: '78%', maxWidth: 320, aspectRatio: '3/2', border: '2px solid rgba(59,130,246,0.8)', borderRadius: 12, boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }} />
+            </div>
+          </div>
+          <div style={{ padding: 16, background: 'rgba(0,0,0,0.7)', textAlign: 'center', flexShrink: 0 }}>
+            <span style={{ color: '#94a3b8', fontSize: 14 }}>Point the camera at the waybill barcode</span>
+          </div>
+        </div>,
+        document.body,
       )}
 
       {/* Confirm sheet */}

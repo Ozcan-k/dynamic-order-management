@@ -25,7 +25,30 @@ export interface CreateReturnCancelInput {
   carrier: Carrier
 }
 
+// Thrown when a waybill is scanned/entered a second time — a given parcel is
+// recorded only once (whether as a Return or a Cancel), so the second attempt
+// must be rejected with a clear "already in the system" message.
+export class DuplicateWaybillError extends Error {
+  existingType: ReturnCancelType
+  constructor(existingType: ReturnCancelType) {
+    super('DUPLICATE_WAYBILL')
+    this.name = 'DuplicateWaybillError'
+    this.existingType = existingType
+  }
+}
+
 export async function createReturnCancel(input: CreateReturnCancelInput) {
+  // Reject duplicates up-front. trackingNumber is already normalized
+  // (trim + uppercase) by the route, and stored values are normalized the same
+  // way, so an exact match is reliable.
+  const existing = await prisma.returnCancelParcel.findFirst({
+    where: { tenantId: input.tenantId, trackingNumber: input.trackingNumber },
+    select: { type: true },
+  })
+  if (existing) {
+    throw new DuplicateWaybillError(existing.type as ReturnCancelType)
+  }
+
   return prisma.returnCancelParcel.create({
     data: {
       tenantId: input.tenantId,
