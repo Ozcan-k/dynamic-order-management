@@ -30,6 +30,7 @@ import stockRoutes from './routes/stock'
 import productRoutes from './routes/products'
 import warehouseRoutes from './routes/warehouses'
 import incidentRoutes from './routes/incidents'
+import returnRoutes from './routes/returns'
 import brandingRoutes from './routes/branding'
 import devTestRoutes from './routes/devTest'
 
@@ -74,6 +75,7 @@ async function start() {
   await fastify.register(productRoutes, { prefix: '/products' })
   await fastify.register(warehouseRoutes, { prefix: '/warehouses' })
   await fastify.register(incidentRoutes, { prefix: '/incidents' })
+  await fastify.register(returnRoutes, { prefix: '/returns' })
   await fastify.register(brandingRoutes, { prefix: '/branding' })
   if (process.env.NODE_ENV !== 'production') {
     await fastify.register(devTestRoutes)

@@ -171,3 +171,31 @@ export const PARCEL_INCIDENT_TYPES: ReadonlyArray<IncidentType> = [
 export function requiresParcelContext(type: IncidentType): boolean {
   return PARCEL_INCIDENT_TYPES.includes(type)
 }
+
+// ─── Return & Cancel Parcel Module ───────────────────────────────────────────
+
+export enum ReturnCancelType {
+  RETURN = 'RETURN',
+  CANCEL = 'CANCEL',
+}
+
+export const RETURN_CANCEL_TYPE_LABELS: Record<ReturnCancelType, string> = {
+  [ReturnCancelType.RETURN]: 'Return',
+  [ReturnCancelType.CANCEL]: 'Cancel',
+}
+
+/** Display labels for the order Platform enum. */
+export const PLATFORM_LABELS: Record<Platform, string> = {
+  [Platform.SHOPEE]: 'Shopee',
+  [Platform.LAZADA]: 'Lazada',
+  [Platform.TIKTOK]: 'TikTok',
+  [Platform.DIRECT]: 'Direct',
+  [Platform.OTHER]: 'Other',
+}
+
+/** Platforms selectable in the Return & Cancel module (subset of Platform). */
+export const RETURN_CANCEL_PLATFORMS: ReadonlyArray<Platform> = [
+  Platform.SHOPEE,
+  Platform.LAZADA,
+  Platform.TIKTOK,
+] as const
