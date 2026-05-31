@@ -107,13 +107,17 @@ export default function ReturnScanMobile() {
   // Open the confirm sheet for a waybill (from the input or the camera).
   const askConfirm = useCallback((rawWaybill: string) => {
     const wb = rawWaybill.trim().toUpperCase()
-    if (!wb) { setError('Scan or enter a waybill number.'); return }
-    if (!selectorsReady) { setError('Pick Type, Store and Courier first.'); return }
+    if (!wb) { setError('Scan or enter a waybill number.'); playBeep(false); vibrate([120, 60, 120]); return }
+    if (!selectorsReady) { setError('Pick Type, Store and Courier first.'); playBeep(false); vibrate([120, 60, 120]); return }
     const detected = !platformTouched ? detectPlatform(wb) : (platform || detectPlatform(wb))
     const plat = RETURN_CANCEL_PLATFORMS.includes(detected as Platform)
       ? (detected as Platform)
       : (platform && RETURN_CANCEL_PLATFORMS.includes(platform) ? platform : Platform.SHOPEE)
     setError(null)
+    // Immediate scan feedback (matches the other scan stations) — beep + buzz
+    // the instant a waybill is captured, whether from the camera, a handheld
+    // wedge scanner, or manual entry, before the confirm sheet appears.
+    playBeep(true); vibrate([90, 50, 140])
     setPending({ trackingNumber: wb, platform: plat })
   }, [selectorsReady, platform, platformTouched])
 
@@ -160,10 +164,9 @@ export default function ReturnScanMobile() {
         const text = result.getText().trim()
         if (!text) return
         lockedRef.current = true
-        playBeep(true); vibrate([80, 60, 140])
         onWaybillChange(text)
         stopCamera()
-        askConfirm(text)
+        askConfirm(text) // fires the scan beep + vibrate
       }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
         .catch(() => { /* noop */ })
     }).catch(() => {
@@ -231,8 +234,8 @@ export default function ReturnScanMobile() {
       </header>
 
       {cameraOn ? (
-        <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 40, overflow: 'hidden' }}>
-          <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100dvh', background: '#000', zIndex: 50, overflow: 'hidden' }}>
+          <video ref={videoRef} playsInline muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
             <div style={{ width: '82%', maxWidth: 340, aspectRatio: '2/1', border: '3px solid #3b82f6d9', borderRadius: 14, boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }} />
           </div>
