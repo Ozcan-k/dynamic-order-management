@@ -4,6 +4,7 @@ import {
   UserRole,
   JWTPayload,
   ReturnCancelType,
+  RETURN_CANCEL_TYPE_LABELS,
   Platform,
   Carrier,
   RETURN_CANCEL_PLATFORMS,
@@ -11,6 +12,7 @@ import {
 import { requireRole } from '../middleware/rbac'
 import {
   createReturnCancel,
+  DuplicateWaybillError,
   listReturnCancel,
   deleteReturnCancel,
 } from '../services/returnCancelService'
@@ -67,16 +69,26 @@ export default async function returnRoutes(fastify: FastifyInstance) {
       if (!parsed.success) return reply.code(400).send({ error: 'Invalid body', details: parsed.error.flatten() })
       const body = parsed.data
       const { tenantId, userId } = request.user as JWTPayload
-      const created = await createReturnCancel({
-        tenantId,
-        createdById:    userId,
-        trackingNumber: body.trackingNumber.trim().toUpperCase(),
-        type:           body.type,
-        storeName:      body.storeName.trim(),
-        platform:       body.platform,
-        carrier:        body.carrier,
-      })
-      return reply.code(201).send(created)
+      const trackingNumber = body.trackingNumber.trim().toUpperCase()
+      try {
+        const created = await createReturnCancel({
+          tenantId,
+          createdById:    userId,
+          trackingNumber,
+          type:           body.type,
+          storeName:      body.storeName.trim(),
+          platform:       body.platform,
+          carrier:        body.carrier,
+        })
+        return reply.code(201).send(created)
+      } catch (err) {
+        if (err instanceof DuplicateWaybillError) {
+          return reply.code(409).send({
+            error: `Waybill ${trackingNumber} is already in the system (recorded as ${RETURN_CANCEL_TYPE_LABELS[err.existingType]}).`,
+          })
+        }
+        throw err
+      }
     },
   )
 
