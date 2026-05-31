@@ -1,14 +1,19 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   ReturnCancelType,
   RETURN_CANCEL_TYPE_LABELS,
+  Platform,
   PLATFORM_LABELS,
+  RETURN_CANCEL_PLATFORMS,
+  Carrier,
   CARRIER_LABELS,
+  SALES_STORES,
+  detectPlatform,
 } from '@dom/shared'
-import { useReturnCancelList, useDeleteReturnCancel, type ReturnCancelRow } from '../api/returns'
-import { TypeBadge } from './ReturnCancelScan'
+import { useReturnCancelList, useDeleteReturnCancel, useCreateReturnCancel, type ReturnCancelRow } from '../api/returns'
 import ConfirmModal from '../components/shared/ConfirmModal'
+
+const CARRIERS = Object.values(Carrier)
 
 const PAGE_SIZE = 25
 
@@ -62,6 +67,8 @@ export default function ReturnCancel() {
   const [deleting, setDeleting] = useState<ReturnCancelRow | null>(null)
   const deleteRow = useDeleteReturnCancel()
 
+  const [adding, setAdding] = useState(false)
+
   const stats = list.data?.stats ?? { total: 0, returns: 0, cancels: 0 }
   const totalPages = Math.max(1, Math.ceil((list.data?.total ?? 0) / PAGE_SIZE))
 
@@ -79,7 +86,7 @@ export default function ReturnCancel() {
             </div>
           </div>
           <div className="page-hero-actions">
-            <Link to="/returns/scan" className="page-hero-cta">+ Scan Parcel</Link>
+            <button type="button" onClick={() => setAdding(true)} className="page-hero-cta">+ Add Parcel</button>
           </div>
         </section>
 
@@ -179,7 +186,7 @@ export default function ReturnCancel() {
                     <div className="empty-state">
                       <div className="empty-state-icon">📦</div>
                       <p className="empty-state-title">No records in this range</p>
-                      <p className="empty-state-desc">Use <b>+ Scan Parcel</b> to record a return or cancellation.</p>
+                      <p className="empty-state-desc">Parcels scanned on the handheld appear here. Use <b>+ Add Parcel</b> to enter one manually.</p>
                     </div>
                   </td></tr>
                 )}
@@ -234,7 +241,149 @@ export default function ReturnCancel() {
           }}
         />
       )}
+
+      {adding && <AddParcelModal onClose={() => setAdding(false)} />}
     </div>
+  )
+}
+
+// ─── Add Parcel modal (manual entry — fallback for unreadable barcodes) ───────
+
+function AddParcelModal({ onClose }: { onClose: () => void }) {
+  const create = useCreateReturnCancel()
+
+  const [trackingNumber, setTrackingNumber] = useState('')
+  const [type, setType] = useState<ReturnCancelType | ''>('')
+  const [storeName, setStoreName] = useState('')
+  const [platform, setPlatform] = useState<Platform | ''>('')
+  const [platformTouched, setPlatformTouched] = useState(false)
+  const [carrier, setCarrier] = useState<Carrier | ''>('')
+  const [error, setError] = useState<string | null>(null)
+
+  function onWaybillChange(value: string) {
+    setTrackingNumber(value)
+    if (!platformTouched && value.trim().length >= 2) {
+      const detected = detectPlatform(value)
+      if (RETURN_CANCEL_PLATFORMS.includes(detected)) setPlatform(detected)
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    if (!trackingNumber.trim()) return setError('Enter a waybill number.')
+    if (!type)      return setError('Select Return or Cancel.')
+    if (!storeName) return setError('Select a store.')
+    if (!platform)  return setError('Select a platform.')
+    if (!carrier)   return setError('Select a courier.')
+    try {
+      await create.mutateAsync({
+        trackingNumber: trackingNumber.trim().toUpperCase(),
+        type, storeName, platform, carrier,
+      })
+      onClose()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      setError(msg || 'Failed to save. Please try again.')
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={onSubmit}
+        style={{ background: '#fff', borderRadius: 14, padding: 22, width: '100%', maxWidth: 440, display: 'grid', gap: 14, boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}>Add Parcel</h2>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Manually record a return or cancellation when the barcode can&apos;t be scanned.
+          </div>
+        </div>
+
+        <ModalField label="Waybill Number">
+          <input
+            type="text"
+            value={trackingNumber}
+            onChange={(e) => onWaybillChange(e.target.value)}
+            placeholder="Type the waybill…"
+            autoComplete="off"
+            autoFocus
+            className="filter-field-input"
+            style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}
+          />
+        </ModalField>
+
+        <ModalField label="Type">
+          <select className="styled-select" value={type} onChange={(e) => setType(e.target.value as ReturnCancelType)}>
+            <option value="">Select Return / Cancel…</option>
+            {Object.values(ReturnCancelType).map((t) => (
+              <option key={t} value={t}>{RETURN_CANCEL_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </ModalField>
+
+        <ModalField label="Store">
+          <select className="styled-select" value={storeName} onChange={(e) => setStoreName(e.target.value)}>
+            <option value="">Select a store…</option>
+            {SALES_STORES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </ModalField>
+
+        <ModalField label="Platform">
+          <select
+            className="styled-select"
+            value={platform}
+            onChange={(e) => { setPlatform(e.target.value as Platform); setPlatformTouched(true) }}
+          >
+            <option value="">Select a platform…</option>
+            {RETURN_CANCEL_PLATFORMS.map((p) => <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>)}
+          </select>
+        </ModalField>
+
+        <ModalField label="Courier">
+          <select className="styled-select" value={carrier} onChange={(e) => setCarrier(e.target.value as Carrier)}>
+            <option value="">Select a courier…</option>
+            {CARRIERS.map((c) => <option key={c} value={c}>{CARRIER_LABELS[c]}</option>)}
+          </select>
+        </ModalField>
+
+        {error && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={create.isPending}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+            {create.isPending ? 'Saving…' : 'Save Record'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function ModalField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'grid', gap: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function TypeBadge({ type }: { type: ReturnCancelType }) {
+  const isReturn = type === ReturnCancelType.RETURN
+  return (
+    <span className="count-badge" style={{ background: isReturn ? '#fef3c7' : '#fee2e2', color: isReturn ? '#92400e' : '#b91c1c' }}>
+      {RETURN_CANCEL_TYPE_LABELS[type]}
+    </span>
   )
 }
 

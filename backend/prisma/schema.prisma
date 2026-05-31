@@ -20,6 +20,7 @@ enum UserRole {
   SALES_AGENT
   STOCK_KEEPER
   WAREHOUSE_ADMIN
+  RETURN_SCANNER
 }
 
 enum StockStatus {

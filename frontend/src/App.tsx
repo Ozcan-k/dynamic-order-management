@@ -22,7 +22,7 @@ import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
 import IncidentReport from './pages/IncidentReport'
 import ReturnCancel from './pages/ReturnCancel'
-import ReturnCancelScan from './pages/ReturnCancelScan'
+import ReturnScanMobile from './pages/ReturnScanMobile'
 import Products from './pages/inventory/Products'
 import InventoryItems from './pages/inventory/InventoryItems'
 import Warehouses from './pages/inventory/Warehouses'
@@ -55,6 +55,7 @@ function RootRoute() {
     [UserRole.PACKER]: '/packer',
     [UserRole.SALES_AGENT]: '/sales',
     [UserRole.STOCK_KEEPER]: '/stock/scan',
+    [UserRole.RETURN_SCANNER]: '/returns/scan',
   }
   return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
 }
@@ -143,8 +144,8 @@ export default function App() {
           <Route
             path="/returns/scan"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN]}>
-                <AppLayout><ReturnCancelScan /></AppLayout>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.RETURN_SCANNER]}>
+                <ReturnScanMobile />
               </ProtectedRoute>
             }
           />

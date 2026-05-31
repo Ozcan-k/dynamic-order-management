@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
 import { setLoginRedirect } from '../lib/loginRedirect'
 
-const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer']
+const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer', '/stock/scan', '/returns/scan']
 
 // Mirrors the allowedRoles on each <ProtectedRoute> in App.tsx. Keep in sync.
 const ROUTE_ROLES: Record<string, UserRole[]> = {
@@ -21,6 +21,7 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/picker-admin-scan': [UserRole.ADMIN, UserRole.PICKER_ADMIN],
   '/picker':            [UserRole.PICKER],
   '/packer':            [UserRole.PACKER],
+  '/returns/scan':      [UserRole.ADMIN, UserRole.RETURN_SCANNER],
   '/sales':             [UserRole.SALES_AGENT],
   '/sales/entry':       [UserRole.SALES_AGENT],
   '/sales/orders':      [UserRole.SALES_AGENT],
@@ -282,6 +283,8 @@ function getDefaultRoute(role: string): string {
       return '/picker'
     case 'PACKER':
       return '/packer'
+    case 'RETURN_SCANNER':
+      return '/returns/scan'
     case 'SALES_AGENT':
       return '/sales'
     default:
