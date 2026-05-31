@@ -21,6 +21,8 @@ import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
 import IncidentReport from './pages/IncidentReport'
+import ReturnCancel from './pages/ReturnCancel'
+import ReturnCancelScan from './pages/ReturnCancelScan'
 import Products from './pages/inventory/Products'
 import InventoryItems from './pages/inventory/InventoryItems'
 import Warehouses from './pages/inventory/Warehouses'
@@ -127,6 +129,22 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
                 <AppLayout><Outbound /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/returns"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN]}>
+                <AppLayout><ReturnCancel /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/returns/scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN]}>
+                <AppLayout><ReturnCancelScan /></AppLayout>
               </ProtectedRoute>
             }
           />

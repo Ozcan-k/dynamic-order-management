@@ -47,8 +47,8 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     hasEmail: false,
   },
   [UserRole.INBOUND_ADMIN]: {
-    label: 'Inbound Admin',
-    pluralLabel: 'Inbound Admins',
+    label: 'Inbound/Outbound Admin',
+    pluralLabel: 'Inbound/Outbound Admins',
     color: '#b45309',
     badgeBg: '#fef3c7',
     badgeText: '#92400e',

@@ -108,6 +108,21 @@ enum IncidentType {
   MISMATCH_PARCEL_COUNT
 }
 
+enum ReturnCancelType {
+  RETURN
+  CANCEL
+}
+
+enum Carrier {
+  SPX
+  JT_EXPRESS
+  FLASH
+  LEX
+  LBC
+  NINJA_VAN
+  OTHER
+}
+
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -119,6 +134,8 @@ model Tenant {
 
   users  User[]
   orders Order[]
+
+  returnCancelParcels ReturnCancelParcel[]
 
   @@map("tenants")
 }
@@ -150,6 +167,7 @@ model User {
   incidentsReported    Incident[]           @relation("IncidentReportedBy")
   incidentsCreated     Incident[]           @relation("IncidentCreatedBy")
   brandingUpdates      CompanyBranding[]    @relation("BrandingUpdatedBy")
+  returnCancelCreated  ReturnCancelParcel[] @relation("ReturnCancelCreatedBy")
 
   @@unique([tenantId, username])
   @@map("users")
@@ -508,4 +526,23 @@ model CompanyBranding {
   updatedBy User @relation("BrandingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
 
   @@map("company_branding")
+}
+
+model ReturnCancelParcel {
+  id             String           @id @default(uuid())
+  tenantId       String           @map("tenant_id")
+  trackingNumber String           @map("tracking_number")
+  type           ReturnCancelType
+  storeName      String           @map("store_name")
+  platform       Platform
+  carrier        Carrier
+  createdById    String           @map("created_by")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  createdBy User   @relation("ReturnCancelCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, type])
+  @@map("return_cancel_parcels")
 }

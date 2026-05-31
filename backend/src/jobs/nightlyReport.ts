@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer'
 import { prisma } from '../lib/prisma'
 import { redisConnection } from '../lib/queues'
 import { hardDeleteExpiredOrders } from '../services/archiveService'
+import { hardDeleteExpiredReturnCancel } from '../services/returnCancelService'
 import { OrderStatus } from '@dom/shared'
 import { getManilaStartOfToday } from '../lib/manila'
 
@@ -28,6 +29,12 @@ export function startNightlyReportWorker() {
           if (deleted > 0) console.log(`[nightlyReport] Hard-deleted ${deleted} expired archive orders for tenant ${tenant.slug}`)
         } catch (err) {
           console.error(`[nightlyReport] Failed to hard-delete expired orders for tenant ${tenant.slug}:`, err)
+        }
+        try {
+          const { deleted } = await hardDeleteExpiredReturnCancel(tenant.id)
+          if (deleted > 0) console.log(`[nightlyReport] Hard-deleted ${deleted} expired return/cancel records for tenant ${tenant.slug}`)
+        } catch (err) {
+          console.error(`[nightlyReport] Failed to hard-delete expired return/cancel records for tenant ${tenant.slug}:`, err)
         }
       }
     },
