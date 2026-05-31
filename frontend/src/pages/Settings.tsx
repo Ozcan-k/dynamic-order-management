@@ -102,6 +102,14 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     badgeText: '#155e75',
     hasEmail: false,
   },
+  [UserRole.RETURN_SCANNER]: {
+    label: 'Return & Cancel Scanner',
+    pluralLabel: 'Return & Cancel Scanners',
+    color: '#be123c',
+    badgeBg: '#ffe4e6',
+    badgeText: '#9f1239',
+    hasEmail: false,
+  },
 }
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -793,8 +801,21 @@ export default function Settings() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
             gap: '14px',
+            marginBottom: '32px',
           }}>
             <UserRoleCard role={UserRole.STOCK_KEEPER} users={byRole(UserRole.STOCK_KEEPER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
+          </div>
+
+          <SectionHeader
+            title="Return & Cancel Scanners"
+            desc="Return & Cancel scanners scan returned or cancelled parcels on a handheld; their scans appear on the Return & Cancel page."
+          />
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '14px',
+          }}>
+            <UserRoleCard role={UserRole.RETURN_SCANNER} users={byRole(UserRole.RETURN_SCANNER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
           </div>
         </>
       )}

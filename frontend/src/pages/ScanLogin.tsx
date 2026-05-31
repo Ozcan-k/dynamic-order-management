@@ -13,6 +13,7 @@ function getScanRoute(role: string): string {
     case 'PICKER':         return '/picker'
     case 'PACKER':         return '/packer'
     case 'STOCK_KEEPER':   return '/stock/scan'
+    case 'RETURN_SCANNER': return '/returns/scan'
     default:               return '/unauthorized'
   }
 }

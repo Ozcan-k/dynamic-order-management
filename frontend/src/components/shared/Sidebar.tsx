@@ -205,10 +205,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Return & Cancel',
     icon: <ReturnCancelIcon />,
     roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN],
-    children: [
-      { path: '/returns/scan', label: 'Scan', icon: <ReturnCancelIcon />, roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN] },
-      { path: '/returns', label: 'Report', icon: <ReturnCancelIcon />, roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN] },
-    ],
   },
   {
     path: '/reports',
