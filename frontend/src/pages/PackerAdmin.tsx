@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
-import { connectSocket } from '../lib/socket'
+import { connectSocket, getSocket } from '../lib/socket'
 import { colors } from '../theme'
 import { getManilaDateString } from '../lib/manila'
 import DelayBadge from '../components/DelayBadge'
@@ -50,6 +50,7 @@ interface PackerStat {
 interface PackerOrderRow {
   assignmentId: string
   completedAt: string | null
+  assignedAt: string
   id: string
   trackingNumber: string
   platform: string
@@ -66,10 +67,19 @@ interface PackerOrderRow {
 function PackerOrdersModal({
   packer,
   onClose,
+  onComplete,
 }: {
   packer: { id: string; username: string }
   onClose: () => void
+  onComplete?: () => void
 }) {
+  const queryClient = useQueryClient()
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
+  const [completeTarget, setCompleteTarget] = useState<{ id: string; tracking: string } | null>(null)
+  const [modalError, setModalError] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<'remove' | 'complete' | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [slaOrderId, setSlaOrderId] = useState<{ id: string; tracking: string } | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -81,7 +91,105 @@ function PackerOrdersModal({
     refetchInterval: 10_000,
   })
 
+  // Real-time: when a packer completes an order on the phone (or anything changes
+  // the queue), drop it from this popup immediately instead of waiting for the poll.
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['packer-orders-modal', packer.id] })
+    socket.on('order:stats_changed', invalidate)
+    return () => { socket.off('order:stats_changed', invalidate) }
+  }, [queryClient, packer.id])
+
+  function refreshAll() {
+    queryClient.invalidateQueries({ queryKey: ['packer-orders-modal', packer.id] })
+    queryClient.invalidateQueries({ queryKey: ['packer-admin-orders'] })
+    queryClient.invalidateQueries({ queryKey: ['packer-admin-stats'] })
+    onComplete?.()
+  }
+
+  const completeMutation = useMutation({
+    mutationFn: ({ orderId }: { orderId: string }) =>
+      api.post('/packer-admin/complete', { orderId, packerId: packer.id }),
+    onSuccess: refreshAll,
+    onError: (err: any) => setModalError(err?.response?.data?.error ?? 'Complete failed'),
+  })
+
+  const unassignMutation = useMutation({
+    mutationFn: ({ orderId }: { orderId: string }) =>
+      api.post('/packer-admin/unassign', { orderId }),
+    onSuccess: refreshAll,
+    onError: (err: any) => setModalError(err?.response?.data?.error ?? 'Remove failed'),
+  })
+
   const orders = data ?? []
+  const selectableOrders = orders
+  const allSelected = selectableOrders.length > 0 && selectableOrders.every(o => selectedIds.has(o.id))
+  const someSelected = selectedIds.size > 0
+
+  function toggleSelectAll() {
+    if (allSelected) setSelectedIds(new Set())
+    else setSelectedIds(new Set(selectableOrders.map(o => o.id)))
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function executeBulkAction(action: 'remove' | 'complete') {
+    setBulkBusy(true)
+    setModalError(null)
+    const orderIds = Array.from(selectedIds)
+    try {
+      if (action === 'complete') {
+        await api.post('/packer-admin/bulk-complete', { orderIds, packerId: packer.id })
+      } else {
+        await api.post('/packer-admin/bulk-unassign', { orderIds, packerId: packer.id })
+      }
+      setSelectedIds(new Set())
+      refreshAll()
+    } catch (err: any) {
+      setModalError(err?.response?.data?.error ?? `Bulk ${action} failed`)
+    } finally {
+      setBulkBusy(false)
+      setBulkAction(null)
+    }
+  }
+
+  function confirmComplete() {
+    if (!completeTarget) return
+    completeMutation.mutate({ orderId: completeTarget.id })
+    setCompleteTarget(null)
+  }
+
+  function confirmRemove() {
+    if (!removeTarget) return
+    unassignMutation.mutate({ orderId: removeTarget.id })
+    setRemoveTarget(null)
+  }
+
+  const isBusy = completeMutation.isPending || unassignMutation.isPending || bulkBusy
+
+  const statusChip = (status: string) => {
+    const map: Record<string, { label: string; bg: string; color: string }> = {
+      PACKER_ASSIGNED: { label: 'Assigned', bg: '#dbeafe', color: '#1e40af' },
+      PACKING:         { label: 'Packing',  bg: '#fef3c7', color: '#92400e' },
+    }
+    const s = map[status] ?? { label: status, bg: '#f1f5f9', color: '#64748b' }
+    return (
+      <span style={{
+        display: 'inline-block', padding: '2px 10px', borderRadius: '9999px',
+        fontSize: '11px', fontWeight: 600, background: s.bg, color: s.color,
+      }}>
+        {s.label}
+      </span>
+    )
+  }
 
   return (
     <div
@@ -95,7 +203,7 @@ function PackerOrdersModal({
     >
       <div
         style={{
-          background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '680px',
+          background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '720px',
           boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
           maxHeight: '85vh', display: 'flex', flexDirection: 'column',
         }}
@@ -112,7 +220,7 @@ function PackerOrdersModal({
               {packer.username}
             </div>
             <div style={{ fontSize: '12px', color: colors.textMuted }}>
-              {isLoading ? 'Loading...' : `${orders.length} completed order${orders.length !== 1 ? 's' : ''}`}
+              {isLoading ? 'Loading...' : `${orders.length} active order${orders.length !== 1 ? 's' : ''}`}
             </div>
           </div>
           <button
@@ -129,8 +237,69 @@ function PackerOrdersModal({
           </button>
         </div>
 
+        {/* Bulk action bar — visible only when items are selected */}
+        {someSelected && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '10px 20px', background: '#eff6ff', borderBottom: `1px solid #bfdbfe`,
+          }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8', flex: 1 }}>
+              {selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''} selected
+            </span>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              style={{
+                padding: '5px 12px', border: `1px solid #93c5fd`,
+                borderRadius: '6px', background: '#fff', color: '#3b82f6',
+                fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Deselect All
+            </button>
+            <button
+              onClick={() => setBulkAction('remove')}
+              disabled={isBusy}
+              style={{
+                padding: '5px 14px', border: 'none', borderRadius: '6px',
+                background: colors.danger, color: '#fff', fontSize: '12px', fontWeight: 600,
+                cursor: 'pointer', opacity: isBusy ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+              Remove Selected
+            </button>
+            <button
+              onClick={() => setBulkAction('complete')}
+              disabled={isBusy}
+              style={{
+                padding: '5px 14px', border: 'none', borderRadius: '6px',
+                background: colors.success, color: '#fff', fontSize: '12px', fontWeight: 600,
+                cursor: 'pointer', opacity: isBusy ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Complete Selected
+            </button>
+          </div>
+        )}
+
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
+          {modalError && (
+            <div className="feedback-banner feedback-banner--error" style={{ margin: '12px 16px 0' }}>
+              {modalError}
+              <button
+                onClick={() => setModalError(null)}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700, fontSize: '14px', padding: '0 4px' }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {isLoading ? (
             <div style={{ padding: '40px', textAlign: 'center', color: colors.textMuted, fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
               <span className="spinner spinner-sm" />
@@ -138,17 +307,28 @@ function PackerOrdersModal({
             </div>
           ) : orders.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center' }}>
-              <div style={{ fontSize: '32px', marginBottom: '8px' }}>📦</div>
-              <div style={{ fontWeight: 600, color: colors.textPrimary, fontSize: '14px' }}>No completed orders</div>
-              <div style={{ color: colors.textMuted, fontSize: '12px', marginTop: '4px' }}>This packer hasn't completed any orders yet.</div>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>🎉</div>
+              <div style={{ fontWeight: 600, color: colors.textPrimary, fontSize: '14px' }}>No active orders</div>
+              <div style={{ color: colors.textMuted, fontSize: '12px', marginTop: '4px' }}>This packer has no orders in progress.</div>
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
-                  {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Delay', 'Completed At', ''].map(h => (
+                  <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
+                    {selectableOrders.length > 0 && (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        title={allSelected ? 'Deselect all' : 'Select all'}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: colors.primary }}
+                      />
+                    )}
+                  </th>
+                  {['Tracking Number', 'Platform', 'Carrier', 'Shop', 'Status', 'Delay', 'Assigned At', ''].map(h => (
                     <th key={h} style={{
-                      padding: '10px 16px', textAlign: 'left', fontSize: '11px',
+                      padding: '10px 16px 10px 8px', textAlign: 'left', fontSize: '11px',
                       fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase',
                       letterSpacing: '0.05em', whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -156,61 +336,308 @@ function PackerOrdersModal({
                 </tr>
               </thead>
               <tbody>
-                {orders.map(order => (
-                  <tr key={order.assignmentId} style={{ borderBottom: `1px solid #f1f5f9` }}>
-                    <td style={{ padding: '11px 16px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
-                      {order.trackingNumber}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <PlatformBadge platform={order.platform} />
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      {order.carrierName ? (
-                        <span style={{
-                          display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
-                          fontSize: '11px', fontWeight: 600,
-                          background: '#f1f5f9', color: '#374151',
-                          border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
-                        }}>
-                          {order.carrierName.replace(/_/g, ' ')}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#d1d5db' }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 16px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <DelayBadge level={order.delayLevel} />
-                    </td>
-                    <td style={{ padding: '11px 16px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
-                      {order.completedAt
-                        ? new Date(order.completedAt).toLocaleString('en-GB', {
-                            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
-                          })
-                        : '—'}
-                    </td>
-                    <td style={{ padding: '11px 16px', textAlign: 'right' }}>
-                      <button
-                        onClick={() => setSlaOrderId({ id: order.id, tracking: order.trackingNumber })}
-                        style={{
-                          padding: '4px 10px', border: `1px solid ${colors.border}`,
-                          borderRadius: '6px', background: '#fff', color: colors.textSecondary,
-                          fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                        }}
-                        title="View SLA escalation history"
-                      >
-                        SLA
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {orders.map(order => {
+                  const isSelected = selectedIds.has(order.id)
+                  return (
+                    <tr
+                      key={order.assignmentId}
+                      style={{
+                        borderBottom: `1px solid #f1f5f9`,
+                        background: isSelected ? '#eff6ff' : undefined,
+                        transition: 'background 0.1s',
+                      }}
+                    >
+                      <td style={{ padding: '11px 8px 11px 16px' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(order.id)}
+                          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: colors.primary }}
+                        />
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
+                        {order.trackingNumber}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        <PlatformBadge platform={order.platform} />
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        {order.carrierName ? (
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: '9999px',
+                            fontSize: '11px', fontWeight: 600,
+                            background: '#f1f5f9', color: '#374151',
+                            border: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                          }}>
+                            {order.carrierName.replace(/_/g, ' ')}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#d1d5db' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', fontSize: '13px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {order.shopName ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        {statusChip(order.status)}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px' }}>
+                        <DelayBadge level={order.delayLevel} />
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', color: colors.textSecondary, fontSize: '12px', whiteSpace: 'nowrap' }}>
+                        {new Date(order.assignedAt).toLocaleString('en-GB', {
+                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila',
+                        })}
+                      </td>
+                      <td style={{ padding: '11px 16px 11px 8px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => setSlaOrderId({ id: order.id, tracking: order.trackingNumber })}
+                            style={{
+                              padding: '4px 10px', border: `1px solid ${colors.border}`,
+                              borderRadius: '6px', background: '#fff', color: colors.textSecondary,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                            }}
+                            title="View SLA escalation history"
+                          >
+                            SLA
+                          </button>
+                          <button
+                            onClick={() => setRemoveTarget({ id: order.id, tracking: order.trackingNumber })}
+                            disabled={isBusy}
+                            style={{
+                              padding: '4px 12px', border: `1px solid ${colors.dangerBorder}`,
+                              borderRadius: '6px', background: '#fff', color: colors.danger,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                            }}
+                          >
+                            Remove
+                          </button>
+                          <button
+                            onClick={() => setCompleteTarget({ id: order.id, tracking: order.trackingNumber })}
+                            disabled={isBusy}
+                            style={{
+                              padding: '4px 12px', border: `1px solid ${colors.success}`,
+                              borderRadius: '6px', background: '#fff', color: colors.success,
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                            }}
+                          >
+                            Complete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
         </div>
       </div>
+
+      {/* Bulk action confirmation dialog */}
+      {bulkAction && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px', animation: 'modalBackdropIn 180ms ease-out',
+          }}
+          onClick={() => !bulkBusy && setBulkAction(null)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '400px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: bulkAction === 'complete'
+                ? 'linear-gradient(135deg, #f0fdf4, #f7fef9)'
+                : 'linear-gradient(135deg, #fef2f2, #fff5f5)',
+              padding: '22px 24px 18px',
+              borderBottom: `1px solid ${bulkAction === 'complete' ? '#bbf7d0' : colors.dangerBorder}`,
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px',
+                background: bulkAction === 'complete' ? '#dcfce7' : '#fee2e2',
+                flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {bulkAction === 'complete' ? (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  {bulkAction === 'complete' ? 'Complete Selected Orders?' : 'Remove Selected Orders?'}
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  {bulkAction === 'complete'
+                    ? <>This marks <strong>{selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''}</strong> packed for <strong>{packer.username}</strong> — they move to the Packed Report.</>
+                    : <>This returns <strong>{selectedIds.size} order{selectedIds.size !== 1 ? 's' : ''}</strong> from <strong>{packer.username}</strong> back to the Packer Admin queue.</>
+                  }
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setBulkAction(null)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: `1px solid ${colors.border}`,
+                  borderRadius: '8px', background: '#fff', color: colors.textSecondary,
+                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => executeBulkAction(bulkAction)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '9px 20px', border: 'none', borderRadius: '8px',
+                  background: bulkAction === 'complete' ? '#16a34a' : colors.danger,
+                  color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  opacity: bulkBusy ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                {bulkBusy
+                  ? <><span className="spinner spinner-sm" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> Processing...</>
+                  : bulkAction === 'complete' ? `✓ Complete ${selectedIds.size}` : `Remove ${selectedIds.size}`
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Complete confirmation dialog */}
+      {completeTarget && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px', animation: 'modalBackdropIn 180ms ease-out',
+          }}
+          onClick={() => setCompleteTarget(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '420px', boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: 'linear-gradient(135deg, #f0fdf4, #f7fef9)',
+              padding: '24px 24px 20px', borderBottom: '1px solid #bbf7d0',
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{ width: 44, height: 44, borderRadius: '12px', background: '#dcfce7', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  Mark as Complete?
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  This marks the order packed for <strong>{packer.username}</strong> — it moves to the Packed Report.
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', background: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Order</div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '8px 14px' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: colors.textPrimary }}>
+                  {completeTarget.tracking}
+                </span>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setCompleteTarget(null)}
+                style={{ padding: '9px 20px', border: `1px solid ${colors.border}`, borderRadius: '8px', background: '#fff', color: colors.textSecondary, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmComplete}
+                disabled={completeMutation.isPending}
+                style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: '#16a34a', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: completeMutation.isPending ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {completeMutation.isPending ? 'Completing...' : '✓ Yes, Complete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove confirmation dialog */}
+      {removeTarget && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px', animation: 'modalBackdropIn 180ms ease-out',
+          }}
+          onClick={() => setRemoveTarget(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '420px', boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              background: 'linear-gradient(135deg, #fef2f2, #fff5f5)',
+              padding: '24px 24px 20px', borderBottom: `1px solid ${colors.dangerBorder}`,
+              display: 'flex', alignItems: 'flex-start', gap: '14px',
+            }}>
+              <div style={{ width: 44, height: 44, borderRadius: '12px', background: '#fee2e2', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px', color: colors.textPrimary, marginBottom: '4px' }}>
+                  Remove Order?
+                </div>
+                <div style={{ fontSize: '13px', color: colors.textSecondary, lineHeight: 1.5 }}>
+                  This returns the order from <strong>{packer.username}</strong> back to the Packer Admin queue.
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', background: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '11px', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Order</div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '8px 14px' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '13px', color: colors.textPrimary }}>
+                  {removeTarget.tracking}
+                </span>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setRemoveTarget(null)}
+                style={{ padding: '9px 20px', border: `1px solid ${colors.border}`, borderRadius: '8px', background: '#fff', color: colors.textSecondary, fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemove}
+                disabled={unassignMutation.isPending}
+                style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: colors.danger, color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: unassignMutation.isPending ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {unassignMutation.isPending ? 'Removing...' : 'Yes, Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {slaOrderId && (
         <SlaHistoryModal

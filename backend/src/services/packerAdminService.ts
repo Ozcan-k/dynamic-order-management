@@ -398,12 +398,16 @@ export async function getPackerStats(tenantId: string) {
   return { stats, totalCompleted, returnedCount }
 }
 
+// Returns the packer's ACTIVE workload — orders still assigned to them
+// (PACKER_ASSIGNED, not yet completed). Completing an order (on the phone or via
+// the admin popup) flips it to PACKER_COMPLETE → OUTBOUND, so it drops from this
+// list automatically. Sorted most-urgent first (delay → priority → oldest).
 export async function getPackerOrders(packerId: string, tenantId: string) {
   const assignments = await prisma.packerAssignment.findMany({
     where: {
       packerId,
-      completedAt: { not: null },
-      order: { tenantId },
+      completedAt: null,
+      order: { tenantId, archivedAt: null, status: OrderStatus.PACKER_ASSIGNED },
     },
     include: {
       order: {
@@ -420,13 +424,57 @@ export async function getPackerOrders(packerId: string, tenantId: string) {
         },
       },
     },
-    orderBy: { completedAt: 'desc' },
-    take: 50,
   })
 
-  return assignments.map((a) => ({
-    assignmentId: a.id,
-    completedAt: a.completedAt,
-    ...a.order,
-  }))
+  return assignments
+    .map((a) => ({
+      assignmentId: a.id,
+      completedAt: a.completedAt,
+      assignedAt: a.assignedAt,
+      ...a.order,
+    }))
+    .sort((x, y) =>
+      y.delayLevel - x.delayLevel ||
+      y.priority - x.priority ||
+      new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime(),
+    )
+}
+
+// Bulk variants for the packer workload popup — same per-order semantics as the
+// single Complete / Remove actions, best-effort (skips orders that error).
+export async function bulkCompletePacker(
+  orderIds: string[],
+  packerId: string,
+  changedById: string,
+  tenantId: string,
+): Promise<{ completed: number; skipped: number }> {
+  let completed = 0
+  let skipped = 0
+  for (const orderId of orderIds) {
+    try {
+      await completeOrder(orderId, packerId, changedById, tenantId)
+      completed++
+    } catch {
+      skipped++
+    }
+  }
+  return { completed, skipped }
+}
+
+export async function bulkUnassignPacker(
+  orderIds: string[],
+  tenantId: string,
+  changedById: string,
+): Promise<{ unassigned: number; skipped: number }> {
+  let unassigned = 0
+  let skipped = 0
+  for (const orderId of orderIds) {
+    try {
+      await unassignPacker(orderId, tenantId, changedById)
+      unassigned++
+    } catch {
+      skipped++
+    }
+  }
+  return { unassigned, skipped }
 }

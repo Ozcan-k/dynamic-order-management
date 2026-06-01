@@ -15,12 +15,18 @@ import {
   removeOrder,
   getPackerStats,
   getPackerOrders,
+  bulkCompletePacker,
+  bulkUnassignPacker,
 } from '../services/packerAdminService'
 
 const OrderIdBody = z.object({ orderId: z.string().min(1) })
 const CompleteBody = z.object({
   orderId: z.string().min(1),
   packerId: z.string().uuid(),
+})
+const BulkActionSchema = z.object({
+  orderIds: z.array(z.string().min(1)).min(1).max(200),
+  packerId: z.string().min(1),
 })
 const AssignSchema = z.object({
   orderId: z.string().min(1),
@@ -131,6 +137,28 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
       }
     }
     return reply.send({ results })
+  })
+
+  // POST /packer-admin/bulk-complete — complete many of one packer's orders
+  fastify.post('/bulk-complete', { preHandler }, async (request, reply) => {
+    const result = BulkActionSchema.safeParse(request.body)
+    if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+    const { userId, tenantId } = request.user as JWTPayload
+    const { orderIds, packerId } = result.data
+    const summary = await bulkCompletePacker(orderIds, packerId, userId, tenantId)
+    try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
+    return reply.send(summary)
+  })
+
+  // POST /packer-admin/bulk-unassign — send many of one packer's orders back to PICKER_COMPLETE
+  fastify.post('/bulk-unassign', { preHandler }, async (request, reply) => {
+    const result = BulkActionSchema.safeParse(request.body)
+    if (!result.success) return reply.code(400).send({ error: 'Invalid request body' })
+    const { userId, tenantId } = request.user as JWTPayload
+    const { orderIds } = result.data
+    const summary = await bulkUnassignPacker(orderIds, tenantId, userId)
+    try { getIO().to(`tenant:${tenantId}`).emit('order:stats_changed') } catch {}
+    return reply.send(summary)
   })
 
   // POST /packer-admin/unassign — undo a PACKER_ASSIGNED back to PICKER_COMPLETE without sending to picker
