@@ -22,6 +22,7 @@ import pickerRoutes from './routes/picker'
 import packerAdminRoutes from './routes/packerAdmin'
 import packerRoutes from './routes/packer'
 import outboundRoutes from './routes/outbound'
+import dispatchRoutes from './routes/dispatch'
 import reportsRoutes from './routes/reports'
 import archiveRoutes from './routes/archive'
 import salesRoutes from './routes/sales'
@@ -67,6 +68,7 @@ async function start() {
   await fastify.register(packerAdminRoutes, { prefix: '/packer-admin' })
   await fastify.register(packerRoutes, { prefix: '/packer' })
   await fastify.register(outboundRoutes, { prefix: '/outbound' })
+  await fastify.register(dispatchRoutes, { prefix: '/dispatch' })
   await fastify.register(reportsRoutes, { prefix: '/reports' })
   await fastify.register(archiveRoutes, { prefix: '/archive' })
   await fastify.register(salesRoutes, { prefix: '/sales' })

@@ -13,6 +13,7 @@ datasource db {
 enum UserRole {
   ADMIN
   INBOUND_ADMIN
+  OUTBOUND_ADMIN
   PICKER_ADMIN
   PACKER_ADMIN
   PICKER
@@ -124,6 +125,11 @@ enum Carrier {
   OTHER
 }
 
+enum DispatchSource {
+  IN_HOUSE
+  EXTERNAL
+}
+
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -137,6 +143,7 @@ model Tenant {
   orders Order[]
 
   returnCancelParcels ReturnCancelParcel[]
+  dispatchParcels     DispatchParcel[]
 
   @@map("tenants")
 }
@@ -169,6 +176,7 @@ model User {
   incidentsCreated     Incident[]           @relation("IncidentCreatedBy")
   brandingUpdates      CompanyBranding[]    @relation("BrandingUpdatedBy")
   returnCancelCreated  ReturnCancelParcel[] @relation("ReturnCancelCreatedBy")
+  dispatchCreated      DispatchParcel[]     @relation("DispatchCreatedBy")
 
   @@unique([tenantId, username])
   @@map("users")
@@ -546,4 +554,31 @@ model ReturnCancelParcel {
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, type])
   @@map("return_cancel_parcels")
+}
+
+// ─── Outbound Module ─────────────────────────────────────────────────────────
+// Independent "handed-to-courier" log. Internal name: dispatch. NEVER writes to
+// the Order pipeline — additive only, so existing reports stay untouched.
+// Holds two parcel kinds: IN_HOUSE (packed by our packers, looked up from orders)
+// and EXTERNAL (third-party parcels keyed manually, shopName = "Others").
+// Records are kept indefinitely (no retention purge).
+
+model DispatchParcel {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  trackingNumber String         @map("tracking_number")
+  source         DispatchSource
+  platform       Platform
+  carrier        Carrier
+  shopName       String         @map("shop_name")
+  orderId        String?        @map("order_id")
+  createdById    String         @map("created_by")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  createdBy User   @relation("DispatchCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, carrier])
+  @@map("dispatch_parcels")
 }

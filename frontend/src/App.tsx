@@ -11,7 +11,10 @@ import PickerMobile from './pages/PickerMobile'
 import PackerAdmin from './pages/PackerAdmin'
 import PackerAdminScan from './pages/PackerAdminScan'
 import PackerMobile from './pages/PackerMobile'
-import Outbound from './pages/Outbound'
+import PackedReport from './pages/PackedReport'
+import OutboundBoard from './pages/OutboundBoard'
+import OutboundReport from './pages/OutboundReport'
+import OutboundScan from './pages/OutboundScan'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Archive from './pages/Archive'
@@ -56,6 +59,7 @@ function RootRoute() {
     [UserRole.SALES_AGENT]: '/sales',
     [UserRole.STOCK_KEEPER]: '/stock/scan',
     [UserRole.RETURN_SCANNER]: '/returns/scan',
+    [UserRole.OUTBOUND_ADMIN]: '/outbound',
   }
   return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
 }
@@ -125,11 +129,37 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Packed Report — the former Outbound page, now under Packer Admin */}
+          <Route
+            path="/packed-report"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+                <AppLayout><PackedReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Independent Outbound module — Admin + Outbound Admin only */}
           <Route
             path="/outbound"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
-                <AppLayout><Outbound /></AppLayout>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+                <AppLayout><OutboundBoard /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/outbound/report"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+                <AppLayout><OutboundReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/outbound/scan"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+                <OutboundScan />
               </ProtectedRoute>
             }
           />

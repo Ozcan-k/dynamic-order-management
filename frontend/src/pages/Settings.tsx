@@ -47,11 +47,19 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     hasEmail: false,
   },
   [UserRole.INBOUND_ADMIN]: {
-    label: 'Inbound/Outbound Admin',
-    pluralLabel: 'Inbound/Outbound Admins',
+    label: 'Inbound Admin',
+    pluralLabel: 'Inbound Admins',
     color: '#b45309',
     badgeBg: '#fef3c7',
     badgeText: '#92400e',
+    hasEmail: false,
+  },
+  [UserRole.OUTBOUND_ADMIN]: {
+    label: 'Outbound Admin',
+    pluralLabel: 'Outbound Admins',
+    color: '#0e7490',
+    badgeBg: '#cffafe',
+    badgeText: '#155e75',
     hasEmail: false,
   },
   [UserRole.PICKER_ADMIN]: {
@@ -111,6 +119,44 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     hasEmail: false,
   },
 }
+
+// ─── Role sections — drives the whole page layout ─────────────────────────────
+
+interface RoleSectionConfig {
+  title: string
+  desc: string
+  roles: UserRole[]
+}
+
+const ROLE_SECTIONS: RoleSectionConfig[] = [
+  {
+    title: 'Administration',
+    desc: 'Desktop dashboard roles. Each admin manages their own area; Admins with an email also receive nightly reports.',
+    roles: [
+      UserRole.ADMIN,
+      UserRole.INBOUND_ADMIN,
+      UserRole.OUTBOUND_ADMIN,
+      UserRole.WAREHOUSE_ADMIN,
+      UserRole.PICKER_ADMIN,
+      UserRole.PACKER_ADMIN,
+    ],
+  },
+  {
+    title: 'Warehouse Floor',
+    desc: 'Pickers and packers work from handheld devices; stock keepers scan QR labels at the mobile stock station.',
+    roles: [UserRole.PICKER, UserRole.PACKER, UserRole.STOCK_KEEPER],
+  },
+  {
+    title: 'Sales',
+    desc: 'Sales agents log daily marketing activity and direct orders from the web dashboard.',
+    roles: [UserRole.SALES_AGENT],
+  },
+  {
+    title: 'Scanners',
+    desc: 'Handheld-only roles. Their scans feed a dedicated report and never touch the order pipeline.',
+    roles: [UserRole.RETURN_SCANNER],
+  },
+]
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -748,76 +794,29 @@ export default function Settings() {
           Loading users...
         </div>
       ) : (
-        <>
-          <SectionHeader
-            title="Admin Users"
-            desc="Admin users have access to the web dashboard. Admins with an email address receive nightly reports."
-          />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '14px',
-            marginBottom: '32px',
-          }}>
-            <UserRoleCard role={UserRole.ADMIN} users={byRole(UserRole.ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-            <UserRoleCard role={UserRole.INBOUND_ADMIN} users={byRole(UserRole.INBOUND_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-            <UserRoleCard role={UserRole.PICKER_ADMIN} users={byRole(UserRole.PICKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-            <UserRoleCard role={UserRole.PACKER_ADMIN} users={byRole(UserRole.PACKER_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-            <UserRoleCard role={UserRole.WAREHOUSE_ADMIN} users={byRole(UserRole.WAREHOUSE_ADMIN)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-          </div>
-
-          <SectionHeader
-            title="Mobile Users"
-            desc="Pickers and packers use the mobile app on handheld devices."
-          />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '14px',
-            marginBottom: '32px',
-          }}>
-            <UserRoleCard role={UserRole.PICKER} users={byRole(UserRole.PICKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-            <UserRoleCard role={UserRole.PACKER} users={byRole(UserRole.PACKER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-          </div>
-
-          <SectionHeader
-            title="Sales Agents"
-            desc="Sales agents log daily marketing activities and direct orders from the web dashboard."
-          />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '14px',
-            marginBottom: '32px',
-          }}>
-            <UserRoleCard role={UserRole.SALES_AGENT} users={byRole(UserRole.SALES_AGENT)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-          </div>
-
-          <SectionHeader
-            title="Stock Keepers"
-            desc="Stock keepers scan QR labels on warehouse boxes (incoming and outgoing) using the mobile scan station."
-          />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '14px',
-            marginBottom: '32px',
-          }}>
-            <UserRoleCard role={UserRole.STOCK_KEEPER} users={byRole(UserRole.STOCK_KEEPER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-          </div>
-
-          <SectionHeader
-            title="Return & Cancel Scanners"
-            desc="Return & Cancel scanners scan returned or cancelled parcels on a handheld; their scans appear on the Return & Cancel page."
-          />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '14px',
-          }}>
-            <UserRoleCard role={UserRole.RETURN_SCANNER} users={byRole(UserRole.RETURN_SCANNER)} onAdd={setAddRole} onDelete={setDeleteTarget} onEdit={setEditTarget} />
-          </div>
-        </>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+          {ROLE_SECTIONS.map((section) => (
+            <section key={section.title}>
+              <SectionHeader title={section.title} desc={section.desc} />
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: '14px',
+              }}>
+                {section.roles.map((role) => (
+                  <UserRoleCard
+                    key={role}
+                    role={role}
+                    users={byRole(role)}
+                    onAdd={setAddRole}
+                    onDelete={setDeleteTarget}
+                    onEdit={setEditTarget}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
 
       {addRole && (

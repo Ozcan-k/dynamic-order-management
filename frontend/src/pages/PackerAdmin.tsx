@@ -8,6 +8,7 @@ import { getManilaDateString } from '../lib/manila'
 import DelayBadge from '../components/DelayBadge'
 import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
+import ManilaClock from '../components/shared/ManilaClock'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
@@ -685,6 +686,8 @@ export default function PackerAdmin() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
       stats={headerStats}
     >
+      <ManilaClock />
+
       {/* Feedback banner */}
       {actionFeedback && (
         <div className={[

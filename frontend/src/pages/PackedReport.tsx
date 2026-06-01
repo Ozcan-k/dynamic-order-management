@@ -23,7 +23,6 @@ interface CarrierGroup {
 }
 
 interface OutboundStats {
-  waitingCount: number
   dispatchedToday: number
   inboundTotal: number
   outboundTotal: number
@@ -72,12 +71,11 @@ function getCarrierLabel(carrierName: string): string {
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
-const OutboundIcon = (
+const PackedReportIcon = (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="1" y="3" width="15" height="13" rx="2" />
-    <path d="M16 8h4l3 5v3h-7V8z" />
-    <circle cx="5.5" cy="18.5" r="2.5" />
-    <circle cx="18.5" cy="18.5" r="2.5" />
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+    <line x1="12" y1="22.08" x2="12" y2="12" />
   </svg>
 )
 
@@ -195,7 +193,7 @@ function CarrierCard({ group }: { group: CarrierGroup }) {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-export default function Outbound() {
+export default function PackedReport() {
   const user = useAuthStore((s) => s.user)
   const todayStr = getManilaDateString()
   const [selectedDate, setSelectedDate] = useState<string>('')  // '' = today
@@ -205,7 +203,7 @@ export default function Outbound() {
   const dateParam = isHistorical ? `?date=${selectedDate}` : ''
 
   const { data: groups, isLoading: groupsLoading } = useQuery({
-    queryKey: ['outbound-grouped', selectedDate],
+    queryKey: ['packed-report-grouped', selectedDate],
     queryFn: async () => {
       const res = await api.get<CarrierGroup[]>(`/outbound/grouped${dateParam}`)
       return res.data
@@ -214,7 +212,7 @@ export default function Outbound() {
   })
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['outbound-stats', selectedDate],
+    queryKey: ['packed-report-stats', selectedDate],
     queryFn: async () => {
       const res = await api.get<OutboundStats>(`/outbound/stats${dateParam}`)
       return res.data
@@ -240,19 +238,19 @@ export default function Outbound() {
   const relativeLabel = isHistorical ? `${weekday} · ${formatRelative(activeDate, todayStr)}` : null
 
   const headerStats = isHistorical ? (
-    <StatCard label={`Dispatched — ${displayLabel}`} value={dispatchedCount} color={colors.success} />
+    <StatCard label={`Packed — ${displayLabel}`} value={dispatchedCount} color={colors.success} />
   ) : (
     <>
       <StatCard label="Total Inbound" value={statsData?.inboundTotal ?? 0} color={colors.primary} />
-      <StatCard label="Dispatched Today" value={statsData?.dispatchedToday ?? 0} color={colors.success} />
+      <StatCard label="Packed Today" value={statsData?.dispatchedToday ?? 0} color={colors.success} />
       <StatCard label="In Pipeline" value={statsData?.missingCount ?? 0} color="#f59e0b" />
     </>
   )
 
   return (
     <PageShell
-      icon={OutboundIcon}
-      title="Outbound Panel"
+      icon={PackedReportIcon}
+      title="Packed Report"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
       stats={headerStats}
     >
@@ -263,7 +261,7 @@ export default function Outbound() {
       }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.textPrimary, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>{isHistorical ? `Shipments — ${displayLabel}` : "Today's Shipments"}</span>
+            <span>{isHistorical ? `Packed — ${displayLabel}` : "Today's Packed Parcels"}</span>
             {relativeLabel && (
               <span style={{
                 fontSize: 11, fontWeight: 600,
@@ -279,8 +277,8 @@ export default function Outbound() {
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textSecondary }}>
             {isHistorical
-              ? `${dispatchedCount} order${dispatchedCount !== 1 ? 's' : ''} dispatched · grouped by carrier`
-              : 'Orders dispatched today · grouped by carrier'}
+              ? `${dispatchedCount} parcel${dispatchedCount !== 1 ? 's' : ''} packed · grouped by carrier`
+              : 'Parcels completed by packers today · grouped by carrier'}
           </p>
         </div>
 
@@ -294,7 +292,7 @@ export default function Outbound() {
           gap: '12px', padding: '60px 0', color: colors.textMuted, fontSize: '14px',
         }}>
           <span className="spinner spinner-sm" />
-          Loading shipments...
+          Loading parcels...
         </div>
       ) : carrierGroups.length === 0 ? (
         <div style={{
@@ -309,19 +307,18 @@ export default function Outbound() {
             marginBottom: '16px', color: '#94a3b8',
           }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="1" y="3" width="15" height="13" rx="2" />
-              <path d="M16 8h4l3 5v3h-7V8z" />
-              <circle cx="5.5" cy="18.5" r="2.5" />
-              <circle cx="18.5" cy="18.5" r="2.5" />
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+              <line x1="12" y1="22.08" x2="12" y2="12" />
             </svg>
           </div>
           <div style={{ fontWeight: 700, fontSize: '15px', color: colors.textPrimary, marginBottom: '6px' }}>
-            {isHistorical ? `No orders dispatched on ${displayLabel}` : 'No orders dispatched today'}
+            {isHistorical ? `No parcels packed on ${displayLabel}` : 'No parcels packed today'}
           </div>
           <div style={{ fontSize: '13px', color: colors.textSecondary }}>
             {isHistorical
               ? 'Use the navigator above to try a different date.'
-              : 'Orders will appear here automatically when packers complete them.'}
+              : 'Parcels appear here automatically when packers complete them.'}
           </div>
         </div>
       ) : (

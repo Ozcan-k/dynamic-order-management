@@ -1,6 +1,7 @@
 export enum UserRole {
   ADMIN = 'ADMIN',
   INBOUND_ADMIN = 'INBOUND_ADMIN',
+  OUTBOUND_ADMIN = 'OUTBOUND_ADMIN',
   PICKER_ADMIN = 'PICKER_ADMIN',
   PACKER_ADMIN = 'PACKER_ADMIN',
   PICKER = 'PICKER',
@@ -92,6 +93,28 @@ export const CARRIER_LABELS: Record<Carrier, string> = {
   [Carrier.LBC]:        'LBC',
   [Carrier.NINJA_VAN]:  'Ninja Van',
   [Carrier.OTHER]:      'Other',
+}
+
+// ─── Outbound (dispatch) module ──────────────────────────────────────────────
+
+export enum DispatchSource {
+  IN_HOUSE = 'IN_HOUSE',
+  EXTERNAL = 'EXTERNAL',
+}
+
+export const DISPATCH_SOURCE_LABELS: Record<DispatchSource, string> = {
+  [DispatchSource.IN_HOUSE]: 'In-house',
+  [DispatchSource.EXTERNAL]: 'External',
+}
+
+/** Suggested carrier for an in-house parcel, derived from its platform. Editable by the operator. */
+export function suggestCarrier(platform: Platform): Carrier {
+  switch (platform) {
+    case Platform.SHOPEE: return Carrier.SPX
+    case Platform.LAZADA: return Carrier.LEX
+    case Platform.TIKTOK: return Carrier.JT_EXPRESS
+    default:              return Carrier.OTHER
+  }
 }
 
 export function detectPlatform(trackingNumber: string): Platform {

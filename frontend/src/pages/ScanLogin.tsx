@@ -14,6 +14,7 @@ function getScanRoute(role: string): string {
     case 'PACKER':         return '/packer'
     case 'STOCK_KEEPER':   return '/stock/scan'
     case 'RETURN_SCANNER': return '/returns/scan'
+    case 'OUTBOUND_ADMIN': return '/outbound/scan'
     default:               return '/unauthorized'
   }
 }

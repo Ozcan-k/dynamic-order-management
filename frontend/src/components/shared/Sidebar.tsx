@@ -193,12 +193,20 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Packer Admin',
     icon: <PackerAdminIcon />,
     roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN],
+    children: [
+      { path: '/packer-admin', label: 'Packer Admin', icon: <PackerAdminIcon />, roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN] },
+      { path: '/packed-report', label: 'Packed Report', icon: <PackerAdminIcon />, roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN] },
+    ],
   },
   {
     path: '/outbound',
     label: 'Outbound',
     icon: <OutboundIcon />,
-    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN],
+    children: [
+      { path: '/outbound', label: 'Outbound', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN] },
+      { path: '/outbound/report', label: 'Report', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN] },
+    ],
   },
   {
     path: '/returns',

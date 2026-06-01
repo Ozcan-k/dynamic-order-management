@@ -13,7 +13,7 @@ import {
 import { api } from '../../api/client'
 import { colors, radius, shadow, font } from '../../theme'
 import Sparkline from '../../components/shared/Sparkline'
-import DateNavigator, { addDays, formatRelative } from '../../components/shared/DateNavigator'
+import { addDays, formatRelative } from '../../components/shared/DateNavigator'
 import { getManilaDateString } from '../../lib/manila'
 import { getSocket } from '../../lib/socket'
 
@@ -531,6 +531,7 @@ export default function LivePerformanceTab() {
 
   const isHistorical = selectedDate !== ''
   const minDate = addDays(todayStr, -89)
+  const yesterdayStr = addDays(todayStr, -1)
   const dateParam = isHistorical ? `?date=${selectedDate}` : ''
 
   const { data, isLoading, isError, dataUpdatedAt } = useQuery<LivePerformanceData>({
@@ -578,31 +579,55 @@ export default function LivePerformanceTab() {
   }
 
   const activeDate = selectedDate || todayStr
+  const datePreset: 'today' | 'yesterday' | 'custom' =
+    selectedDate === '' ? 'today' : selectedDate === yesterdayStr ? 'yesterday' : 'custom'
   const dateLabel = data.isHistorical
     ? `${data.manilaDate} (${formatRelative(activeDate, todayStr)})`
     : `Today · ${data.manilaDate}`
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header: date navigator + status */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <DateNavigator
-            value={selectedDate}
-            todayStr={todayStr}
-            onChange={setSelectedDate}
-            minDate={minDate}
-          />
-          <div style={{ fontSize: 13, color: colors.textSecondary }}>
-            <strong style={{ color: colors.textPrimary }}>{dateLabel}</strong> · Asia/Manila
-          </div>
+      {/* Header: Incident-style date picker (single day) + status */}
+      <div className="page-hero">
+        <div className="page-hero-content">
+          <div className="page-hero-label">Performance Day</div>
+          <div className="page-hero-title">{dateLabel}</div>
         </div>
-        <LiveStatusPill
-          connected={socketConnected}
-          updatedAt={dataUpdatedAt || null}
-          isHistorical={data.isHistorical}
-          manilaDate={data.manilaDate}
-        />
+        <div className="page-hero-actions" style={{ alignItems: 'center', gap: 12 }}>
+          <div className="preset-btn-group">
+            <button
+              type="button"
+              className={`preset-btn${datePreset === 'today' ? ' preset-btn--active' : ''}`}
+              onClick={() => setSelectedDate('')}
+            >Today</button>
+            <button
+              type="button"
+              className={`preset-btn${datePreset === 'yesterday' ? ' preset-btn--active' : ''}`}
+              onClick={() => setSelectedDate(yesterdayStr)}
+            >Yesterday</button>
+            <button
+              type="button"
+              className={`preset-btn${datePreset === 'custom' ? ' preset-btn--active' : ''}`}
+              onClick={() => setSelectedDate(activeDate === todayStr ? yesterdayStr : activeDate)}
+            >Custom</button>
+          </div>
+          {datePreset === 'custom' && (
+            <input
+              type="date"
+              value={activeDate}
+              min={minDate}
+              max={todayStr}
+              onChange={(e) => setSelectedDate(e.target.value || '')}
+              style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }}
+            />
+          )}
+          <LiveStatusPill
+            connected={socketConnected}
+            updatedAt={dataUpdatedAt || null}
+            isHistorical={data.isHistorical}
+            manilaDate={data.manilaDate}
+          />
+        </div>
       </div>
 
       {/* Role summary cards */}

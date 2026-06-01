@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import { useAuthStore, AuthUser } from '../stores/authStore'
 import { setLoginRedirect } from '../lib/loginRedirect'
 
-const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer', '/stock/scan', '/returns/scan']
+const HANDHELD_ROUTES = ['/inbound-scan', '/picker-admin-scan', '/picker', '/packer', '/stock/scan', '/returns/scan', '/outbound/scan']
 
 // Mirrors the allowedRoles on each <ProtectedRoute> in App.tsx. Keep in sync.
 const ROUTE_ROLES: Record<string, UserRole[]> = {
@@ -13,7 +13,10 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/dashboard':         [UserRole.ADMIN, UserRole.INBOUND_ADMIN],
   '/picker-admin':      [UserRole.ADMIN, UserRole.PICKER_ADMIN],
   '/packer-admin':      [UserRole.ADMIN, UserRole.PACKER_ADMIN],
-  '/outbound':          [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
+  '/packed-report':     [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN],
+  '/outbound':          [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN],
+  '/outbound/report':   [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN],
+  '/outbound/scan':     [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN],
   '/archive':           [UserRole.ADMIN],
   '/reports':           [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
   '/settings':          [UserRole.ADMIN],
@@ -283,6 +286,8 @@ function getDefaultRoute(role: string): string {
       return '/picker'
     case 'PACKER':
       return '/packer'
+    case 'OUTBOUND_ADMIN':
+      return '/outbound'
     case 'RETURN_SCANNER':
       return '/returns/scan'
     case 'SALES_AGENT':
