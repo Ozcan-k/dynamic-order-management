@@ -5,6 +5,31 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-06-01] Outbound Scan rejects in-house parcels packed on a previous day — "not in our system" (v2.49.1)
+
+### Problem
+On the handheld **Outbound Scan** (In-house mode), operators scanning packer-completed parcels got `Waybill <X> is not in our system. In-house parcels must already exist.` for **some** parcels, while same-batch parcels of identical format scanned fine. The failing ones were always leftovers carried over from a previous day.
+
+### Root cause
+The in-house dispatch lookup filtered on `archivedAt: null`:
+```ts
+// dispatchService.ts — lookupOrderForDispatch + createDispatchParcel
+where: { tenantId, trackingNumber: tn, archivedAt: null }
+```
+But completed orders **auto-advance** `PACKER_COMPLETE → OUTBOUND` (`packerAdminService.ts:255-259`), and the nightly `archiveOutbound` job (23:30 Manila, `archiveService.ts` + `queues.ts`) stamps `archivedAt` on every `OUTBOUND` order. So any parcel handed to the courier the **day after** it was packed had already been archived overnight → the `archivedAt: null` filter excluded it → false "not in our system". Same-day parcels still had `archivedAt = null`, which is why only *some* failed.
+
+Secondary latent bug: inbound `scanOrder` stores the tracking number with `trim()` only (no upper-case), while dispatch looked it up with `trim().toUpperCase()` — a case difference would also miss.
+
+### Fix
+In `dispatchService.ts`, both `lookupOrderForDispatch` and the in-house re-verify in `createDispatchParcel`:
+- **Dropped** the `archivedAt: null` filter — dispatch is a read-only "handed-to-courier" log that legitimately happens days after packing, so archived orders must still match.
+- Match **case-insensitively** (`{ equals: tn, mode: 'insensitive' }`) and `orderBy createdAt desc` to prefer the most recent order if a tracking number was re-used after archival.
+
+### Gotcha
+Don't "fix" this by stopping the auto-archive or the OUTBOUND transition — those are correct for the order pipeline / retention. The dispatch lookup simply must not be scoped to live orders.
+
+---
+
 ## [2026-06-01] Warehouse Report "Custom" date button never opened the date picker (v2.49.0)
 
 ### Problem

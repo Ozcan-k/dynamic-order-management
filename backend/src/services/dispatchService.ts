@@ -36,8 +36,15 @@ export async function lookupOrderForDispatch(
   trackingNumber: string,
 ): Promise<OrderLookupResult> {
   const tn = trackingNumber.trim().toUpperCase()
+  // Do NOT filter on archivedAt: completed parcels auto-advance to OUTBOUND and
+  // are archived nightly (23:30 Manila), so a parcel handed to the courier the
+  // day after it was packed would otherwise read as "not in our system".
+  // Match case-insensitively too — inbound stores the raw scanned text (no
+  // upper-casing), so a case difference must not break the match. When a tracking
+  // number was re-used after archival, prefer the most recent order.
   const order = await prisma.order.findFirst({
-    where: { tenantId, trackingNumber: tn, archivedAt: null },
+    where: { tenantId, trackingNumber: { equals: tn, mode: 'insensitive' } },
+    orderBy: { createdAt: 'desc' },
     select: { platform: true, shopName: true, carrierName: true },
   })
   if (!order) return { found: false, platform: null, shopName: null, carrierName: null }
@@ -92,8 +99,10 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
 
   if (input.source === DispatchSource.IN_HOUSE) {
     // Re-verify the parcel really is ours (drives the "block it" error on the scanner).
+    // Match archived orders too and case-insensitively — see lookupOrderForDispatch.
     const order = await prisma.order.findFirst({
-      where: { tenantId: input.tenantId, trackingNumber, archivedAt: null },
+      where: { tenantId: input.tenantId, trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
+      orderBy: { createdAt: 'desc' },
       select: { id: true, shopName: true },
     })
     if (!order) throw new OrderNotFoundError()
