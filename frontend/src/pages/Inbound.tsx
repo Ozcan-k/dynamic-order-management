@@ -14,6 +14,7 @@ import OrderTable from '../components/OrderTable'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
+import ViewOnlyBadge from '../components/shared/ViewOnlyBadge'
 
 interface Order {
   id: string
@@ -45,6 +46,8 @@ export default function Inbound() {
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
+  // OUTBOUND_ADMIN may view the inbound board but cannot scan / generate / delete.
+  const readOnly = user?.role === UserRole.OUTBOUND_ADMIN
 
   // Prefetch shop list so modal dropdowns open instantly (no 1-2s flash)
   useEffect(() => {
@@ -162,6 +165,7 @@ export default function Inbound() {
   // Header stats
   const headerStats = (
     <>
+      {readOnly && <ViewOnlyBadge />}
       <StatCard label="Inbound" value={totalScanned} color={colors.primary} />
       {isLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
@@ -195,6 +199,7 @@ export default function Inbound() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
       stats={headerStats}
     >
+      {!readOnly && (
       <ScanInput
         onScan={(tn) => {
           setScanFeedback(null)
@@ -208,7 +213,9 @@ export default function Inbound() {
         }}
         disabled={scanMutation.isPending}
       />
+      )}
 
+      {!readOnly && (
       <div style={{ marginTop: 10, marginBottom: 6 }}>
         <button
           onClick={() => { setScanFeedback(null); generateMutation.mutate() }}
@@ -249,6 +256,7 @@ export default function Inbound() {
           )}
         </button>
       </div>
+      )}
 
       {showGenerateModal && generatedTN && (
         <GenerateDirectModal

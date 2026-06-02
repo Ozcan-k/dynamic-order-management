@@ -97,7 +97,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
   // GET /orders/pending-handheld — desktop polls on page load to catch missed socket events
   fastify.get(
     '/pending-handheld',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN)] },
     async (request, reply) => {
       const { userId } = request.user as JWTPayload
       const [single, bulkRaw] = await Promise.all([
@@ -128,10 +128,10 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     },
   )
 
-  // GET /orders/shops — ADMIN, INBOUND_ADMIN
+  // GET /orders/shops — ADMIN, INBOUND_ADMIN (+ OUTBOUND_ADMIN read-only)
   fastify.get(
     '/shops',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const shops = await getDistinctShopNames(tenantId)
@@ -145,7 +145,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -161,7 +161,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN),
       ],
     },
     async (request, reply) => {
@@ -208,7 +208,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         fastify.authenticate,
-        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN),
       ],
     },
     async (request, reply) => {

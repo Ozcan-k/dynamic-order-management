@@ -39,16 +39,18 @@ const BulkAssignSchema = z.object({
 
 export default async function packerAdminRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN)]
+  // Read-only guard — OUTBOUND_ADMIN may VIEW the packer board but performs no mutations.
+  const readPreHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN)]
 
   // GET /packer-admin/orders — PICKER_COMPLETE + PACKER_ASSIGNED orders (admin queue view)
-  fastify.get('/orders', { preHandler }, async (request, reply) => {
+  fastify.get('/orders', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const orders = await getPickerCompleteOrders(tenantId)
     return reply.send({ orders })
   })
 
   // GET /packer-admin/packers — active packers
-  fastify.get('/packers', { preHandler }, async (request, reply) => {
+  fastify.get('/packers', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const packers = await getPackers(tenantId)
     return reply.send({ packers })
@@ -107,7 +109,7 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
   })
 
   // GET /packer-admin/pending-staged — desktop drains Redis on page load
-  fastify.get('/pending-staged', { preHandler }, async (request, reply) => {
+  fastify.get('/pending-staged', { preHandler: readPreHandler }, async (request, reply) => {
     const { userId } = request.user as JWTPayload
     const key = `pending:packer-staged:${userId}`
     const raw = await redis.lrange(key, 0, -1)
@@ -179,14 +181,14 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
   })
 
   // GET /packer-admin/stats — per-packer completion counts + overall total
-  fastify.get('/stats', { preHandler }, async (request, reply) => {
+  fastify.get('/stats', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const { stats, totalCompleted, returnedCount } = await getPackerStats(tenantId)
     return reply.send({ stats, totalCompleted, returnedCount })
   })
 
   // GET /packer-admin/packer/:packerId/orders — specific packer's completed orders
-  fastify.get('/packer/:packerId/orders', { preHandler }, async (request, reply) => {
+  fastify.get('/packer/:packerId/orders', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const { packerId } = request.params as { packerId: string }
     const orders = await getPackerOrders(packerId, tenantId)

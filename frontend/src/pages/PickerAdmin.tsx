@@ -15,6 +15,8 @@ import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
 import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
+import ViewOnlyBadge from '../components/shared/ViewOnlyBadge'
+import { UserRole } from '@dom/shared'
 
 type PickerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'scannedAt' | 'scannedBy'
 
@@ -68,10 +70,12 @@ function PickerOrdersModal({
   picker,
   onClose,
   onComplete,
+  readOnly = false,
 }: {
   picker: { id: string; username: string }
   onClose: () => void
   onComplete: () => void
+  readOnly?: boolean
 }) {
   const queryClient = useQueryClient()
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
@@ -243,7 +247,7 @@ function PickerOrdersModal({
         </div>
 
         {/* Bulk action bar — visible only when items are selected */}
-        {someSelected && (
+        {!readOnly && someSelected && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
             padding: '10px 20px',
@@ -331,7 +335,7 @@ function PickerOrdersModal({
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
                   {/* Select All checkbox */}
                   <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
-                    {selectableOrders.length > 0 && (
+                    {!readOnly && selectableOrders.length > 0 && (
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -365,7 +369,7 @@ function PickerOrdersModal({
                     >
                       {/* Row checkbox */}
                       <td style={{ padding: '11px 8px 11px 16px' }}>
-                        {isSelectable && (
+                        {!readOnly && isSelectable && (
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -430,7 +434,7 @@ function PickerOrdersModal({
                           >
                             SLA
                           </button>
-                          {isSelectable && (
+                          {!readOnly && isSelectable && (
                             <>
                               <button
                                 onClick={() => handleRemove(order.id, order.trackingNumber)}
@@ -1035,6 +1039,8 @@ function PickerSelect({
 export default function PickerAdmin() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
+  // OUTBOUND_ADMIN may view the picker board but cannot scan / assign / complete / remove.
+  const readOnly = user?.role === UserRole.OUTBOUND_ADMIN
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectedPickerId, setSelectedPickerId] = useState<string>('')
@@ -1356,6 +1362,7 @@ export default function PickerAdmin() {
   // ─── Header stats ──────────────────────────────────────────────────────────
   const headerStats = (
     <>
+      {readOnly && <ViewOnlyBadge />}
       <StatCard label="In Queue" value={orderStats?.pendingInbound ?? orderList.length} color={colors.primary} />
       <StatCard label="In Progress" value={orderStats?.inProgressCount ?? 0} color={colors.success} />
       <StatCard label="Total Completed" value={orderStats?.pickerDoneCount ?? 0} color="#10b981" />
@@ -1422,7 +1429,8 @@ export default function PickerAdmin() {
     >
       <ManilaClock />
 
-      {/* ── Scan & Stage ── */}
+      {/* ── Scan & Stage ── (hidden for read-only viewers) */}
+      {!readOnly && (
       <div style={{ marginBottom: '28px' }}>
         <SectionHeader title="Scan & Stage" count={stagedOrders.length} />
 
@@ -1527,6 +1535,7 @@ export default function PickerAdmin() {
           </div>
         )}
       </div>
+      )}
 
       {/* Section heading */}
       <SectionHeader title="Inbound Orders" count={visibleOrders.length}>
@@ -1609,7 +1618,8 @@ export default function PickerAdmin() {
         )}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar (selection + assign actions) — hidden for read-only viewers */}
+      {!readOnly && (
       <div className="toolbar-card">
         {/* Left: select-all checkbox + selection count */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1648,6 +1658,7 @@ export default function PickerAdmin() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Order table / loading / error / empty states */}
       {ordersLoading ? (
@@ -1697,7 +1708,7 @@ export default function PickerAdmin() {
           <table style={{ minWidth: '1100px' }}>
             <thead>
               <tr>
-                <th style={{ width: 40 }} />
+                {!readOnly && <th style={{ width: 40 }} />}
                 <th style={{ width: 40 }}>#</th>
                 <SortableTh<PickerSortKey> label="Tracking Number" sortKey="tracking" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortableTh<PickerSortKey> label="Platform" sortKey="platform" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1706,7 +1717,7 @@ export default function PickerAdmin() {
                 <SortableTh<PickerSortKey> label="Delay" sortKey="delay" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortableTh<PickerSortKey> label="Scanned At" sortKey="scannedAt" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortableTh<PickerSortKey> label="Scanned By" sortKey="scannedBy" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th style={{ textAlign: 'center' }}>Assign</th>
+                {!readOnly && <th style={{ textAlign: 'center' }}>Assign</th>}
               </tr>
             </thead>
             <tbody className="row-stagger">
@@ -1722,6 +1733,7 @@ export default function PickerAdmin() {
 
                 return (
                   <tr key={order.id} className={rowClass} style={isStaged ? { background: '#f0fdf4' } : undefined}>
+                    {!readOnly && (
                     <td style={{ textAlign: 'center', width: 40 }}>
                       <input
                         type="checkbox"
@@ -1730,6 +1742,7 @@ export default function PickerAdmin() {
                         style={{ accentColor: colors.primary, cursor: 'pointer' }}
                       />
                     </td>
+                    )}
                     <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                     <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                       {order.trackingNumber}
@@ -1784,6 +1797,7 @@ export default function PickerAdmin() {
                         {order.scannedBy.username}
                       </span>
                     </td>
+                    {!readOnly && (
                     <td style={{ textAlign: 'center' }}>
                       <button
                         className="btn-assign"
@@ -1793,6 +1807,7 @@ export default function PickerAdmin() {
                         Assign
                       </button>
                     </td>
+                    )}
                   </tr>
                 )
               })}
@@ -1887,6 +1902,7 @@ export default function PickerAdmin() {
         <PickerOrdersModal
           picker={modalPicker}
           onClose={() => setModalPicker(null)}
+          readOnly={readOnly}
           onComplete={() => {
             queryClient.invalidateQueries({ queryKey: ['picker-admin-stats'] })
           }}
@@ -1894,7 +1910,7 @@ export default function PickerAdmin() {
       )}
 
       {/* Sticky bulk action bar */}
-      {someSelected && (
+      {!readOnly && someSelected && (
         <div className="bulk-action-bar" role="region" aria-label="Bulk actions">
           <span className="bulk-action-bar-count">
             <span className="bulk-action-bar-count-pill">{selectedIds.size}</span>

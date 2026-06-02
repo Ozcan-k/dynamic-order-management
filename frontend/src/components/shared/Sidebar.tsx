@@ -180,19 +180,21 @@ const NAV_ITEMS: NavItem[] = [
     path: '/dashboard',
     label: 'Inbound',
     icon: <InboundIcon />,
-    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN],
   },
   {
     path: '/picker-admin',
     label: 'Picker Admin',
     icon: <PickerAdminIcon />,
-    roles: [UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN],
   },
   {
     path: '/packer-admin',
     label: 'Packer Admin',
     icon: <PackerAdminIcon />,
-    roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN],
+    // OUTBOUND_ADMIN sees Packer Admin (read-only) but NOT the Packed Report child,
+    // so it renders as a plain link for them (no submenu) — see render logic below.
+    roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN],
     children: [
       { path: '/packer-admin', label: 'Packer Admin', icon: <PackerAdminIcon />, roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN] },
       { path: '/packed-report', label: 'Packed Report', icon: <PackerAdminIcon />, roles: [UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN] },
@@ -352,8 +354,11 @@ export default function Sidebar() {
       {/* Nav links */}
       <div className="sidebar-nav">
         {visibleItems.map(item => {
-          if (item.children && item.children.length > 0) {
-            const visibleChildren = item.children.filter((c) => user?.role && c.roles.includes(user.role))
+          const visibleChildren = item.children?.filter((c) => user?.role && c.roles.includes(user.role)) ?? []
+          // Render a submenu only when the user can actually see a child; a role that
+          // can reach the parent but no children (e.g. OUTBOUND_ADMIN on Packer Admin)
+          // falls through to a plain link below.
+          if (visibleChildren.length > 0) {
             const isOpenParent = !!expanded[item.path]
             const isActiveParent = location.pathname.startsWith(item.path)
             return (

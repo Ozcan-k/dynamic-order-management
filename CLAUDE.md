@@ -42,7 +42,7 @@ git push origin main --tags
 | Yeni özellik, phase tamamlandı | MINOR → v1.1.0 |
 | Büyük mimari değişiklik | MAJOR → v2.0.0 |
 
-**Mevcut versiyon:** `v2.49.1` — Outbound Scan in-house lookup artık arşivlenmiş (önceki günden kalan) order'ları da buluyor + case-insensitive eşleşme. (Önceki: v2.49.0)
+**Mevcut versiyon:** `v2.50.0` — OUTBOUND_ADMIN artık Inbound / Picker Admin / Packer Admin panellerini **salt-okunur** görüyor (sadece GET guard'larına eklendi; tüm mutation'lar 403). Tüm scan/assign/complete/remove/delete UI `readOnly` ile gizli, her panelde "View Only" rozeti. Packed Report hariç. (Önceki: v2.49.1)
 
 ### Kesinlikle commit edilmeyecekler:
 - `.env`

@@ -109,7 +109,7 @@ export default function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN]}>
                 <AppLayout><Inbound /></AppLayout>
               </ProtectedRoute>
             }
@@ -117,7 +117,7 @@ export default function App() {
           <Route
             path="/picker-admin"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN]}>
                 <AppLayout><PickerAdmin /></AppLayout>
               </ProtectedRoute>
             }
@@ -125,7 +125,7 @@ export default function App() {
           <Route
             path="/packer-admin"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN]}>
                 <AppLayout><PackerAdmin /></AppLayout>
               </ProtectedRoute>
             }

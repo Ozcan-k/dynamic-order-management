@@ -15,6 +15,8 @@ import PlatformBadge from '../components/shared/PlatformBadge'
 import SectionHeader from '../components/shared/SectionHeader'
 import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
+import ViewOnlyBadge from '../components/shared/ViewOnlyBadge'
+import { UserRole } from '@dom/shared'
 
 type PackerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'pickedBy' | 'arrivedAt'
 
@@ -68,10 +70,12 @@ function PackerOrdersModal({
   packer,
   onClose,
   onComplete,
+  readOnly = false,
 }: {
   packer: { id: string; username: string }
   onClose: () => void
   onComplete?: () => void
+  readOnly?: boolean
 }) {
   const queryClient = useQueryClient()
   const [removeTarget, setRemoveTarget] = useState<{ id: string; tracking: string } | null>(null)
@@ -238,7 +242,7 @@ function PackerOrdersModal({
         </div>
 
         {/* Bulk action bar — visible only when items are selected */}
-        {someSelected && (
+        {!readOnly && someSelected && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
             padding: '10px 20px', background: '#eff6ff', borderBottom: `1px solid #bfdbfe`,
@@ -316,7 +320,7 @@ function PackerOrdersModal({
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
                   <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
-                    {selectableOrders.length > 0 && (
+                    {!readOnly && selectableOrders.length > 0 && (
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -348,12 +352,14 @@ function PackerOrdersModal({
                       }}
                     >
                       <td style={{ padding: '11px 8px 11px 16px' }}>
+                        {!readOnly && (
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelect(order.id)}
                           style={{ width: 16, height: 16, cursor: 'pointer', accentColor: colors.primary }}
                         />
+                        )}
                       </td>
                       <td style={{ padding: '11px 16px 11px 8px', fontFamily: 'monospace', fontWeight: 600, fontSize: '12px' }}>
                         {order.trackingNumber}
@@ -402,6 +408,8 @@ function PackerOrdersModal({
                           >
                             SLA
                           </button>
+                          {!readOnly && (
+                          <>
                           <button
                             onClick={() => setRemoveTarget({ id: order.id, tracking: order.trackingNumber })}
                             disabled={isBusy}
@@ -424,6 +432,8 @@ function PackerOrdersModal({
                           >
                             Complete
                           </button>
+                          </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -739,6 +749,8 @@ const PAGE_SIZE = 10
 export default function PackerAdmin() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
+  // OUTBOUND_ADMIN may view the packer board but cannot scan / assign / complete / remove.
+  const readOnly = user?.role === UserRole.OUTBOUND_ADMIN
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
@@ -1079,6 +1091,7 @@ export default function PackerAdmin() {
   // ─── Header stats ─────────────────────────────────────────────────────────
   const headerStats = (
     <>
+      {readOnly && <ViewOnlyBadge />}
       <StatCard label="Waiting to Pack" value={orderList.length} color={colors.warning} />
       <StatCard label="Total Packed" value={totalCompleted} color={colors.success} />
       <StatCard label="Returned to Picker" value={returnedCount} color="#f59e0b" />
@@ -1127,7 +1140,8 @@ export default function PackerAdmin() {
         </div>
       )}
 
-      {/* ── Scan & Stage ── */}
+      {/* ── Scan & Stage ── (hidden for read-only viewers) */}
+      {!readOnly && (
       <div style={{ marginBottom: '28px' }}>
         <SectionHeader title="Scan & Stage" count={stagedOrders.length} />
 
@@ -1236,6 +1250,7 @@ export default function PackerAdmin() {
           </div>
         )}
       </div>
+      )}
 
       {/* Order search */}
       <div style={{
@@ -1366,7 +1381,8 @@ export default function PackerAdmin() {
         )}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar (selection + hint) — hidden for read-only viewers */}
+      {!readOnly && (
       <div className="toolbar-card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
@@ -1390,6 +1406,7 @@ export default function PackerAdmin() {
           </span>
         </div>
       </div>
+      )}
 
       {/* Order table */}
       {ordersLoading ? (
@@ -1425,7 +1442,7 @@ export default function PackerAdmin() {
             <table style={{ minWidth: '1100px' }}>
               <thead>
                 <tr>
-                  <th style={{ width: 40 }} />
+                  {!readOnly && <th style={{ width: 40 }} />}
                   <th style={{ width: 40 }}>#</th>
                   <SortableTh<PackerSortKey> label="Tracking Number" sortKey="tracking" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                   <SortableTh<PackerSortKey> label="Platform" sortKey="platform" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1434,7 +1451,7 @@ export default function PackerAdmin() {
                   <SortableTh<PackerSortKey> label="Delay" sortKey="delay" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                   <SortableTh<PackerSortKey> label="Picked By" sortKey="pickedBy" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
                   <SortableTh<PackerSortKey> label="Arrived At" sortKey="arrivedAt" activeKey={sortKey} direction={sortDir} onSort={handleSort} />
-                  <th style={{ textAlign: 'center' }}>Actions</th>
+                  {!readOnly && <th style={{ textAlign: 'center' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody className="row-stagger">
@@ -1449,6 +1466,7 @@ export default function PackerAdmin() {
 
                   return (
                     <tr key={order.id} className={rowCls}>
+                      {!readOnly && (
                       <td style={{ textAlign: 'center', width: 40 }}>
                         <input
                           type="checkbox"
@@ -1457,6 +1475,7 @@ export default function PackerAdmin() {
                           style={{ accentColor: colors.primary, cursor: 'pointer' }}
                         />
                       </td>
+                      )}
                       <td style={{ color: '#9ca3af', width: 40 }}>{globalIndex}</td>
                       <td style={{ fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.03em' }}>
                         {order.trackingNumber}
@@ -1522,6 +1541,7 @@ export default function PackerAdmin() {
                       <td style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
                         {formatArrived(order)}
                       </td>
+                      {!readOnly && (
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                           <button
@@ -1542,6 +1562,7 @@ export default function PackerAdmin() {
                           </button>
                         </div>
                       </td>
+                      )}
                     </tr>
                   )
                 })}
@@ -1823,11 +1844,12 @@ export default function PackerAdmin() {
         <PackerOrdersModal
           packer={packerModal.packer}
           onClose={() => setPackerModal(null)}
+          readOnly={readOnly}
         />
       )}
 
       {/* Sticky bulk action bar */}
-      {someSelected && (
+      {!readOnly && someSelected && (
         <div className="bulk-action-bar" role="region" aria-label="Bulk actions">
           <span className="bulk-action-bar-count">
             <span className="bulk-action-bar-count-pill">{selectedIds.size}</span>

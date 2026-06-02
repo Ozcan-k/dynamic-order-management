@@ -36,16 +36,18 @@ const BulkActionSchema = z.object({
 
 export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN)]
+  // Read-only guard — OUTBOUND_ADMIN may VIEW the picker board but performs no mutations.
+  const readPreHandler = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.PICKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN)]
 
   // GET /picker-admin/orders
-  fastify.get('/orders', { preHandler }, async (request, reply) => {
+  fastify.get('/orders', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const orders = await getInboundOrders(tenantId)
     return reply.send({ orders })
   })
 
   // GET /picker-admin/pickers
-  fastify.get('/pickers', { preHandler }, async (request, reply) => {
+  fastify.get('/pickers', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const pickers = await getPickers(tenantId)
     return reply.send({ pickers })
@@ -107,7 +109,7 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   })
 
   // GET /picker-admin/pending-staged — desktop polls on page load to catch missed socket events
-  fastify.get('/pending-staged', { preHandler }, async (request, reply) => {
+  fastify.get('/pending-staged', { preHandler: readPreHandler }, async (request, reply) => {
     const { userId } = request.user as JWTPayload
     const key = `pending:staged:${userId}`
     const raw = await redis.lrange(key, 0, -1)
@@ -141,14 +143,14 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   })
 
   // GET /picker-admin/stats
-  fastify.get('/stats', { preHandler }, async (request, reply) => {
+  fastify.get('/stats', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const { stats, returnedCount, totalCompleted } = await getPickerStats(tenantId)
     return reply.send({ stats, returnedCount, totalCompleted })
   })
 
   // GET /picker-admin/picker/:pickerId/orders
-  fastify.get('/picker/:pickerId/orders', { preHandler }, async (request, reply) => {
+  fastify.get('/picker/:pickerId/orders', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     const { pickerId } = request.params as { pickerId: string }
     const orders = await getPickerOrders(pickerId, tenantId)
