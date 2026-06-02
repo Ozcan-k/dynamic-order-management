@@ -525,6 +525,10 @@ export default function LivePerformanceTab() {
   const queryClient = useQueryClient()
   const todayStr = getManilaDateString()
   const [selectedDate, setSelectedDate] = useState<string>('') // '' = today
+  // Custom mode is tracked explicitly: deriving it from selectedDate made the
+  // Custom button impossible to reach (selecting yesterday snapped back to the
+  // Yesterday preset, so the date input never appeared).
+  const [customMode, setCustomMode] = useState<boolean>(false)
   const [pickerSort, setPickerSort] = useState<LiveSortKey>('completedToday')
   const [packerSort, setPackerSort] = useState<LiveSortKey>('completedToday')
   const [socketConnected, setSocketConnected] = useState<boolean>(() => getSocket()?.connected ?? false)
@@ -580,7 +584,7 @@ export default function LivePerformanceTab() {
 
   const activeDate = selectedDate || todayStr
   const datePreset: 'today' | 'yesterday' | 'custom' =
-    selectedDate === '' ? 'today' : selectedDate === yesterdayStr ? 'yesterday' : 'custom'
+    customMode ? 'custom' : selectedDate === '' ? 'today' : selectedDate === yesterdayStr ? 'yesterday' : 'custom'
   const dateLabel = data.isHistorical
     ? `${data.manilaDate} (${formatRelative(activeDate, todayStr)})`
     : `Today · ${data.manilaDate}`
@@ -598,17 +602,22 @@ export default function LivePerformanceTab() {
             <button
               type="button"
               className={`preset-btn${datePreset === 'today' ? ' preset-btn--active' : ''}`}
-              onClick={() => setSelectedDate('')}
+              onClick={() => { setCustomMode(false); setSelectedDate('') }}
             >Today</button>
             <button
               type="button"
               className={`preset-btn${datePreset === 'yesterday' ? ' preset-btn--active' : ''}`}
-              onClick={() => setSelectedDate(yesterdayStr)}
+              onClick={() => { setCustomMode(false); setSelectedDate(yesterdayStr) }}
             >Yesterday</button>
             <button
               type="button"
               className={`preset-btn${datePreset === 'custom' ? ' preset-btn--active' : ''}`}
-              onClick={() => setSelectedDate(activeDate === todayStr ? yesterdayStr : activeDate)}
+              onClick={() => {
+                // Default the custom day to whatever is currently shown (or yesterday
+                // if we're on "today", since today is the Today preset).
+                setSelectedDate(activeDate === todayStr ? yesterdayStr : activeDate)
+                setCustomMode(true)
+              }}
             >Custom</button>
           </div>
           {datePreset === 'custom' && (
@@ -617,7 +626,12 @@ export default function LivePerformanceTab() {
               value={activeDate}
               min={minDate}
               max={todayStr}
-              onChange={(e) => setSelectedDate(e.target.value || '')}
+              onChange={(e) => {
+                const v = e.target.value
+                if (!v) { setCustomMode(false); setSelectedDate(''); return }
+                setSelectedDate(v)
+                setCustomMode(true)
+              }}
               style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }}
             />
           )}

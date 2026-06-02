@@ -22,6 +22,7 @@ enum UserRole {
   STOCK_KEEPER
   WAREHOUSE_ADMIN
   RETURN_SCANNER
+  INCIDENT_REPORTER
 }
 
 enum StockStatus {

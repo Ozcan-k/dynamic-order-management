@@ -267,7 +267,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/incident-report',
     label: 'Incident Report',
     icon: <IncidentIcon />,
-    roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN],
+    roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER],
   },
   {
     path: '/settings',
