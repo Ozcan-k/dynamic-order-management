@@ -29,6 +29,7 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/sales/entry':       [UserRole.SALES_AGENT],
   '/sales/orders':      [UserRole.SALES_AGENT],
   '/marketing-report':  [UserRole.ADMIN],
+  '/incident-report':   [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER],
 }
 
 function canAccess(path: string, role: UserRole): boolean {
@@ -292,6 +293,8 @@ function getDefaultRoute(role: string): string {
       return '/returns/scan'
     case 'SALES_AGENT':
       return '/sales'
+    case 'INCIDENT_REPORTER':
+      return '/incident-report'
     default:
       return '/dashboard'
   }

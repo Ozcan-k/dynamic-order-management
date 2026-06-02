@@ -10,7 +10,7 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
   // GET /branding — current branding info
   fastify.get(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)] },
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       const data = await getBranding(tenantId)
@@ -35,7 +35,7 @@ export default async function brandingRoutes(fastify: FastifyInstance) {
   // POST /branding — multipart upload: companyName (field) + logo (optional file)
   fastify.post(
     '/',
-    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)] },
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)] },
     async (request, reply) => {
       const { tenantId, userId } = request.user as JWTPayload
 

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { INCIDENT_TYPE_LABELS, IncidentType } from '@dom/shared'
+import { INCIDENT_TYPE_LABELS, IncidentType, UserRole } from '@dom/shared'
+import { useAuthStore } from '../stores/authStore'
 import {
   useIncidents,
   useIncidentStats,
@@ -68,6 +69,10 @@ export default function IncidentReport() {
 
   const totalPages = Math.max(1, Math.ceil((incidents.data?.total ?? 0) / 25))
   const smtpConfigured = !!stats.data?.smtpConfigured
+
+  // Incident Reporters can create/edit/email any incident but may never delete one.
+  const role = useAuthStore((s) => s.user?.role)
+  const canDelete = role === UserRole.ADMIN || role === UserRole.WAREHOUSE_ADMIN
 
   const sortedTypes = useMemo(
     () => (types.data ?? []).slice().sort((a, b) => a.label.localeCompare(b.label)),
@@ -231,11 +236,13 @@ export default function IncidentReport() {
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                         <button className="btn btn-sm btn-outline" onClick={() => setEditing(row)}>Edit</button>
                         <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
-                        <button
-                          className="btn btn-sm btn-outline"
-                          style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-                          onClick={() => setDeleting(row)}
-                        >Delete</button>
+                        {canDelete && (
+                          <button
+                            className="btn btn-sm btn-outline"
+                            style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                            onClick={() => setDeleting(row)}
+                          >Delete</button>
+                        )}
                       </div>
                     </Td>
                   </tr>

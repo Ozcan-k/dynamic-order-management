@@ -118,6 +118,14 @@ const ROLE_CONFIG: Record<string, RoleConfig> = {
     badgeText: '#9f1239',
     hasEmail: false,
   },
+  [UserRole.INCIDENT_REPORTER]: {
+    label: 'Incident Reporter',
+    pluralLabel: 'Incident Reporters',
+    color: '#9333ea',
+    badgeBg: '#f3e8ff',
+    badgeText: '#6b21a8',
+    hasEmail: false,
+  },
 }
 
 // ─── Role sections — drives the whole page layout ─────────────────────────────
@@ -131,7 +139,7 @@ interface RoleSectionConfig {
 const ROLE_SECTIONS: RoleSectionConfig[] = [
   {
     title: 'Administration',
-    desc: 'Desktop dashboard roles. Each admin manages their own area; Admins with an email also receive nightly reports.',
+    desc: 'Desktop dashboard roles. Each admin manages their own area; Admins with an email also receive nightly reports. Incident Reporters only see the Incident Report module and can do everything there except delete.',
     roles: [
       UserRole.ADMIN,
       UserRole.INBOUND_ADMIN,
@@ -139,6 +147,7 @@ const ROLE_SECTIONS: RoleSectionConfig[] = [
       UserRole.WAREHOUSE_ADMIN,
       UserRole.PICKER_ADMIN,
       UserRole.PACKER_ADMIN,
+      UserRole.INCIDENT_REPORTER,
     ],
   },
   {

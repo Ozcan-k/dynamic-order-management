@@ -60,6 +60,7 @@ function RootRoute() {
     [UserRole.STOCK_KEEPER]: '/stock/scan',
     [UserRole.RETURN_SCANNER]: '/returns/scan',
     [UserRole.OUTBOUND_ADMIN]: '/outbound',
+    [UserRole.INCIDENT_REPORTER]: '/incident-report',
   }
   return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
 }
@@ -281,7 +282,7 @@ export default function App() {
           <Route
             path="/incident-report"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
                 <AppLayout><IncidentReport /></AppLayout>
               </ProtectedRoute>
             }

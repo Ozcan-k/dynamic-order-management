@@ -5,6 +5,49 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-06-01] Warehouse Report "Custom" date button never opened the date picker (v2.49.0)
+
+### Problem
+On the Warehouse Report → Live Performance tab, clicking the **Custom** pill in the date picker did nothing useful — it silently jumped to "Yesterday" and never revealed the `<input type="date">`. There was no way to pick an arbitrary historical day through the UI.
+
+### Root cause
+`frontend/src/pages/reports/LivePerformanceTab.tsx` derived the active preset purely from `selectedDate`:
+```ts
+const datePreset = selectedDate === '' ? 'today' : selectedDate === yesterdayStr ? 'yesterday' : 'custom'
+```
+and the Custom button did `setSelectedDate(activeDate === todayStr ? yesterdayStr : activeDate)`. When the user was on "Today" (`selectedDate === ''`, `activeDate === todayStr`), Custom set `selectedDate = yesterdayStr`, which made `datePreset` evaluate to `'yesterday'` — so the `{datePreset === 'custom' && <input … />}` block never rendered and the Yesterday pill lit up instead. The custom branch was unreachable from the two default presets.
+
+Note: the **Incident Report** date strip (`pages/IncidentReport.tsx`) uses the same visual component but works, because it tracks custom mode with an explicit `presetId === 'custom'` state rather than deriving it.
+
+### Fix (v2.49.0)
+Added an explicit `customMode` boolean state. `datePreset` is now `customMode ? 'custom' : (…derived…)`. Today/Yesterday set `customMode = false`; Custom sets `customMode = true` (defaulting the day to yesterday when coming from Today). The date input's `onChange` keeps `customMode` true (or resets to Today when cleared). One-file change; the saha-doğrulanmış scan/socket flow is untouched.
+
+### Rule
+A "Custom" toggle whose active state is **derived** from the same value the presets write will collide with a preset whenever the custom value happens to equal a preset value. Track custom/manual mode with its own boolean (as IncidentReport already did), don't infer it.
+
+---
+
+## [2026-06-01] New `INCIDENT_REPORTER` role — incident module access, everything except delete (v2.49.0)
+
+### What shipped
+A new desktop role `INCIDENT_REPORTER` (Settings label **"Incident Reporter"**, placed under the **Administration** section). It sees **only** the Incident Report module in the sidebar and can do **every** incident operation — create, edit *any* incident (not just its own), download/print PDF, upload signed files, send email, and edit company branding — **except delete**.
+
+### Touch points (all must stay in sync when adding an incident-scoped role)
+- `shared/src/index.ts` — `UserRole.INCIDENT_REPORTER`.
+- `backend/prisma/schema.prisma` — `enum UserRole` + `INCIDENT_REPORTER` (additive `db push`, no data loss).
+- `backend/src/routes/incidents.ts` — added to every `requireRole(...)` **except** `DELETE /:id` (the delete guard deliberately stays `ADMIN, WAREHOUSE_ADMIN`).
+- `backend/src/routes/branding.ts` — added to `GET /` and `POST /` (logo + company info; `/logo` was already authenticate-only).
+- `frontend/src/App.tsx` — `/incident-report` ProtectedRoute + `RootRoute.homeByRole`.
+- `frontend/src/components/shared/Sidebar.tsx` — `/incident-report` nav `roles`.
+- `frontend/src/pages/Login.tsx` — `ROUTE_ROLES['/incident-report']` + `getDefaultRoute` case.
+- `frontend/src/pages/IncidentReport.tsx` — Delete button hidden unless role is ADMIN/WAREHOUSE_ADMIN (defence-in-depth; backend also blocks it).
+- `frontend/src/pages/Settings.tsx` — `ROLE_CONFIG` entry + role added to the Administration `ROLE_SECTIONS` array (generic add/edit/delete-user flow works automatically because `CreateUserSchema` validates against the shared enum).
+
+### Design decision
+The role is **not** ownership-scoped. Per the requirement, it edits any incident regardless of `createdById`; the single restriction is delete. So no per-user filtering was added to `listIncidents` / `getIncidentById` / pivot / stats — only the delete capability is withheld (backend guard + hidden UI button).
+
+---
+
 ## [2026-05-30] Stock Out raporunu kirleten test-dönemi manuel Remove'ları temizlendi (data-only, no code change)
 
 ### Context
