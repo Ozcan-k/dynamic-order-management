@@ -586,8 +586,9 @@ model DispatchParcel {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// ACCOUNTING MODULE (v2.51.0) — fully independent. Own tables (acc_*), tenant-
-// scoped, NO foreign keys into the order pipeline or any existing table.
+// ACCOUNTING MODULE (v2.52.0) — fully independent invoice/purchase ledger with
+// line items. Own tables (acc_*), tenant-scoped, NO foreign keys into the order
+// pipeline or any existing table.
 // ════════════════════════════════════════════════════════════════════════════
 
 enum AccPaymentMethod {
@@ -595,11 +596,25 @@ enum AccPaymentMethod {
   CASH
   BANK_TRANSFER
   CHECK
+  CREDIT_CARD
 }
 
-enum AccSalesStatus {
+enum AccPaymentStatus {
   PAID
-  PENDING
+  UNPAID
+}
+
+enum AccCustomerType {
+  INDIVIDUAL
+  CORPORATION
+}
+
+enum AccSaleChannel {
+  FACEBOOK
+  TIKTOK
+  INSTAGRAM
+  MARKETPLACE
+  OTHERS
 }
 
 enum AccCountry {
@@ -609,24 +624,18 @@ enum AccCountry {
   CANADA
 }
 
-enum AccPaidFrom {
-  BANK
-  GCASH
-  CREDIT_CARD
-  CASH
-  CHECK
-}
-
 model AccCustomer {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  name          String
-  address       String?
-  email         String?
-  contactPerson String?  @map("contact_person")
-  contactNumber String?  @map("contact_number")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             String          @id @default(uuid())
+  tenantId       String          @map("tenant_id")
+  type           AccCustomerType @default(INDIVIDUAL)
+  name           String
+  address        String?
+  email          String?
+  contactPerson  String?         @map("contact_person")
+  contactNumber  String?         @map("contact_number")
+  salesAgentName String?         @map("sales_agent_name") // agent who first added the customer
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   sales AccSale[]
 
@@ -634,94 +643,155 @@ model AccCustomer {
   @@map("acc_customers")
 }
 
-model AccSupplier {
+model AccVendor {
   id            String   @id @default(uuid())
   tenantId      String   @map("tenant_id")
   name          String
-  address       String?
   email         String?
-  contactPerson String?  @map("contact_person")
   contactNumber String?  @map("contact_number")
+  address       String?
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   expenses AccExpense[]
 
   @@index([tenantId, name])
-  @@map("acc_suppliers")
+  @@map("acc_vendors")
+}
+
+model AccItem {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  unitCost  Decimal? @db.Decimal(14, 2) @map("unit_cost")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, name])
+  @@map("acc_items")
+}
+
+model AccCategory {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, name])
+  @@map("acc_categories")
 }
 
 model AccSale {
-  id       String  @id @default(uuid())
-  tenantId String  @map("tenant_id")
-  date     DateTime @default(now())
-  product  String
-  price    Decimal @db.Decimal(14, 2)
-  quantity Int
-  total    Decimal @db.Decimal(14, 2)
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  invoiceNo String @map("invoice_no")
 
-  customerId      String?      @map("customer_id")
-  customer        AccCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  customerName    String       @map("customer_name")
-  customerAddress String?      @map("customer_address")
-  customerNumber  String?      @map("customer_number")
-  customerEmail   String?      @map("customer_email")
-  contactPerson   String?      @map("contact_person")
+  customerType    AccCustomerType @default(INDIVIDUAL) @map("customer_type")
+  customerId      String?         @map("customer_id")
+  customer        AccCustomer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName    String          @map("customer_name")
+  customerAddress String?         @map("customer_address")
+  customerEmail   String?         @map("customer_email")
+  customerNumber  String?         @map("customer_number")
+  contactPerson   String?         @map("contact_person")
 
-  paymentMethod   AccPaymentMethod @map("payment_method")
-  bankName        String?          @map("bank_name")
-  accountName     String?          @map("account_name")
-  referenceNumber String?          @map("reference_number")
-  gcashNumber     String?          @map("gcash_number")
-  checkNumber     String?          @map("check_number")
+  dateIssued     DateTime  @map("date_issued")
+  dueDate        DateTime? @map("due_date")
+  orderReference String?   @map("order_reference")
+  salesAgentId   String?   @map("sales_agent_id")
+  salesAgentName String?   @map("sales_agent_name")
+  saleChannel    AccSaleChannel @default(OTHERS) @map("sale_channel")
 
-  salesStatus AccSalesStatus @map("sales_status")
-  dueDate     DateTime?      @map("due_date")
+  status          AccPaymentStatus  @default(UNPAID)
+  paymentMethod   AccPaymentMethod? @map("payment_method")
+  bankName        String?           @map("bank_name")
+  accountName     String?           @map("account_name")
+  referenceNumber String?           @map("reference_number")
+  gcashNumber     String?           @map("gcash_number")
 
-  invoice   AccInvoice?
-  invoiceId String?     @map("invoice_id")
+  subtotal      Decimal @db.Decimal(14, 2) @default(0)
+  discountTotal Decimal @db.Decimal(14, 2) @default(0) @map("discount_total")
+  taxTotal      Decimal @db.Decimal(14, 2) @default(0) @map("tax_total")
+  total         Decimal @db.Decimal(14, 2) @default(0)
 
+  items     AccSaleItem[]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantId, date(sort: Desc)])
-  @@index([tenantId, salesStatus])
-  @@index([tenantId, paymentMethod])
+  @@index([tenantId, dateIssued(sort: Desc)])
+  @@index([tenantId, status])
   @@index([tenantId, customerId])
   @@map("acc_sales")
 }
 
+model AccSaleItem {
+  id          String  @id @default(uuid())
+  saleId      String  @map("sale_id")
+  sale        AccSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  itemId      String? @map("item_id")
+  itemName    String  @map("item_name")
+  description String?
+  quantity    Decimal @db.Decimal(14, 2) @default(1)
+  unitCost    Decimal @db.Decimal(14, 2) @default(0) @map("unit_cost")
+  discountPct Decimal @db.Decimal(7, 2) @default(0) @map("discount_pct")
+  taxPct      Decimal @db.Decimal(7, 2) @default(0) @map("tax_pct")
+  lineTotal   Decimal @db.Decimal(14, 2) @default(0) @map("line_total")
+
+  @@index([saleId])
+  @@map("acc_sale_items")
+}
+
 model AccExpense {
-  id        String     @id @default(uuid())
-  tenantId  String     @map("tenant_id")
-  expenseNo Int        @unique @default(autoincrement()) @map("expense_no")
-  date      DateTime   @default(now())
-  country   AccCountry
-  itemName  String     @map("item_name")
+  id            String @id @default(uuid())
+  tenantId      String @map("tenant_id")
+  purchaseNo    String @map("purchase_no")
+  invoiceNumber String? @map("invoice_number")
 
-  supplierId   String?      @map("supplier_id")
-  supplier     AccSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  supplierName String       @map("supplier_name")
+  country AccCountry @default(PHILIPPINES)
 
-  category String
-  amount   Decimal @db.Decimal(14, 2)
-  quantity Int
-  total    Decimal @db.Decimal(14, 2)
+  vendorId   String?    @map("vendor_id")
+  vendor     AccVendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorName String     @map("vendor_name")
 
-  paidFrom               AccPaidFrom @map("paid_from")
-  paymentReferenceNumber String?     @map("payment_reference_number")
-  checkNumber            String?     @map("check_number")
-  paidBy                 String      @map("paid_by")
+  dateIssued DateTime  @map("date_issued")
+  dueDate    DateTime? @map("due_date")
 
+  status        AccPaymentStatus  @default(UNPAID)
+  paymentMethod AccPaymentMethod? @map("payment_method")
+  paidBy        String?           @map("paid_by")
+
+  subtotal      Decimal @db.Decimal(14, 2) @default(0)
+  discountTotal Decimal @db.Decimal(14, 2) @default(0) @map("discount_total")
+  taxTotal      Decimal @db.Decimal(14, 2) @default(0) @map("tax_total")
+  total         Decimal @db.Decimal(14, 2) @default(0)
+
+  items     AccExpenseItem[]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantId, date(sort: Desc)])
+  @@index([tenantId, dateIssued(sort: Desc)])
+  @@index([tenantId, status])
   @@index([tenantId, country])
-  @@index([tenantId, category])
-  @@index([tenantId, paidFrom])
-  @@index([tenantId, supplierId])
+  @@index([tenantId, vendorId])
   @@map("acc_expenses")
+}
+
+model AccExpenseItem {
+  id           String     @id @default(uuid())
+  expenseId    String     @map("expense_id")
+  expense      AccExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  itemId       String?    @map("item_id")
+  itemName     String     @map("item_name")
+  categoryId   String?    @map("category_id")
+  categoryName String?    @map("category_name")
+  description  String?
+  quantity     Decimal    @db.Decimal(14, 2) @default(1)
+  unitCost     Decimal    @db.Decimal(14, 2) @default(0) @map("unit_cost")
+  discountPct  Decimal    @db.Decimal(7, 2) @default(0) @map("discount_pct")
+  taxPct       Decimal    @db.Decimal(7, 2) @default(0) @map("tax_pct")
+  lineTotal    Decimal    @db.Decimal(14, 2) @default(0) @map("line_total")
+
+  @@index([expenseId])
+  @@map("acc_expense_items")
 }
 
 model AccCompanyProfile {
@@ -739,31 +809,8 @@ model AccCompanyProfile {
   @@map("acc_company_profiles")
 }
 
-model AccInvoice {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  invoiceNo  String   @map("invoice_no")
-  saleId     String   @unique @map("sale_id")
-  sale       AccSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  issuedDate DateTime @default(now()) @map("issued_date")
-
-  companyName    String  @map("company_name")
-  companyLogoData String? @map("company_logo_data") @db.Text
-  companyLogoMime String? @map("company_logo_mime")
-  companyAddress String? @map("company_address")
-  companyEmail   String? @map("company_email")
-  companyContact String? @map("company_contact")
-
-  totalAmount Decimal  @db.Decimal(14, 2) @map("total_amount")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@unique([tenantId, invoiceNo])
-  @@index([tenantId])
-  @@map("acc_invoices")
-}
-
 model AccCounter {
-  id    String @id // "{tenantId}:invoice:{year}"
+  id    String @id // "{tenantId}:invoice" | "{tenantId}:purchase"
   value Int    @default(0)
 
   @@map("acc_counters")

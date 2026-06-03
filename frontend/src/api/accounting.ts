@@ -1,140 +1,120 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  AccContact, AccSale, AccExpense, AccCompanyProfile, AccDashboardSummary, AccPaginated,
+  AccCustomer, AccVendor, AccItem, AccCategory, AccSale, AccExpense,
+  AccCompanyProfile, AccPaginated, AccListStats, AccReportData, AccSalesAgent,
 } from '@dom/shared'
 import { api } from './client'
 
 const BASE = '/accounting'
 export const PESO = '₱'
 export function money(n: number): string {
-  return PESO + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return PESO + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null))
+
+// ─── Master data ────────────────────────────────────────────────────────────
+export function useCustomers() {
+  return useQuery({ queryKey: ['acc', 'customers'], queryFn: async () => (await api.get<AccCustomer[]>(`${BASE}/customers`)).data })
+}
+export function useSaveCustomer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/customers/${input.id}`, input)).data : (await api.post(`${BASE}/customers`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'customers'] }),
+  })
+}
+export function useDeleteCustomer() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/customers/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'customers'] }) })
 }
 
-// ─── Contacts ──────────────────────────────────────────────────────────────────
-type Kind = 'customers' | 'suppliers'
-type ContactInput = Pick<AccContact, 'name' | 'address' | 'email' | 'contactPerson' | 'contactNumber'>
-
-export function useAccContacts(kind: Kind) {
-  return useQuery({
-    queryKey: ['acc', kind],
-    queryFn: async () => (await api.get<AccContact[]>(`${BASE}/${kind}`)).data,
-  })
+export function useVendors() {
+  return useQuery({ queryKey: ['acc', 'vendors'], queryFn: async () => (await api.get<AccVendor[]>(`${BASE}/vendors`)).data })
 }
-export function useSaveAccContact(kind: Kind) {
+export function useSaveVendor() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: ContactInput & { id?: string }) =>
-      input.id
-        ? (await api.put(`${BASE}/${kind}/${input.id}`, input)).data
-        : (await api.post(`${BASE}/${kind}`, input)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', kind] }),
+    mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/vendors/${input.id}`, input)).data : (await api.post(`${BASE}/vendors`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'vendors'] }),
   })
 }
-export function useDeleteAccContact(kind: Kind) {
+export function useDeleteVendor() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => (await api.delete(`${BASE}/${kind}/${id}`)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', kind] }),
-  })
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/vendors/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'vendors'] }) })
 }
 
-// ─── Sales ─────────────────────────────────────────────────────────────────────
-export interface AccSaleFilters {
-  from?: string; to?: string; paymentMethod?: string; salesStatus?: string
-  customerId?: string; search?: string; page?: number; pageSize?: number
+export function useItems() {
+  return useQuery({ queryKey: ['acc', 'items'], queryFn: async () => (await api.get<AccItem[]>(`${BASE}/items`)).data })
 }
-export function useAccSales(filters: AccSaleFilters) {
-  return useQuery({
-    queryKey: ['acc', 'sales', filters],
-    queryFn: async () => {
-      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '' && v != null))
-      return (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params })).data
-    },
-  })
-}
-export function useSaveAccSale() {
+export function useCreateItem() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (input: any) =>
-      input.id ? (await api.put(`${BASE}/sales/${input.id}`, input)).data : (await api.post(`${BASE}/sales`, input)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['acc', 'sales'] })
-      qc.invalidateQueries({ queryKey: ['acc', 'dashboard'] })
-    },
-  })
+  return useMutation({ mutationFn: async (input: { name: string; unitCost?: number | null }) => (await api.post(`${BASE}/items`, input)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'items'] }) })
 }
-export function useDeleteAccSale() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => (await api.delete(`${BASE}/sales/${id}`)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['acc', 'sales'] })
-      qc.invalidateQueries({ queryKey: ['acc', 'dashboard'] })
-    },
-  })
+export function useCategories() {
+  return useQuery({ queryKey: ['acc', 'categories'], queryFn: async () => (await api.get<AccCategory[]>(`${BASE}/categories`)).data })
 }
-export function useCreateAccInvoice() {
+export function useCreateCategory() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (saleId: string) => (await api.post(`${BASE}/invoices`, { saleId })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'sales'] }),
-  })
+  return useMutation({ mutationFn: async (input: { name: string }) => (await api.post(`${BASE}/categories`, input)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'categories'] }) })
+}
+export function useSalesAgents() {
+  return useQuery({ queryKey: ['acc', 'sales-agents'], queryFn: async () => (await api.get<AccSalesAgent[]>(`${BASE}/sales-agents`)).data })
 }
 
-// ─── Expenses ─────────────────────────────────────────────────────────────────
-export interface AccExpenseFilters {
-  from?: string; to?: string; country?: string; category?: string
-  paidFrom?: string; supplierId?: string; search?: string; page?: number; pageSize?: number
+// ─── Invoices (Sales) ─────────────────────────────────────────────────────────
+export interface SaleFilters { from?: string; to?: string; status?: string; customerId?: string; saleChannel?: string; search?: string; page?: number; pageSize?: number }
+export function useSales(filters: SaleFilters) {
+  return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params: clean(filters) })).data })
 }
-export function useAccExpenses(filters: AccExpenseFilters) {
-  return useQuery({
-    queryKey: ['acc', 'expenses', filters],
-    queryFn: async () => {
-      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '' && v != null))
-      return (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params })).data
-    },
-  })
+export function useSalesStats() {
+  return useQuery({ queryKey: ['acc', 'sales', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/sales/stats`)).data })
 }
-export function useSaveAccExpense() {
+export function useNextInvoiceNo(enabled: boolean) {
+  return useQuery({ queryKey: ['acc', 'sales', 'next'], enabled, queryFn: async () => (await api.get<{ invoiceNo: string }>(`${BASE}/sales/next-number`)).data })
+}
+export function useSaveSale() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: any) =>
-      input.id ? (await api.put(`${BASE}/expenses/${input.id}`, input)).data : (await api.post(`${BASE}/expenses`, input)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['acc', 'expenses'] })
-      qc.invalidateQueries({ queryKey: ['acc', 'dashboard'] })
-    },
+    mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/sales/${input.id}`, input)).data : (await api.post(`${BASE}/sales`, input)).data,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'customers'] }) },
   })
 }
-export function useDeleteAccExpense() {
+export function useDeleteSale() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => (await api.delete(`${BASE}/expenses/${id}`)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['acc', 'expenses'] })
-      qc.invalidateQueries({ queryKey: ['acc', 'dashboard'] })
-    },
-  })
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/sales/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) } })
 }
 
-// ─── Company + Dashboard ────────────────────────────────────────────────────────
-export function useAccCompany() {
-  return useQuery({
-    queryKey: ['acc', 'company'],
-    queryFn: async () => (await api.get<AccCompanyProfile>(`${BASE}/company`)).data,
-  })
+// ─── Purchases (Expenses) ──────────────────────────────────────────────────────
+export interface ExpenseFilters { from?: string; to?: string; status?: string; country?: string; vendorId?: string; search?: string; page?: number; pageSize?: number }
+export function useExpenses(filters: ExpenseFilters) {
+  return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params: clean(filters) })).data })
 }
-export function useSaveAccCompany() {
+export function useExpensesStats() {
+  return useQuery({ queryKey: ['acc', 'expenses', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/expenses/stats`)).data })
+}
+export function useNextPurchaseNo(enabled: boolean) {
+  return useQuery({ queryKey: ['acc', 'expenses', 'next'], enabled, queryFn: async () => (await api.get<{ purchaseNo: string }>(`${BASE}/expenses/next-number`)).data })
+}
+export function useSaveExpense() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (form: FormData) =>
-      (await api.put(`${BASE}/company`, form, { headers: { 'Content-Type': 'multipart/form-data' } })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'company'] }),
+    mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/expenses/${input.id}`, input)).data : (await api.post(`${BASE}/expenses`, input)).data,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) },
   })
 }
-export function useAccDashboard() {
-  return useQuery({
-    queryKey: ['acc', 'dashboard'],
-    queryFn: async () => (await api.get<AccDashboardSummary>(`${BASE}/dashboard`)).data,
-  })
+export function useDeleteExpense() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/expenses/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) } })
+}
+
+// ─── Company + Report ───────────────────────────────────────────────────────────
+export function useCompany() {
+  return useQuery({ queryKey: ['acc', 'company'], queryFn: async () => (await api.get<AccCompanyProfile>(`${BASE}/company`)).data })
+}
+export function useSaveCompany() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (form: FormData) => (await api.put(`${BASE}/company`, form, { headers: { 'Content-Type': 'multipart/form-data' } })).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'company'] }) })
+}
+export function useReport(month: string) {
+  return useQuery({ queryKey: ['acc', 'report', month], queryFn: async () => (await api.get<AccReportData>(`${BASE}/report`, { params: { month } })).data })
 }

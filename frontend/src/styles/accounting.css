@@ -123,3 +123,44 @@
 .acc-modal .acc-modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .acc-logo-box { width: 96px; height: 96px; border-radius: 12px; border: 1px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f8fafc; flex: 0 0 auto; }
 .acc-logo-box img { max-width: 100%; max-height: 100%; }
+
+/* ── v2 additions ───────────────────────────────────────────── */
+.acc-head-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.acc-btn-success { background: #16a34a; color: #fff; }
+.acc-page .acc-btn-success:hover:not(:disabled) { background: #15803d; }
+
+.acc-page .acc-stat { border-top: 3px solid var(--acc-border); }
+.acc-page .acc-stat--blue { border-top-color: #3b82f6; }
+.acc-page .acc-stat--red { border-top-color: #ef4444; }
+.acc-page .acc-stat--green { border-top-color: #22c55e; }
+.acc-page .acc-stat--amber { border-top-color: #f59e0b; }
+.acc-page .acc-stat-sub { font-size: 11.5px; color: var(--acc-text-soft, #94a3b8); margin-top: 4px; }
+
+/* segmented (individual/corporation) */
+.acc-seg { display: inline-flex; border: 1px solid var(--acc-border-strong); border-radius: 8px; overflow: hidden; }
+.acc-seg-btn { font: inherit; font-weight: 600; padding: 8px 18px; background: #fff; border: none; cursor: pointer; color: var(--acc-muted); }
+.acc-seg-btn.active { background: var(--acc-primary); color: #fff; }
+
+/* form modal (wide, scrollable, page-like) */
+.acc-modal.acc-modal-form { max-width: 940px; max-height: 92vh; overflow-y: auto; }
+.acc-form-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.acc-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--acc-muted); margin: 18px 0 10px; }
+
+/* line item table tighter inputs */
+.acc-page table.acc-lines td { padding: 6px 8px; }
+.acc-page table.acc-lines input { padding: 7px 8px; }
+
+/* totals */
+.acc-totline { display: flex; justify-content: space-between; gap: 24px; padding: 5px 0; font-size: 13px; color: var(--acc-muted); font-variant-numeric: tabular-nums; }
+.acc-totline-grand { border-top: 1px solid var(--acc-border); margin-top: 4px; padding-top: 8px; font-size: 16px; font-weight: 800; color: var(--acc-text); }
+
+/* tabs (report) */
+.acc-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--acc-border); margin-bottom: 18px; }
+.acc-tab { font: inherit; font-weight: 600; padding: 10px 18px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; color: var(--acc-muted); margin-bottom: -1px; }
+.acc-tab.active { color: var(--acc-primary); border-bottom-color: var(--acc-primary); }
+
+/* bar chart */
+.acc-chart { display: flex; align-items: flex-end; gap: 3px; height: 200px; padding-top: 8px; }
+.acc-chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+.acc-chart-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.2s; }
+.acc-chart-x { font-size: 9px; color: var(--acc-text-soft, #94a3b8); margin-top: 4px; }

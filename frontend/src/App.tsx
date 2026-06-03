@@ -32,11 +32,10 @@ import Warehouses from './pages/inventory/Warehouses'
 import StockSummary from './pages/inventory/StockSummary'
 import StockOut from './pages/inventory/StockOut'
 import StockScan from './pages/StockScan'
-import AccDashboard from './pages/accounting/AccDashboard'
-import AccSales from './pages/accounting/AccSales'
-import AccExpenses from './pages/accounting/AccExpenses'
+import AccReport from './pages/accounting/AccReport'
+import AccInvoices from './pages/accounting/AccInvoices'
+import AccPurchases from './pages/accounting/AccPurchases'
 import AccContacts from './pages/accounting/AccContacts'
-import AccCompany from './pages/accounting/AccCompany'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -298,7 +297,7 @@ export default function App() {
             path="/accounting"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
-                <AppLayout><AccDashboard /></AppLayout>
+                <AppLayout><AccReport /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -306,7 +305,7 @@ export default function App() {
             path="/accounting/sales"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
-                <AppLayout><AccSales /></AppLayout>
+                <AppLayout><AccInvoices /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -314,7 +313,7 @@ export default function App() {
             path="/accounting/expenses"
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
-                <AppLayout><AccExpenses /></AppLayout>
+                <AppLayout><AccPurchases /></AppLayout>
               </ProtectedRoute>
             }
           />
@@ -323,14 +322,6 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
                 <AppLayout><AccContacts /></AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/accounting/company"
-            element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
-                <AppLayout><AccCompany /></AppLayout>
               </ProtectedRoute>
             }
           />

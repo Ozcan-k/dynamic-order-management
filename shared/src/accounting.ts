@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 // Accounting module — shared types & enums (frontend + backend)
-// Fully independent of the order pipeline.
+// Independent invoice/purchase ledger with line items.
 // ════════════════════════════════════════════════════════════════════════════
 
 export enum AccPaymentMethod {
@@ -8,11 +8,25 @@ export enum AccPaymentMethod {
   CASH = 'CASH',
   BANK_TRANSFER = 'BANK_TRANSFER',
   CHECK = 'CHECK',
+  CREDIT_CARD = 'CREDIT_CARD',
 }
 
-export enum AccSalesStatus {
+export enum AccPaymentStatus {
   PAID = 'PAID',
-  PENDING = 'PENDING',
+  UNPAID = 'UNPAID',
+}
+
+export enum AccCustomerType {
+  INDIVIDUAL = 'INDIVIDUAL',
+  CORPORATION = 'CORPORATION',
+}
+
+export enum AccSaleChannel {
+  FACEBOOK = 'FACEBOOK',
+  TIKTOK = 'TIKTOK',
+  INSTAGRAM = 'INSTAGRAM',
+  MARKETPLACE = 'MARKETPLACE',
+  OTHERS = 'OTHERS',
 }
 
 export enum AccCountry {
@@ -22,24 +36,30 @@ export enum AccCountry {
   CANADA = 'CANADA',
 }
 
-export enum AccPaidFrom {
-  BANK = 'BANK',
-  GCASH = 'GCASH',
-  CREDIT_CARD = 'CREDIT_CARD',
-  CASH = 'CASH',
-  CHECK = 'CHECK',
-}
-
 export const ACC_PAYMENT_METHOD_LABELS: Record<AccPaymentMethod, string> = {
   [AccPaymentMethod.GCASH]: 'Gcash',
   [AccPaymentMethod.CASH]: 'Cash',
   [AccPaymentMethod.BANK_TRANSFER]: 'Bank Transfer',
   [AccPaymentMethod.CHECK]: 'Check',
+  [AccPaymentMethod.CREDIT_CARD]: 'Credit Card',
 }
 
-export const ACC_SALES_STATUS_LABELS: Record<AccSalesStatus, string> = {
-  [AccSalesStatus.PAID]: 'Paid',
-  [AccSalesStatus.PENDING]: 'Pending',
+export const ACC_PAYMENT_STATUS_LABELS: Record<AccPaymentStatus, string> = {
+  [AccPaymentStatus.PAID]: 'Paid',
+  [AccPaymentStatus.UNPAID]: 'Unpaid',
+}
+
+export const ACC_CUSTOMER_TYPE_LABELS: Record<AccCustomerType, string> = {
+  [AccCustomerType.INDIVIDUAL]: 'Individual',
+  [AccCustomerType.CORPORATION]: 'Corporation',
+}
+
+export const ACC_SALE_CHANNEL_LABELS: Record<AccSaleChannel, string> = {
+  [AccSaleChannel.FACEBOOK]: 'Facebook',
+  [AccSaleChannel.TIKTOK]: 'TikTok',
+  [AccSaleChannel.INSTAGRAM]: 'Instagram',
+  [AccSaleChannel.MARKETPLACE]: 'Marketplace',
+  [AccSaleChannel.OTHERS]: 'Others',
 }
 
 export const ACC_COUNTRY_LABELS: Record<AccCountry, string> = {
@@ -49,69 +69,122 @@ export const ACC_COUNTRY_LABELS: Record<AccCountry, string> = {
   [AccCountry.CANADA]: 'Canada',
 }
 
-export const ACC_PAID_FROM_LABELS: Record<AccPaidFrom, string> = {
-  [AccPaidFrom.BANK]: 'Bank',
-  [AccPaidFrom.GCASH]: 'Gcash',
-  [AccPaidFrom.CREDIT_CARD]: 'Credit Card',
-  [AccPaidFrom.CASH]: 'Cash',
-  [AccPaidFrom.CHECK]: 'Check',
-}
-
 export const ACC_CURRENCY = { code: 'PHP', symbol: '₱' } as const
 
-export interface AccContact {
+// ─── Master data ────────────────────────────────────────────────────────────
+export interface AccCustomer {
   id: string
+  type: AccCustomerType
   name: string
   address: string | null
   email: string | null
   contactPerson: string | null
   contactNumber: string | null
+  salesAgentName: string | null
   createdAt: string
   updatedAt: string
 }
 
+export interface AccVendor {
+  id: string
+  name: string
+  email: string | null
+  contactNumber: string | null
+  address: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AccItem {
+  id: string
+  name: string
+  unitCost: number | null
+  createdAt: string
+}
+
+export interface AccCategory {
+  id: string
+  name: string
+  createdAt: string
+}
+
+// ─── Line items ─────────────────────────────────────────────────────────────
+export interface AccSaleItem {
+  id: string
+  itemId: string | null
+  itemName: string
+  description: string | null
+  quantity: number
+  unitCost: number
+  discountPct: number
+  taxPct: number
+  lineTotal: number
+}
+
+export interface AccExpenseItem {
+  id: string
+  itemId: string | null
+  itemName: string
+  categoryId: string | null
+  categoryName: string | null
+  description: string | null
+  quantity: number
+  unitCost: number
+  discountPct: number
+  taxPct: number
+  lineTotal: number
+}
+
+// ─── Invoice (Sale) ─────────────────────────────────────────────────────────
 export interface AccSale {
   id: string
-  date: string
-  product: string
-  price: number
-  quantity: number
-  total: number
+  invoiceNo: string
+  customerType: AccCustomerType
   customerId: string | null
   customerName: string
   customerAddress: string | null
-  customerNumber: string | null
   customerEmail: string | null
+  customerNumber: string | null
   contactPerson: string | null
-  paymentMethod: AccPaymentMethod
+  dateIssued: string
+  dueDate: string | null
+  orderReference: string | null
+  salesAgentId: string | null
+  salesAgentName: string | null
+  saleChannel: AccSaleChannel
+  status: AccPaymentStatus
+  paymentMethod: AccPaymentMethod | null
   bankName: string | null
   accountName: string | null
   referenceNumber: string | null
   gcashNumber: string | null
-  checkNumber: string | null
-  salesStatus: AccSalesStatus
-  dueDate: string | null
-  invoiceId: string | null
+  subtotal: number
+  discountTotal: number
+  taxTotal: number
+  total: number
+  items: AccSaleItem[]
   createdAt: string
   updatedAt: string
 }
 
+// ─── Purchase (Expense) ─────────────────────────────────────────────────────
 export interface AccExpense {
   id: string
-  expenseNo: number
-  date: string
+  purchaseNo: string
+  invoiceNumber: string | null
   country: AccCountry
-  itemName: string
-  supplierId: string | null
-  supplierName: string
-  category: string
-  amount: number
-  quantity: number
+  vendorId: string | null
+  vendorName: string
+  dateIssued: string
+  dueDate: string | null
+  status: AccPaymentStatus
+  paymentMethod: AccPaymentMethod | null
+  paidBy: string | null
+  subtotal: number
+  discountTotal: number
+  taxTotal: number
   total: number
-  paidFrom: AccPaidFrom
-  paymentReferenceNumber: string | null
-  checkNumber: string | null
-  paidBy: string
+  items: AccExpenseItem[]
   createdAt: string
   updatedAt: string
 }
@@ -128,16 +201,6 @@ export interface AccCompanyProfile {
   updatedAt: string
 }
 
-export interface AccInvoice {
-  id: string
-  invoiceNo: string
-  saleId: string
-  issuedDate: string
-  companyName: string
-  totalAmount: number
-  createdAt: string
-}
-
 export interface AccPaginated<T> {
   items: T[]
   total: number
@@ -145,13 +208,25 @@ export interface AccPaginated<T> {
   pageSize: number
 }
 
-export interface AccDashboardSummary {
+export interface AccListStats {
+  total: number
+  paid: number
+  unpaid: number
+  thisMonth: number
+  count: number
+}
+
+export interface AccReportData {
+  month: string // YYYY-MM
   totalSales: number
   totalExpenses: number
   net: number
-  pendingReceivables: number
-  salesCount: number
-  expenseCount: number
-  recentSales: AccSale[]
-  recentExpenses: AccExpense[]
+  byDay: { day: number; sales: number; expenses: number }[]
+  sales: AccSale[]
+  expenses: AccExpense[]
+}
+
+export interface AccSalesAgent {
+  id: string
+  username: string
 }

@@ -1,165 +1,343 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 
-// ─── Decimal → number serializers ──────────────────────────────────────────────
+// ─── helpers ────────────────────────────────────────────────────────────────
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0
   return v instanceof Prisma.Decimal ? v.toNumber() : Number(v)
 }
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+interface LineInput {
+  itemId?: string | null
+  itemName: string
+  categoryId?: string | null
+  categoryName?: string | null
+  description?: string | null
+  quantity: number
+  unitCost: number
+  discountPct?: number
+  taxPct?: number
+}
+
+function computeLine(l: LineInput) {
+  const gross = (l.quantity || 0) * (l.unitCost || 0)
+  const disc = gross * ((l.discountPct || 0) / 100)
+  const net = gross - disc
+  const tax = net * ((l.taxPct || 0) / 100)
+  return { gross: r2(gross), disc: r2(disc), tax: r2(tax), lineTotal: r2(net + tax) }
+}
+
+function computeTotals(items: LineInput[]) {
+  let subtotal = 0, discountTotal = 0, taxTotal = 0, total = 0
+  for (const l of items) {
+    const c = computeLine(l)
+    subtotal += c.gross; discountTotal += c.disc; taxTotal += c.tax; total += c.lineTotal
+  }
+  return { subtotal: r2(subtotal), discountTotal: r2(discountTotal), taxTotal: r2(taxTotal), total: r2(total) }
+}
+
+function serItem(i: any) {
+  return {
+    ...i,
+    quantity: num(i.quantity), unitCost: num(i.unitCost),
+    discountPct: num(i.discountPct), taxPct: num(i.taxPct), lineTotal: num(i.lineTotal),
+  }
+}
 function serSale(s: any) {
-  return { ...s, price: num(s.price), total: num(s.total) }
+  return {
+    ...s,
+    subtotal: num(s.subtotal), discountTotal: num(s.discountTotal), taxTotal: num(s.taxTotal), total: num(s.total),
+    items: (s.items ?? []).map(serItem),
+  }
 }
 function serExpense(e: any) {
-  return { ...e, amount: num(e.amount), total: num(e.total) }
-}
-function serInvoice(i: any) {
-  const { companyLogoData, companyLogoMime, ...rest } = i
-  return { ...rest, totalAmount: num(i.totalAmount) }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Customers / Suppliers
-// ════════════════════════════════════════════════════════════════════════════
-type ContactModel = 'accCustomer' | 'accSupplier'
-type ContactInput = {
-  name: string
-  address?: string | null
-  email?: string | null
-  contactPerson?: string | null
-  contactNumber?: string | null
-}
-
-export function listContacts(model: ContactModel, tenantId: string, search?: string) {
-  const where: any = { tenantId }
-  if (search) where.name = { contains: search, mode: 'insensitive' }
-  return (prisma as any)[model].findMany({ where, orderBy: { name: 'asc' } })
-}
-export function createContact(model: ContactModel, tenantId: string, data: ContactInput) {
-  return (prisma as any)[model].create({ data: { tenantId, ...data } })
-}
-export async function updateContact(model: ContactModel, tenantId: string, id: string, data: ContactInput) {
-  const res = await (prisma as any)[model].updateMany({ where: { id, tenantId }, data })
-  if (res.count === 0) return null
-  return (prisma as any)[model].findUnique({ where: { id } })
-}
-export async function deleteContact(model: ContactModel, tenantId: string, id: string) {
-  const res = await (prisma as any)[model].deleteMany({ where: { id, tenantId } })
-  return res.count > 0
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Sales
-// ════════════════════════════════════════════════════════════════════════════
-export interface SaleData {
-  date?: Date
-  product: string
-  price: number
-  quantity: number
-  customerId?: string | null
-  customerName: string
-  customerAddress?: string | null
-  customerNumber?: string | null
-  customerEmail?: string | null
-  contactPerson?: string | null
-  paymentMethod: any
-  bankName?: string | null
-  accountName?: string | null
-  referenceNumber?: string | null
-  gcashNumber?: string | null
-  checkNumber?: string | null
-  salesStatus: any
-  dueDate?: Date | null
-}
-
-function normalizeSalePayment(d: SaleData) {
-  const base = { bankName: null, accountName: null, referenceNumber: null, gcashNumber: null, checkNumber: null }
-  switch (d.paymentMethod) {
-    case 'BANK_TRANSFER':
-      return { ...base, bankName: d.bankName ?? null, accountName: d.accountName ?? null, referenceNumber: d.referenceNumber ?? null }
-    case 'GCASH':
-      return { ...base, gcashNumber: d.gcashNumber ?? null, referenceNumber: d.referenceNumber ?? null }
-    case 'CHECK':
-      return { ...base, checkNumber: d.checkNumber ?? null, accountName: d.accountName ?? null }
-    default:
-      return base
+  return {
+    ...e,
+    subtotal: num(e.subtotal), discountTotal: num(e.discountTotal), taxTotal: num(e.taxTotal), total: num(e.total),
+    items: (e.items ?? []).map(serItem),
   }
 }
 
+// ─── numbering ──────────────────────────────────────────────────────────────
+async function nextNumber(tenantId: string, kind: 'invoice' | 'purchase'): Promise<string> {
+  const counter = await prisma.accCounter.upsert({
+    where: { id: `${tenantId}:${kind}` },
+    create: { id: `${tenantId}:${kind}`, value: 1 },
+    update: { value: { increment: 1 } },
+  })
+  const prefix = kind === 'invoice' ? 'INV' : 'PUR'
+  return `${prefix}/${String(counter.value).padStart(3, '0')}`
+}
+
+export async function peekNextNumber(tenantId: string, kind: 'invoice' | 'purchase'): Promise<string> {
+  const counter = await prisma.accCounter.findUnique({ where: { id: `${tenantId}:${kind}` } })
+  const next = (counter?.value ?? 0) + 1
+  return `${kind === 'invoice' ? 'INV' : 'PUR'}/${String(next).padStart(3, '0')}`
+}
+
+// ─── auto-capture helpers (archive + catalogs self-populate) ────────────────
+async function ensureCustomerId(tenantId: string, d: any): Promise<string | null> {
+  if (d.customerId) return d.customerId
+  const name = (d.customerName || '').trim()
+  if (!name) return null
+  const ex = await prisma.accCustomer.findFirst({ where: { tenantId, name } })
+  if (ex) {
+    if (!ex.salesAgentName && d.salesAgentName) await prisma.accCustomer.update({ where: { id: ex.id }, data: { salesAgentName: d.salesAgentName } })
+    return ex.id
+  }
+  const c = await prisma.accCustomer.create({
+    data: {
+      tenantId, type: d.customerType ?? 'INDIVIDUAL', name,
+      address: d.customerAddress ?? null, email: d.customerEmail ?? null,
+      contactPerson: d.contactPerson ?? null, contactNumber: d.customerNumber ?? null,
+      salesAgentName: d.salesAgentName ?? null,
+    },
+  })
+  return c.id
+}
+async function ensureVendorId(tenantId: string, d: any): Promise<string | null> {
+  if (d.vendorId) return d.vendorId
+  const name = (d.vendorName || '').trim()
+  if (!name) return null
+  const ex = await prisma.accVendor.findFirst({ where: { tenantId, name } })
+  if (ex) return ex.id
+  const v = await prisma.accVendor.create({ data: { tenantId, name } })
+  return v.id
+}
+async function ensureItemsCatalog(tenantId: string, items: LineInput[], withCategory: boolean) {
+  for (const l of items) {
+    if (!l.itemId && l.itemName?.trim()) {
+      const name = l.itemName.trim()
+      const ex = await prisma.accItem.findFirst({ where: { tenantId, name } })
+      l.itemId = ex ? ex.id : (await prisma.accItem.create({ data: { tenantId, name, unitCost: l.unitCost ?? null } })).id
+    }
+    if (withCategory && !l.categoryId && (l.categoryName || '').trim()) {
+      const cname = (l.categoryName as string).trim()
+      const ex = await prisma.accCategory.findFirst({ where: { tenantId, name: cname } })
+      l.categoryId = ex ? ex.id : (await prisma.accCategory.create({ data: { tenantId, name: cname } })).id
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Master data: customers, vendors, items, categories
+// ════════════════════════════════════════════════════════════════════════════
+export function listCustomers(tenantId: string, search?: string) {
+  const where: any = { tenantId }
+  if (search) where.name = { contains: search, mode: 'insensitive' }
+  return prisma.accCustomer.findMany({ where, orderBy: { name: 'asc' } })
+}
+export function createCustomer(tenantId: string, d: any) {
+  return prisma.accCustomer.create({
+    data: {
+      tenantId, type: d.type ?? 'INDIVIDUAL', name: d.name,
+      address: d.address ?? null, email: d.email ?? null,
+      contactPerson: d.contactPerson ?? null, contactNumber: d.contactNumber ?? null,
+      salesAgentName: d.salesAgentName ?? null,
+    },
+  })
+}
+export async function updateCustomer(tenantId: string, id: string, d: any) {
+  const res = await prisma.accCustomer.updateMany({
+    where: { id, tenantId },
+    data: {
+      type: d.type, name: d.name, address: d.address ?? null, email: d.email ?? null,
+      contactPerson: d.contactPerson ?? null, contactNumber: d.contactNumber ?? null,
+    },
+  })
+  if (!res.count) return null
+  return prisma.accCustomer.findUnique({ where: { id } })
+}
+export async function deleteCustomer(tenantId: string, id: string) {
+  const res = await prisma.accCustomer.deleteMany({ where: { id, tenantId } })
+  return res.count > 0
+}
+
+export function listVendors(tenantId: string, search?: string) {
+  const where: any = { tenantId }
+  if (search) where.name = { contains: search, mode: 'insensitive' }
+  return prisma.accVendor.findMany({ where, orderBy: { name: 'asc' } })
+}
+export function createVendor(tenantId: string, d: any) {
+  return prisma.accVendor.create({
+    data: { tenantId, name: d.name, email: d.email ?? null, contactNumber: d.contactNumber ?? null, address: d.address ?? null },
+  })
+}
+export async function updateVendor(tenantId: string, id: string, d: any) {
+  const res = await prisma.accVendor.updateMany({
+    where: { id, tenantId },
+    data: { name: d.name, email: d.email ?? null, contactNumber: d.contactNumber ?? null, address: d.address ?? null },
+  })
+  if (!res.count) return null
+  return prisma.accVendor.findUnique({ where: { id } })
+}
+export async function deleteVendor(tenantId: string, id: string) {
+  const res = await prisma.accVendor.deleteMany({ where: { id, tenantId } })
+  return res.count > 0
+}
+
+export function listItems(tenantId: string) {
+  return prisma.accItem.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+}
+export function createItem(tenantId: string, d: any) {
+  return prisma.accItem.create({ data: { tenantId, name: d.name, unitCost: d.unitCost ?? null } })
+}
+export function listCategories(tenantId: string) {
+  return prisma.accCategory.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+}
+export function createCategory(tenantId: string, d: any) {
+  return prisma.accCategory.create({ data: { tenantId, name: d.name } })
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sales agents (read-only lookup of dom SALES_AGENT users — no schema coupling)
+// ════════════════════════════════════════════════════════════════════════════
+export async function listSalesAgents(tenantId: string) {
+  const users = await prisma.user.findMany({
+    where: { tenantId, role: 'SALES_AGENT' },
+    select: { id: true, username: true },
+    orderBy: { username: 'asc' },
+  })
+  return users
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Invoices (Sales)
+// ════════════════════════════════════════════════════════════════════════════
+function normalizeSalePayment(d: any) {
+  const base = { paymentMethod: null as any, bankName: null, accountName: null, referenceNumber: null, gcashNumber: null }
+  if (d.status !== 'PAID') return base
+  const pm = d.paymentMethod ?? null
+  const out: any = { ...base, paymentMethod: pm }
+  if (pm === 'BANK_TRANSFER') { out.bankName = d.bankName ?? null; out.accountName = d.accountName ?? null; out.referenceNumber = d.referenceNumber ?? null }
+  else if (pm === 'GCASH') { out.gcashNumber = d.gcashNumber ?? null; out.referenceNumber = d.referenceNumber ?? null }
+  else if (pm === 'CHECK') { out.referenceNumber = d.referenceNumber ?? null; out.accountName = d.accountName ?? null }
+  return out
+}
+
 export interface SaleFilters {
-  from?: string; to?: string; paymentMethod?: string; salesStatus?: string
-  customerId?: string; search?: string; page: number; pageSize: number
+  from?: string; to?: string; status?: string; customerId?: string; saleChannel?: string
+  search?: string; page: number; pageSize: number
+}
+
+function dateWhere(from?: string, to?: string) {
+  if (!from && !to) return undefined
+  const w: any = {}
+  if (from) w.gte = new Date(from)
+  if (to) w.lte = new Date(to + 'T23:59:59.999Z')
+  return w
 }
 
 export async function listSales(tenantId: string, f: SaleFilters) {
   const where: any = { tenantId }
-  if (f.from || f.to) {
-    where.date = {}
-    if (f.from) where.date.gte = new Date(f.from)
-    if (f.to) where.date.lte = new Date(f.to + 'T23:59:59.999Z')
-  }
-  if (f.paymentMethod) where.paymentMethod = f.paymentMethod
-  if (f.salesStatus) where.salesStatus = f.salesStatus
+  const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
+  if (f.status) where.status = f.status
   if (f.customerId) where.customerId = f.customerId
-  if (f.search) {
-    where.OR = [
-      { product: { contains: f.search, mode: 'insensitive' } },
-      { customerName: { contains: f.search, mode: 'insensitive' } },
-    ]
-  }
+  if (f.saleChannel) where.saleChannel = f.saleChannel
+  if (f.search) where.OR = [
+    { invoiceNo: { contains: f.search, mode: 'insensitive' } },
+    { customerName: { contains: f.search, mode: 'insensitive' } },
+  ]
   const [items, total] = await Promise.all([
-    prisma.accSale.findMany({ where, orderBy: { date: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
+    prisma.accSale.findMany({ where, include: { items: true }, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
     prisma.accSale.count({ where }),
   ])
   return { items: items.map(serSale), total, page: f.page, pageSize: f.pageSize }
 }
 
-export async function createSale(tenantId: string, d: SaleData) {
+export async function salesStats(tenantId: string) {
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+  const [all, paid, unpaid, month, count] = await Promise.all([
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, status: 'PAID' } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, status: 'UNPAID' } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, dateIssued: { gte: monthStart } } }),
+    prisma.accSale.count({ where: { tenantId } }),
+  ])
+  return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
+}
+
+export async function getSale(tenantId: string, id: string) {
+  return prisma.accSale.findFirst({ where: { id, tenantId }, include: { items: true } }).then((s) => (s ? serSale(s) : null))
+}
+
+export async function createSale(tenantId: string, d: any) {
+  const items: LineInput[] = d.items ?? []
+  const totals = computeTotals(items)
+  d.customerId = await ensureCustomerId(tenantId, d)
+  await ensureItemsCatalog(tenantId, items, false)
+  const invoiceNo = await nextNumber(tenantId, 'invoice')
   const sale = await prisma.accSale.create({
     data: {
-      tenantId,
-      date: d.date ?? new Date(),
-      product: d.product,
-      price: d.price,
-      quantity: d.quantity,
-      total: d.price * d.quantity,
+      tenantId, invoiceNo,
+      customerType: d.customerType ?? 'INDIVIDUAL',
       customerId: d.customerId ?? null,
       customerName: d.customerName,
       customerAddress: d.customerAddress ?? null,
-      customerNumber: d.customerNumber ?? null,
       customerEmail: d.customerEmail ?? null,
+      customerNumber: d.customerNumber ?? null,
       contactPerson: d.contactPerson ?? null,
-      paymentMethod: d.paymentMethod,
+      dateIssued: d.dateIssued ? new Date(d.dateIssued) : new Date(),
+      dueDate: d.dueDate ? new Date(d.dueDate) : null,
+      orderReference: d.orderReference ?? null,
+      salesAgentId: d.salesAgentId ?? null,
+      salesAgentName: d.salesAgentName ?? null,
+      saleChannel: d.saleChannel ?? 'OTHERS',
+      status: d.status ?? 'UNPAID',
       ...normalizeSalePayment(d),
-      salesStatus: d.salesStatus,
-      dueDate: d.salesStatus === 'PENDING' ? d.dueDate ?? null : null,
+      ...totals,
+      items: {
+        create: items.map((l) => ({
+          itemId: l.itemId ?? null, itemName: l.itemName, description: l.description ?? null,
+          quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
+          lineTotal: computeLine(l).lineTotal,
+        })),
+      },
     },
+    include: { items: true },
   })
   return serSale(sale)
 }
 
-export async function updateSale(tenantId: string, id: string, d: SaleData) {
-  const res = await prisma.accSale.updateMany({
-    where: { id, tenantId },
+export async function updateSale(tenantId: string, id: string, d: any) {
+  const existing = await prisma.accSale.findFirst({ where: { id, tenantId } })
+  if (!existing) return null
+  const items: LineInput[] = d.items ?? []
+  const totals = computeTotals(items)
+  d.customerId = await ensureCustomerId(tenantId, d)
+  await ensureItemsCatalog(tenantId, items, false)
+  await prisma.accSaleItem.deleteMany({ where: { saleId: id } })
+  const sale = await prisma.accSale.update({
+    where: { id },
     data: {
-      date: d.date ?? undefined,
-      product: d.product,
-      price: d.price,
-      quantity: d.quantity,
-      total: d.price * d.quantity,
+      customerType: d.customerType ?? 'INDIVIDUAL',
       customerId: d.customerId ?? null,
       customerName: d.customerName,
       customerAddress: d.customerAddress ?? null,
-      customerNumber: d.customerNumber ?? null,
       customerEmail: d.customerEmail ?? null,
+      customerNumber: d.customerNumber ?? null,
       contactPerson: d.contactPerson ?? null,
-      paymentMethod: d.paymentMethod,
+      dateIssued: d.dateIssued ? new Date(d.dateIssued) : existing.dateIssued,
+      dueDate: d.dueDate ? new Date(d.dueDate) : null,
+      orderReference: d.orderReference ?? null,
+      salesAgentId: d.salesAgentId ?? null,
+      salesAgentName: d.salesAgentName ?? null,
+      saleChannel: d.saleChannel ?? 'OTHERS',
+      status: d.status ?? 'UNPAID',
       ...normalizeSalePayment(d),
-      salesStatus: d.salesStatus,
-      dueDate: d.salesStatus === 'PENDING' ? d.dueDate ?? null : null,
+      ...totals,
+      items: {
+        create: items.map((l) => ({
+          itemId: l.itemId ?? null, itemName: l.itemName, description: l.description ?? null,
+          quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
+          lineTotal: computeLine(l).lineTotal,
+        })),
+      },
     },
+    include: { items: true },
   })
-  if (res.count === 0) return null
-  return serSale(await prisma.accSale.findUnique({ where: { id } }))
+  return serSale(sale)
 }
 
 export async function deleteSale(tenantId: string, id: string) {
@@ -168,100 +346,111 @@ export async function deleteSale(tenantId: string, id: string) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Expenses
+// Purchases (Expenses)
 // ════════════════════════════════════════════════════════════════════════════
-export interface ExpenseData {
-  date?: Date
-  country: any
-  itemName: string
-  supplierId?: string | null
-  supplierName: string
-  category: string
-  amount: number
-  quantity: number
-  paidFrom: any
-  paymentReferenceNumber?: string | null
-  checkNumber?: string | null
-  paidBy: string
-}
-
-function normalizePaidFrom(d: ExpenseData) {
-  if (d.paidFrom === 'CHECK') return { checkNumber: d.checkNumber ?? null, paymentReferenceNumber: null }
-  if (d.paidFrom === 'CASH') return { checkNumber: null, paymentReferenceNumber: null }
-  return { checkNumber: null, paymentReferenceNumber: d.paymentReferenceNumber ?? null }
-}
-
 export interface ExpenseFilters {
-  from?: string; to?: string; country?: string; category?: string
-  paidFrom?: string; supplierId?: string; search?: string; page: number; pageSize: number
+  from?: string; to?: string; status?: string; country?: string; vendorId?: string
+  search?: string; page: number; pageSize: number
 }
 
 export async function listExpenses(tenantId: string, f: ExpenseFilters) {
   const where: any = { tenantId }
-  if (f.from || f.to) {
-    where.date = {}
-    if (f.from) where.date.gte = new Date(f.from)
-    if (f.to) where.date.lte = new Date(f.to + 'T23:59:59.999Z')
-  }
+  const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
+  if (f.status) where.status = f.status
   if (f.country) where.country = f.country
-  if (f.category) where.category = { contains: f.category, mode: 'insensitive' }
-  if (f.paidFrom) where.paidFrom = f.paidFrom
-  if (f.supplierId) where.supplierId = f.supplierId
-  if (f.search) {
-    where.OR = [
-      { itemName: { contains: f.search, mode: 'insensitive' } },
-      { supplierName: { contains: f.search, mode: 'insensitive' } },
-      { category: { contains: f.search, mode: 'insensitive' } },
-    ]
-  }
+  if (f.vendorId) where.vendorId = f.vendorId
+  if (f.search) where.OR = [
+    { purchaseNo: { contains: f.search, mode: 'insensitive' } },
+    { vendorName: { contains: f.search, mode: 'insensitive' } },
+    { invoiceNumber: { contains: f.search, mode: 'insensitive' } },
+  ]
   const [items, total] = await Promise.all([
-    prisma.accExpense.findMany({ where, orderBy: { date: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
+    prisma.accExpense.findMany({ where, include: { items: true }, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
     prisma.accExpense.count({ where }),
   ])
   return { items: items.map(serExpense), total, page: f.page, pageSize: f.pageSize }
 }
 
-export async function createExpense(tenantId: string, d: ExpenseData) {
-  const e = await prisma.accExpense.create({
-    data: {
-      tenantId,
-      date: d.date ?? new Date(),
-      country: d.country,
-      itemName: d.itemName,
-      supplierId: d.supplierId ?? null,
-      supplierName: d.supplierName,
-      category: d.category,
-      amount: d.amount,
-      quantity: d.quantity,
-      total: d.amount * d.quantity,
-      paidFrom: d.paidFrom,
-      ...normalizePaidFrom(d),
-      paidBy: d.paidBy,
-    },
-  })
-  return serExpense(e)
+export async function expensesStats(tenantId: string) {
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+  const [all, paid, unpaid, month, count] = await Promise.all([
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, status: 'PAID' } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, status: 'UNPAID' } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, dateIssued: { gte: monthStart } } }),
+    prisma.accExpense.count({ where: { tenantId } }),
+  ])
+  return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
 }
 
-export async function updateExpense(tenantId: string, id: string, d: ExpenseData) {
-  const res = await prisma.accExpense.updateMany({
-    where: { id, tenantId },
+export async function getExpense(tenantId: string, id: string) {
+  return prisma.accExpense.findFirst({ where: { id, tenantId }, include: { items: true } }).then((e) => (e ? serExpense(e) : null))
+}
+
+export async function createExpense(tenantId: string, d: any) {
+  const items: LineInput[] = d.items ?? []
+  const totals = computeTotals(items)
+  d.vendorId = await ensureVendorId(tenantId, d)
+  await ensureItemsCatalog(tenantId, items, true)
+  const purchaseNo = await nextNumber(tenantId, 'purchase')
+  const exp = await prisma.accExpense.create({
     data: {
-      date: d.date ?? undefined,
-      country: d.country,
-      itemName: d.itemName,
-      supplierId: d.supplierId ?? null,
-      supplierName: d.supplierName,
-      category: d.category,
-      amount: d.amount,
-      quantity: d.quantity,
-      total: d.amount * d.quantity,
-      paidFrom: d.paidFrom,
-      ...normalizePaidFrom(d),
-      paidBy: d.paidBy,
+      tenantId, purchaseNo,
+      invoiceNumber: d.invoiceNumber || null,
+      country: d.country ?? 'PHILIPPINES',
+      vendorId: d.vendorId ?? null,
+      vendorName: d.vendorName,
+      dateIssued: d.dateIssued ? new Date(d.dateIssued) : new Date(),
+      dueDate: d.dueDate ? new Date(d.dueDate) : null,
+      status: d.status ?? 'UNPAID',
+      paymentMethod: d.status === 'PAID' ? (d.paymentMethod ?? null) : null,
+      paidBy: d.status === 'PAID' ? (d.paidBy ?? null) : null,
+      ...totals,
+      items: {
+        create: items.map((l) => ({
+          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          description: l.description ?? null, quantity: l.quantity, unitCost: l.unitCost,
+          discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0, lineTotal: computeLine(l).lineTotal,
+        })),
+      },
     },
+    include: { items: true },
   })
-  if (res.count === 0) return null
-  return serExpense(await prisma.accExpense.findUnique({ where: { id } }))
+  return serExpense(exp)
+}
+
+export async function updateExpense(tenantId: string, id: string, d: any) {
+  const existing = await prisma.accExpense.findFirst({ where: { id, tenantId } })
+  if (!existing) return null
+  const items: LineInput[] = d.items ?? []
+  const totals = computeTotals(items)
+  d.vendorId = await ensureVendorId(tenantId, d)
+  await ensureItemsCatalog(tenantId, items, true)
+  await prisma.accExpenseItem.deleteMany({ where: { expenseId: id } })
+  const exp = await prisma.accExpense.update({
+    where: { id },
+    data: {
+      invoiceNumber: d.invoiceNumber || null,
+      country: d.country ?? 'PHILIPPINES',
+      vendorId: d.vendorId ?? null,
+      vendorName: d.vendorName,
+      dateIssued: d.dateIssued ? new Date(d.dateIssued) : existing.dateIssued,
+      dueDate: d.dueDate ? new Date(d.dueDate) : null,
+      status: d.status ?? 'UNPAID',
+      paymentMethod: d.status === 'PAID' ? (d.paymentMethod ?? null) : null,
+      paidBy: d.status === 'PAID' ? (d.paidBy ?? null) : null,
+      ...totals,
+      items: {
+        create: items.map((l) => ({
+          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          description: l.description ?? null, quantity: l.quantity, unitCost: l.unitCost,
+          discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0, lineTotal: computeLine(l).lineTotal,
+        })),
+      },
+    },
+    include: { items: true },
+  })
+  return serExpense(exp)
 }
 
 export async function deleteExpense(tenantId: string, id: string) {
@@ -270,14 +459,13 @@ export async function deleteExpense(tenantId: string, id: string) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Company profile (logo stored as base64 in DB)
+// Company profile
 // ════════════════════════════════════════════════════════════════════════════
 export async function getCompany(tenantId: string) {
   let p = await prisma.accCompanyProfile.findUnique({ where: { tenantId } })
   if (!p) p = await prisma.accCompanyProfile.create({ data: { tenantId, name: 'My Company' } })
   return p
 }
-
 export async function updateCompany(
   tenantId: string,
   fields: { name?: string; address?: string; email?: string; contactNumber?: string; taxId?: string },
@@ -298,72 +486,30 @@ export async function updateCompany(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Invoices
+// Monthly Sales / Expense report
 // ════════════════════════════════════════════════════════════════════════════
-async function nextInvoiceNo(tenantId: string): Promise<string> {
-  const year = new Date().getFullYear()
-  const key = `${tenantId}:invoice:${year}`
-  const counter = await prisma.accCounter.upsert({
-    where: { id: key },
-    create: { id: key, value: 1 },
-    update: { value: { increment: 1 } },
-  })
-  return `INV-${year}-${String(counter.value).padStart(4, '0')}`
-}
+export async function getReport(tenantId: string, month: string) {
+  // month = "YYYY-MM"
+  const [y, m] = month.split('-').map(Number)
+  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0))
+  const end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999))
+  const range = { gte: start, lte: end }
 
-export async function createInvoiceForSale(tenantId: string, saleId: string) {
-  const sale = await prisma.accSale.findFirst({ where: { id: saleId, tenantId }, include: { invoice: true } })
-  if (!sale) return { error: 'not_found' as const }
-  if (sale.invoice) return { invoice: serInvoice(sale.invoice) }
-
-  const company = await getCompany(tenantId)
-  const invoiceNo = await nextInvoiceNo(tenantId)
-  const invoice = await prisma.accInvoice.create({
-    data: {
-      tenantId,
-      invoiceNo,
-      saleId: sale.id,
-      companyName: company.name,
-      companyLogoData: company.logoData,
-      companyLogoMime: company.logoMime,
-      companyAddress: company.address,
-      companyEmail: company.email,
-      companyContact: company.contactNumber,
-      totalAmount: sale.total,
-    },
-  })
-  await prisma.accSale.update({ where: { id: sale.id }, data: { invoiceId: invoice.id } })
-  return { invoice: serInvoice(invoice) }
-}
-
-export async function getInvoiceWithSale(tenantId: string, id: string) {
-  return prisma.accInvoice.findFirst({ where: { id, tenantId }, include: { sale: true } })
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Dashboard
-// ════════════════════════════════════════════════════════════════════════════
-export async function getDashboard(tenantId: string) {
-  const where = { tenantId }
-  const [salesAgg, expenseAgg, pendingAgg, salesCount, expenseCount, recentSales, recentExpenses] = await Promise.all([
-    prisma.accSale.aggregate({ _sum: { total: true }, where }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { ...where, salesStatus: 'PENDING' } }),
-    prisma.accSale.count({ where }),
-    prisma.accExpense.count({ where }),
-    prisma.accSale.findMany({ where, orderBy: { date: 'desc' }, take: 5 }),
-    prisma.accExpense.findMany({ where, orderBy: { date: 'desc' }, take: 5 }),
+  const [sales, expenses] = await Promise.all([
+    prisma.accSale.findMany({ where: { tenantId, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
+    prisma.accExpense.findMany({ where: { tenantId, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
   ])
-  const totalSales = num(salesAgg._sum.total)
-  const totalExpenses = num(expenseAgg._sum.total)
+
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const byDay = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, sales: 0, expenses: 0 }))
+  for (const s of sales) { const d = new Date(s.dateIssued).getUTCDate(); byDay[d - 1].sales += num(s.total) }
+  for (const e of expenses) { const d = new Date(e.dateIssued).getUTCDate(); byDay[d - 1].expenses += num(e.total) }
+  byDay.forEach((d) => { d.sales = r2(d.sales); d.expenses = r2(d.expenses) })
+
+  const totalSales = r2(sales.reduce((a, s) => a + num(s.total), 0))
+  const totalExpenses = r2(expenses.reduce((a, e) => a + num(e.total), 0))
   return {
-    totalSales,
-    totalExpenses,
-    net: totalSales - totalExpenses,
-    pendingReceivables: num(pendingAgg._sum.total),
-    salesCount,
-    expenseCount,
-    recentSales: recentSales.map(serSale),
-    recentExpenses: recentExpenses.map(serExpense),
+    month, totalSales, totalExpenses, net: r2(totalSales - totalExpenses), byDay,
+    sales: sales.map(serSale), expenses: expenses.map(serExpense),
   }
 }

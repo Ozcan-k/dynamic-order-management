@@ -34,7 +34,6 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/accounting/sales':    [UserRole.ADMIN, UserRole.ACCOUNTANT],
   '/accounting/expenses': [UserRole.ADMIN, UserRole.ACCOUNTANT],
   '/accounting/contacts': [UserRole.ADMIN, UserRole.ACCOUNTANT],
-  '/accounting/company':  [UserRole.ADMIN, UserRole.ACCOUNTANT],
 }
 
 function canAccess(path: string, role: UserRole): boolean {

@@ -287,11 +287,10 @@ const NAV_ITEMS: NavItem[] = [
     icon: <AccountingIcon />,
     roles: [UserRole.ADMIN, UserRole.ACCOUNTANT],
     children: [
-      { path: '/accounting', label: 'Dashboard', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-      { path: '/accounting/sales', label: 'Sales', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-      { path: '/accounting/expenses', label: 'Expenses', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-      { path: '/accounting/contacts', label: 'Customers / Suppliers', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-      { path: '/accounting/company', label: 'Company Profile', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting', label: 'Report', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting/sales', label: 'Invoices', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting/expenses', label: 'Purchases', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting/contacts', label: 'Customers / Vendors', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
     ],
   },
   {
