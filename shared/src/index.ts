@@ -11,6 +11,7 @@ export enum UserRole {
   WAREHOUSE_ADMIN = 'WAREHOUSE_ADMIN',
   RETURN_SCANNER = 'RETURN_SCANNER',
   INCIDENT_REPORTER = 'INCIDENT_REPORTER',
+  ACCOUNTANT = 'ACCOUNTANT',
 }
 
 export type StockStatus = 'PENDING' | 'IN_STOCK' | 'OUT_OF_STOCK'
@@ -30,6 +31,7 @@ export interface StockItemSummary {
 }
 
 export * from './sales'
+export * from './accounting'
 
 export enum OrderStatus {
   INBOUND = 'INBOUND',

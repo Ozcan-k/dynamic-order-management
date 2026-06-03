@@ -23,6 +23,7 @@ enum UserRole {
   WAREHOUSE_ADMIN
   RETURN_SCANNER
   INCIDENT_REPORTER
+  ACCOUNTANT
 }
 
 enum StockStatus {
@@ -582,4 +583,188 @@ model DispatchParcel {
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, carrier])
   @@map("dispatch_parcels")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ACCOUNTING MODULE (v2.51.0) — fully independent. Own tables (acc_*), tenant-
+// scoped, NO foreign keys into the order pipeline or any existing table.
+// ════════════════════════════════════════════════════════════════════════════
+
+enum AccPaymentMethod {
+  GCASH
+  CASH
+  BANK_TRANSFER
+  CHECK
+}
+
+enum AccSalesStatus {
+  PAID
+  PENDING
+}
+
+enum AccCountry {
+  PHILIPPINES
+  CHINA
+  TURKEY
+  CANADA
+}
+
+enum AccPaidFrom {
+  BANK
+  GCASH
+  CREDIT_CARD
+  CASH
+  CHECK
+}
+
+model AccCustomer {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  address       String?
+  email         String?
+  contactPerson String?  @map("contact_person")
+  contactNumber String?  @map("contact_number")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  sales AccSale[]
+
+  @@index([tenantId, name])
+  @@map("acc_customers")
+}
+
+model AccSupplier {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  address       String?
+  email         String?
+  contactPerson String?  @map("contact_person")
+  contactNumber String?  @map("contact_number")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  expenses AccExpense[]
+
+  @@index([tenantId, name])
+  @@map("acc_suppliers")
+}
+
+model AccSale {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  date     DateTime @default(now())
+  product  String
+  price    Decimal @db.Decimal(14, 2)
+  quantity Int
+  total    Decimal @db.Decimal(14, 2)
+
+  customerId      String?      @map("customer_id")
+  customer        AccCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName    String       @map("customer_name")
+  customerAddress String?      @map("customer_address")
+  customerNumber  String?      @map("customer_number")
+  customerEmail   String?      @map("customer_email")
+  contactPerson   String?      @map("contact_person")
+
+  paymentMethod   AccPaymentMethod @map("payment_method")
+  bankName        String?          @map("bank_name")
+  accountName     String?          @map("account_name")
+  referenceNumber String?          @map("reference_number")
+  gcashNumber     String?          @map("gcash_number")
+  checkNumber     String?          @map("check_number")
+
+  salesStatus AccSalesStatus @map("sales_status")
+  dueDate     DateTime?      @map("due_date")
+
+  invoice   AccInvoice?
+  invoiceId String?     @map("invoice_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, date(sort: Desc)])
+  @@index([tenantId, salesStatus])
+  @@index([tenantId, paymentMethod])
+  @@index([tenantId, customerId])
+  @@map("acc_sales")
+}
+
+model AccExpense {
+  id        String     @id @default(uuid())
+  tenantId  String     @map("tenant_id")
+  expenseNo Int        @unique @default(autoincrement()) @map("expense_no")
+  date      DateTime   @default(now())
+  country   AccCountry
+  itemName  String     @map("item_name")
+
+  supplierId   String?      @map("supplier_id")
+  supplier     AccSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierName String       @map("supplier_name")
+
+  category String
+  amount   Decimal @db.Decimal(14, 2)
+  quantity Int
+  total    Decimal @db.Decimal(14, 2)
+
+  paidFrom               AccPaidFrom @map("paid_from")
+  paymentReferenceNumber String?     @map("payment_reference_number")
+  checkNumber            String?     @map("check_number")
+  paidBy                 String      @map("paid_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, date(sort: Desc)])
+  @@index([tenantId, country])
+  @@index([tenantId, category])
+  @@index([tenantId, paidFrom])
+  @@index([tenantId, supplierId])
+  @@map("acc_expenses")
+}
+
+model AccCompanyProfile {
+  id            String   @id @default(uuid())
+  tenantId      String   @unique @map("tenant_id")
+  name          String   @default("My Company")
+  logoData      String?  @map("logo_data") @db.Text // base64-encoded image
+  logoMime      String?  @map("logo_mime")
+  address       String?
+  email         String?
+  contactNumber String?  @map("contact_number")
+  taxId         String?  @map("tax_id")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("acc_company_profiles")
+}
+
+model AccInvoice {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  invoiceNo  String   @map("invoice_no")
+  saleId     String   @unique @map("sale_id")
+  sale       AccSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  issuedDate DateTime @default(now()) @map("issued_date")
+
+  companyName    String  @map("company_name")
+  companyLogoData String? @map("company_logo_data") @db.Text
+  companyLogoMime String? @map("company_logo_mime")
+  companyAddress String? @map("company_address")
+  companyEmail   String? @map("company_email")
+  companyContact String? @map("company_contact")
+
+  totalAmount Decimal  @db.Decimal(14, 2) @map("total_amount")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, invoiceNo])
+  @@index([tenantId])
+  @@map("acc_invoices")
+}
+
+model AccCounter {
+  id    String @id // "{tenantId}:invoice:{year}"
+  value Int    @default(0)
+
+  @@map("acc_counters")
 }

@@ -32,6 +32,11 @@ import Warehouses from './pages/inventory/Warehouses'
 import StockSummary from './pages/inventory/StockSummary'
 import StockOut from './pages/inventory/StockOut'
 import StockScan from './pages/StockScan'
+import AccDashboard from './pages/accounting/AccDashboard'
+import AccSales from './pages/accounting/AccSales'
+import AccExpenses from './pages/accounting/AccExpenses'
+import AccContacts from './pages/accounting/AccContacts'
+import AccCompany from './pages/accounting/AccCompany'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -61,6 +66,7 @@ function RootRoute() {
     [UserRole.RETURN_SCANNER]: '/returns/scan',
     [UserRole.OUTBOUND_ADMIN]: '/outbound',
     [UserRole.INCIDENT_REPORTER]: '/incident-report',
+    [UserRole.ACCOUNTANT]: '/accounting',
   }
   return <Navigate to={homeByRole[user.role] ?? '/login'} replace />
 }
@@ -284,6 +290,47 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
                 <AppLayout><IncidentReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Accounting module — independent of the order pipeline */}
+          <Route
+            path="/accounting"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><AccDashboard /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/sales"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><AccSales /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/expenses"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><AccExpenses /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/contacts"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><AccContacts /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/company"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><AccCompany /></AppLayout>
               </ProtectedRoute>
             }
           />

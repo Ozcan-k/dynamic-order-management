@@ -42,7 +42,7 @@ git push origin main --tags
 | Yeni özellik, phase tamamlandı | MINOR → v1.1.0 |
 | Büyük mimari değişiklik | MAJOR → v2.0.0 |
 
-**Mevcut versiyon:** `v2.50.0` — OUTBOUND_ADMIN artık Inbound / Picker Admin / Packer Admin panellerini **salt-okunur** görüyor (sadece GET guard'larına eklendi; tüm mutation'lar 403). Tüm scan/assign/complete/remove/delete UI `readOnly` ile gizli, her panelde "View Only" rozeti. Packed Report hariç. (Önceki: v2.49.1)
+**Mevcut versiyon:** `v2.51.0` — **Yeni bağımsız Accounting modülü** (Sidebar'da Incident Report'un altında, alt-menülü). Order pipeline'a/mevcut tablolara **hiç dokunmaz**: kendi `acc_*` tabloları (AccCustomer/AccSupplier/AccSale/AccExpense/AccCompanyProfile/AccInvoice/AccCounter), kendi enum'ları (`AccPaymentMethod/AccSalesStatus/AccCountry/AccPaidFrom`), tenant-scoped. Yeni rol **`ACCOUNTANT`** (UserRole'a additive; Settings → Administration). Backend `routes/accounting.ts` (`/accounting` prefix): Customers/Suppliers/Sales/Expenses CRUD + Company profile (logo base64 in DB) + Invoice (PDFKit, `INV-YYYY-NNNN`) + Dashboard. Frontend `pages/accounting/*` (Dashboard/Sales/Expenses/Contacts/Company) + `components/shared/ComboBox.tsx` (aranabilir dropdown + "Others" + auto-fill) + `styles/accounting.css` (`.acc-*` namespaced). Erişim: `ADMIN` + `ACCOUNTANT`. Sale müşteri bilgisini snapshot tutar. Para birimi ₱ PHP. `/accounting` prefix'i vite.config + nginx.conf'a eklendi. Şema additive `db push` (data loss yok). Backend + frontend `tsc` green, frontend `vite build` green, E2E + browser smoke geçti. (Önceki: v2.50.0 — OUTBOUND_ADMIN salt-okunur Inbound/Picker/Packer panelleri)
 
 ### Kesinlikle commit edilmeyecekler:
 - `.env`
