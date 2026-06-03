@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   ACC_COUNTRY_LABELS, ACC_PAYMENT_METHOD_LABELS, AccCountry, AccPaymentMethod, AccPaymentStatus,
   type AccExpense, type AccVendor,
 } from '@dom/shared'
 import {
   useVendors, useSaveVendor, useItems, useCreateItem, useCategories, useCreateCategory,
-  useNextPurchaseNo, useSaveExpense,
+  useNextPurchaseNo, useSaveExpense, useExpense,
 } from '../../api/accounting'
 import ComboBox from '../../components/shared/ComboBox'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
@@ -20,7 +21,19 @@ function initRows(e?: AccExpense | null): LineRow[] {
   }))
 }
 
-export default function PurchaseForm({ initial, onClose }: { initial?: AccExpense | null; onClose: () => void }) {
+// ─── Page wrapper: resolves the edit record before rendering the form ─────────
+export default function PurchaseForm() {
+  const { id } = useParams()
+  const isEdit = !!id
+  const { data: editing, isLoading } = useExpense(id)
+
+  if (isEdit && isLoading) return <div className="acc-page"><div className="acc-empty">Loading…</div></div>
+  if (isEdit && !editing) return <div className="acc-page"><div className="acc-empty">Expense not found.</div></div>
+  return <PurchaseFormBody key={id ?? 'new'} initial={isEdit ? editing! : null} />
+}
+
+function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
+  const navigate = useNavigate()
   const isEdit = !!initial
   const { data: vendors = [] } = useVendors()
   const saveVendor = useSaveVendor()
@@ -30,6 +43,8 @@ export default function PurchaseForm({ initial, onClose }: { initial?: AccExpens
   const createCategory = useCreateCategory()
   const { data: nextNo } = useNextPurchaseNo(!isEdit)
   const save = useSaveExpense()
+
+  const back = () => navigate('/accounting/expenses')
 
   const [f, setF] = useState({
     vendorId: initial?.vendorId ?? (null as string | null),
@@ -56,30 +71,30 @@ export default function PurchaseForm({ initial, onClose }: { initial?: AccExpens
     if (validRows.length === 0) return setError('Add at least one line item (item + qty + unit cost).')
     const payload: any = {
       id: initial?.id,
-      vendorId: f.vendorId, vendorName: f.vendorName, invoiceNumber: f.invoiceNumber || null,
+      vendorId: f.vendorId || null, vendorName: f.vendorName, invoiceNumber: f.invoiceNumber || null,
       country: f.country, dateIssued: f.dateIssued, dueDate: f.dueDate || null,
       status: f.status, paymentMethod: f.status === 'PAID' ? f.paymentMethod : null, paidBy: f.status === 'PAID' ? (f.paidBy || null) : null,
       items: validRows.map((r) => ({
-        itemId: r.itemId, itemName: r.itemName, categoryId: r.categoryId || null, categoryName: r.categoryName || null,
+        itemId: r.itemId || null, itemName: r.itemName, categoryId: r.categoryId || null, categoryName: r.categoryName || null,
         description: r.description || null, quantity: Number(r.quantity), unitCost: Number(r.unitCost),
         discountPct: Number(r.discountPct) || 0, taxPct: Number(r.taxPct) || 0,
       })),
     }
-    try { await save.mutateAsync(payload); onClose() }
+    try { await save.mutateAsync(payload); back() }
     catch (e: any) { setError(e?.response?.data?.error || 'Save failed') }
   }
 
   return (
-    <div className="acc-modal-backdrop" onClick={onClose}>
-      <div className="acc-modal acc-modal-form" onClick={(e) => e.stopPropagation()}>
-        <div className="acc-form-head">
-          <h3 className="acc-modal-title" style={{ margin: 0 }}>{isEdit ? `Edit ${purchaseNo}` : 'New Purchase'}</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setNewVendor({ name: '', email: '', contactNumber: '' })}>+ New Vendor</button>
-            <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={onClose}>← Back</button>
-          </div>
+    <div className="acc-page">
+      <div className="acc-head acc-head-row">
+        <div><h1 className="acc-title">{isEdit ? `Edit ${purchaseNo}` : 'New Expense'}</h1><p className="acc-sub">Fill in the expense details and line items</p></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setNewVendor({ name: '', email: '', contactNumber: '' })}>+ New Vendor</button>
+          <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Expenses</button>
         </div>
+      </div>
 
+      <div className="acc-card acc-card-pad">
         <div className="acc-form-grid">
           <div className="acc-field"><label>Vendor Name <span className="req">*</span></label>
             <ComboBox<AccVendor> items={vendors} value={f.vendorName} placeholder="Select / type vendor"
@@ -87,7 +102,7 @@ export default function PurchaseForm({ initial, onClose }: { initial?: AccExpens
               onPick={(v) => set(v ? { vendorName: v.name, vendorId: v.id } : { vendorId: null })}
               onAddNew={async (name) => { const v = await saveVendor.mutateAsync({ name }); set({ vendorName: (v as AccVendor).name, vendorId: (v as AccVendor).id }) }} />
           </div>
-          <div className="acc-field"><label>Purchase #</label><input value={purchaseNo} disabled /></div>
+          <div className="acc-field"><label>Expense #</label><input value={purchaseNo} disabled /></div>
           <div className="acc-field"><label>Invoice Number</label><input value={f.invoiceNumber} placeholder="optional" onChange={(e) => set({ invoiceNumber: e.target.value })} /></div>
 
           <div className="acc-field"><label>Country</label>
@@ -117,8 +132,8 @@ export default function PurchaseForm({ initial, onClose }: { initial?: AccExpens
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
-          <button className="acc-btn acc-btn-outline" onClick={onClose}>Cancel</button>
-          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Purchase' : 'Save Purchase'}</button>
+          <button className="acc-btn acc-btn-outline" onClick={back}>Cancel</button>
+          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Expense' : 'Save Expense'}</button>
         </div>
       </div>
 

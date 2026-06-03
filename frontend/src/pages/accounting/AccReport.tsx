@@ -74,7 +74,7 @@ export default function AccReport() {
                 </table>
               ) : (
                 <table>
-                  <thead><tr><th>Purchase</th><th>Date</th><th>Vendor</th><th className="acc-col-num">Amount</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Expense</th><th>Date</th><th>Vendor</th><th className="acc-col-num">Amount</th><th>Status</th></tr></thead>
                   <tbody>
                     {data.expenses.length === 0 ? <tr><td colSpan={5} className="acc-empty">No expenses this month.</td></tr>
                       : data.expenses.map((e) => (

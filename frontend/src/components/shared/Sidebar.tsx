@@ -289,7 +289,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { path: '/accounting', label: 'Report', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
       { path: '/accounting/sales', label: 'Invoices', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-      { path: '/accounting/expenses', label: 'Purchases', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting/expenses', label: 'Expenses', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
       { path: '/accounting/contacts', label: 'Customers / Vendors', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
     ],
   },

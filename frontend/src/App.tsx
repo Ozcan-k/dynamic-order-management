@@ -36,6 +36,8 @@ import AccReport from './pages/accounting/AccReport'
 import AccInvoices from './pages/accounting/AccInvoices'
 import AccPurchases from './pages/accounting/AccPurchases'
 import AccContacts from './pages/accounting/AccContacts'
+import InvoiceForm from './pages/accounting/InvoiceForm'
+import PurchaseForm from './pages/accounting/PurchaseForm'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
@@ -322,6 +324,38 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
                 <AppLayout><AccContacts /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/sales/new"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><InvoiceForm /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/sales/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><InvoiceForm /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/expenses/new"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><PurchaseForm /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/expenses/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><PurchaseForm /></AppLayout>
               </ProtectedRoute>
             }
           />

@@ -729,6 +729,8 @@ model AccSaleItem {
   sale        AccSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
   itemId      String? @map("item_id")
   itemName    String  @map("item_name")
+  categoryId   String? @map("category_id")
+  categoryName String? @map("category_name")
   description String?
   quantity    Decimal @db.Decimal(14, 2) @default(1)
   unitCost    Decimal @db.Decimal(14, 2) @default(0) @map("unit_cost")

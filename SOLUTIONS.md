@@ -5,6 +5,26 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-06-03] Accounting invoice/expense save fails with 400 "Invalid uuid" on blank combo fields (v2.53.0)
+
+### Problem
+On the Accounting → Invoices / Expenses forms, saving sometimes returned a generic "Save failed". Basic saves worked (records existed), so it was scenario-specific.
+
+### Root cause (confirmed by live reproduction)
+The create/update zod schemas in `backend/src/routes/accounting.ts` typed every optional UUID field as `z.string().uuid().nullish()`. That accepts `null`/`undefined` but **rejects an empty string `""`**. When a combo/select (`customerId`, `salesAgentId`, `vendorId`, `itemId`, `categoryId`) reached the payload as `""` instead of `null`, zod returned `400 {"fieldErrors":{"customerId":["Invalid uuid"], ...}}`. Reproduced by minting an admin JWT + Redis session and POSTing `customerId:""` → 400; clean `null` payloads → 201.
+
+### Fix
+Added a shared helper and applied it to all five UUID fields:
+```ts
+const nullableUuid = z.preprocess((v) => (v === '' ? null : v), z.string().uuid().nullish())
+```
+`''` → `null` (accepted), real UUIDs still validated, bad strings still rejected. Frontend payloads (`InvoiceForm`/`PurchaseForm`) also hardened with `|| null` on `customerId`/`vendorId`/`itemId`. Verified 4/4 live: empty-string sale **201**, empty-string expense **201**, bad uuid **400** (validation preserved), valid uuid **201**.
+
+### Gotcha / generalised rule
+`z.string().uuid().nullish()` is a trap for any field fed by an HTML `<select>`/combo whose "none" state is `""`. Prefer the `nullableUuid` preprocess pattern for optional foreign-key fields. Also: **`tsx watch` does not pick up source edits when the repo lives on OneDrive** (chokidar misses the FS events) — to verify a backend change locally you must restart the dev server, not just save the file.
+
+---
+
 ## [2026-06-01] Outbound Scan rejects in-house parcels packed on a previous day — "not in our system" (v2.49.1)
 
 ### Problem
