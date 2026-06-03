@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   ACC_CUSTOMER_TYPE_LABELS, ACC_SALE_CHANNEL_LABELS, ACC_PAYMENT_METHOD_LABELS,
   AccCustomerType, AccSaleChannel, AccPaymentMethod, AccPaymentStatus, type AccSale, type AccCustomer,
 } from '@dom/shared'
 import {
-  useCustomers, useSaveCustomer, useItems, useCreateItem, useSalesAgents, useNextInvoiceNo, useSaveSale,
+  useCustomers, useSaveCustomer, useItems, useCreateItem, useCategories, useCreateCategory,
+  useSalesAgents, useNextInvoiceNo, useSaveSale, useSale,
 } from '../../api/accounting'
 import ComboBox from '../../components/shared/ComboBox'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
@@ -14,20 +16,39 @@ function todayStr() { return new Date().toISOString().slice(0, 10) }
 function initRows(s?: AccSale | null): LineRow[] {
   if (!s || !s.items?.length) return [emptyLine()]
   return s.items.map((it) => ({
-    itemId: it.itemId, itemName: it.itemName, description: it.description || '',
+    itemId: it.itemId, itemName: it.itemName, categoryId: it.categoryId, categoryName: it.categoryName || '',
+    description: it.description || '',
     quantity: String(it.quantity), unitCost: String(it.unitCost), discountPct: String(it.discountPct), taxPct: String(it.taxPct),
   }))
 }
 
-export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | null; onClose: () => void }) {
+const emptyNewCust = { type: 'CORPORATION' as AccCustomerType, name: '', address: '', email: '', contactPerson: '', contactNumber: '' }
+
+// ─── Page wrapper: resolves the edit record before rendering the form ─────────
+export default function InvoiceForm() {
+  const { id } = useParams()
+  const isEdit = !!id
+  const { data: editing, isLoading } = useSale(id)
+
+  if (isEdit && isLoading) return <div className="acc-page"><div className="acc-empty">Loading…</div></div>
+  if (isEdit && !editing) return <div className="acc-page"><div className="acc-empty">Invoice not found.</div></div>
+  return <InvoiceFormBody key={id ?? 'new'} initial={isEdit ? editing! : null} />
+}
+
+function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
+  const navigate = useNavigate()
   const isEdit = !!initial
   const { data: customers = [] } = useCustomers()
   const saveCustomer = useSaveCustomer()
   const { data: items = [] } = useItems()
   const createItem = useCreateItem()
+  const { data: categories = [] } = useCategories()
+  const createCategory = useCreateCategory()
   const { data: agents = [] } = useSalesAgents()
   const { data: nextNo } = useNextInvoiceNo(!isEdit)
   const save = useSaveSale()
+
+  const back = () => navigate('/accounting/sales')
 
   const [f, setF] = useState({
     customerType: (initial?.customerType ?? AccCustomerType.INDIVIDUAL) as AccCustomerType,
@@ -50,6 +71,7 @@ export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | 
   })
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
   const [error, setError] = useState('')
+  const [newCust, setNewCust] = useState<null | typeof emptyNewCust>(null)
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }))
 
   const pickCustomer = (c: AccCustomer | null) => {
@@ -72,7 +94,7 @@ export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | 
     const agentName = f.salesAgentId ? (agents.find((a) => a.id === f.salesAgentId)?.username ?? f.salesAgentName) : f.salesAgentName
     const payload: any = {
       id: initial?.id,
-      customerType: f.customerType, customerId: f.customerId, customerName: f.customerName,
+      customerType: f.customerType, customerId: f.customerId || null, customerName: f.customerName,
       customerAddress: f.customerAddress || null, customerEmail: f.customerEmail || null, customerNumber: f.customerNumber || null,
       contactPerson: f.contactPerson || null,
       dateIssued: f.dateIssued, dueDate: f.dueDate || null, orderReference: f.orderReference || null,
@@ -81,22 +103,23 @@ export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | 
       paymentMethod: f.status === 'PAID' ? f.paymentMethod : null,
       bankName: f.bankName || null, accountName: f.accountName || null, referenceNumber: f.referenceNumber || null, gcashNumber: f.gcashNumber || null,
       items: validRows.map((r) => ({
-        itemId: r.itemId, itemName: r.itemName, description: r.description || null,
+        itemId: r.itemId || null, itemName: r.itemName, categoryId: r.categoryId || null, categoryName: r.categoryName || null,
+        description: r.description || null,
         quantity: Number(r.quantity), unitCost: Number(r.unitCost), discountPct: Number(r.discountPct) || 0, taxPct: Number(r.taxPct) || 0,
       })),
     }
-    try { await save.mutateAsync(payload); onClose() }
+    try { await save.mutateAsync(payload); back() }
     catch (e: any) { setError(e?.response?.data?.error || 'Save failed') }
   }
 
   return (
-    <div className="acc-modal-backdrop" onClick={onClose}>
-      <div className="acc-modal acc-modal-form" onClick={(e) => e.stopPropagation()}>
-        <div className="acc-form-head">
-          <h3 className="acc-modal-title" style={{ margin: 0 }}>{isEdit ? `Edit ${invoiceNo}` : 'New Invoice'}</h3>
-          <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={onClose}>← Back</button>
-        </div>
+    <div className="acc-page">
+      <div className="acc-head acc-head-row">
+        <div><h1 className="acc-title">{isEdit ? `Edit ${invoiceNo}` : 'New Invoice'}</h1><p className="acc-sub">Fill in the invoice details and line items</p></div>
+        <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Invoices</button>
+      </div>
 
+      <div className="acc-card acc-card-pad">
         {/* customer type toggle */}
         <div className="acc-seg" style={{ marginBottom: 14 }}>
           {Object.values(AccCustomerType).map((t) => (
@@ -108,10 +131,18 @@ export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | 
 
         <div className="acc-form-grid">
           <div className="acc-field"><label>Customer Name <span className="req">*</span></label>
-            <ComboBox<AccCustomer> items={customers} value={f.customerName} placeholder="Select / type customer"
-              onChange={(text) => set({ customerName: text, customerId: null })}
-              onPick={pickCustomer}
-              onAddNew={async (name) => { const c = await saveCustomer.mutateAsync({ name, type: f.customerType }); pickCustomer(c as AccCustomer) }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <ComboBox<AccCustomer> items={customers} value={f.customerName} placeholder="Select / type customer"
+                  onChange={(text) => set({ customerName: text, customerId: null })}
+                  onPick={pickCustomer}
+                  onAddNew={async (name) => { const c = await saveCustomer.mutateAsync({ name, type: f.customerType }); pickCustomer(c as AccCustomer) }} />
+              </div>
+              {f.customerType === 'CORPORATION' && (
+                <button type="button" className="acc-btn acc-btn-outline acc-btn-sm" style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => setNewCust({ ...emptyNewCust, type: AccCustomerType.CORPORATION })}>+ New Customer</button>
+              )}
+            </div>
           </div>
           <div className="acc-field"><label>Invoice #</label><input value={invoiceNo} disabled /></div>
           <div className="acc-field"><label>Customer Number</label><input value={f.customerNumber} onChange={(e) => set({ customerNumber: e.target.value })} /></div>
@@ -162,14 +193,42 @@ export default function InvoiceForm({ initial, onClose }: { initial?: AccSale | 
         </div>
 
         <div className="acc-section-label">Items</div>
-        <LineItemsEditor rows={rows} onChange={setRows} items={items} onCreateItem={async (name) => createItem.mutateAsync({ name })} />
+        <LineItemsEditor rows={rows} onChange={setRows} items={items} withCategory categories={categories}
+          onCreateItem={async (name) => createItem.mutateAsync({ name })}
+          onCreateCategory={async (name) => createCategory.mutateAsync({ name })} />
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
-          <button className="acc-btn acc-btn-outline" onClick={onClose}>Cancel</button>
+          <button className="acc-btn acc-btn-outline" onClick={back}>Cancel</button>
           <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Invoice' : 'Save Invoice'}</button>
         </div>
       </div>
+
+      {newCust && (
+        <div className="acc-modal-backdrop" onClick={() => setNewCust(null)}>
+          <div className="acc-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="acc-modal-title">New Customer</h3>
+            <div className="acc-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="acc-field"><label>Type</label>
+                <select value={newCust.type} onChange={(e) => setNewCust({ ...newCust, type: e.target.value as AccCustomerType })}>
+                  <option value="INDIVIDUAL">Individual</option><option value="CORPORATION">Corporation</option>
+                </select></div>
+              <div className="acc-field"><label>Name <span className="req">*</span></label><input autoFocus value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} /></div>
+              <div className="acc-field span2"><label>Address</label><input value={newCust.address} onChange={(e) => setNewCust({ ...newCust, address: e.target.value })} /></div>
+              <div className="acc-field"><label>Email</label><input value={newCust.email} onChange={(e) => setNewCust({ ...newCust, email: e.target.value })} /></div>
+              <div className="acc-field"><label>Contact Person</label><input value={newCust.contactPerson} onChange={(e) => setNewCust({ ...newCust, contactPerson: e.target.value })} /></div>
+              <div className="acc-field span2"><label>Contact Number</label><input value={newCust.contactNumber} onChange={(e) => setNewCust({ ...newCust, contactNumber: e.target.value })} /></div>
+            </div>
+            <div className="acc-modal-foot">
+              <button className="acc-btn acc-btn-outline" onClick={() => setNewCust(null)}>Cancel</button>
+              <button className="acc-btn acc-btn-primary" disabled={!newCust.name.trim() || saveCustomer.isPending}
+                onClick={async () => { const c = await saveCustomer.mutateAsync(newCust); pickCustomer(c as AccCustomer); setNewCust(null) }}>
+                {saveCustomer.isPending ? 'Saving…' : 'Add Customer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

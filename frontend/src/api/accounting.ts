@@ -69,6 +69,9 @@ export function useSales(filters: SaleFilters) {
 export function useSalesStats() {
   return useQuery({ queryKey: ['acc', 'sales', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/sales/stats`)).data })
 }
+export function useSale(id?: string) {
+  return useQuery({ queryKey: ['acc', 'sale', id], enabled: !!id, queryFn: async () => (await api.get<AccSale>(`${BASE}/sales/${id}`)).data })
+}
 export function useNextInvoiceNo(enabled: boolean) {
   return useQuery({ queryKey: ['acc', 'sales', 'next'], enabled, queryFn: async () => (await api.get<{ invoiceNo: string }>(`${BASE}/sales/next-number`)).data })
 }
@@ -91,6 +94,9 @@ export function useExpenses(filters: ExpenseFilters) {
 }
 export function useExpensesStats() {
   return useQuery({ queryKey: ['acc', 'expenses', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/expenses/stats`)).data })
+}
+export function useExpense(id?: string) {
+  return useQuery({ queryKey: ['acc', 'expense', id], enabled: !!id, queryFn: async () => (await api.get<AccExpense>(`${BASE}/expenses/${id}`)).data })
 }
 export function useNextPurchaseNo(enabled: boolean) {
   return useQuery({ queryKey: ['acc', 'expenses', 'next'], enabled, queryFn: async () => (await api.get<{ purchaseNo: string }>(`${BASE}/expenses/next-number`)).data })

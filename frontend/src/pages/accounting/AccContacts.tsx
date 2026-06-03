@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ACC_CUSTOMER_TYPE_LABELS, type AccCustomer, type AccVendor } from '@dom/shared'
 import {
   useCustomers, useSaveCustomer, useDeleteCustomer,
@@ -6,6 +6,8 @@ import {
   useCompany, useSaveCompany,
 } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+
+type Tab = 'customers' | 'vendors'
 
 // ─── Company Profile modal (button, like Incident branding) ──────────────────
 function CompanyModal({ onClose }: { onClose: () => void }) {
@@ -64,11 +66,26 @@ export default function AccContacts() {
   const saveCust = useSaveCustomer(); const delCust = useDeleteCustomer()
   const saveVend = useSaveVendor(); const delVend = useDeleteVendor()
 
+  const [tab, setTab] = useState<Tab>('customers')
+  const [search, setSearch] = useState('')
   const [company, setCompany] = useState(false)
   const [editCust, setEditCust] = useState<null | typeof emptyCust>(null)
   const [editVend, setEditVend] = useState<null | typeof emptyVend>(null)
   const [delC, setDelC] = useState<AccCustomer | null>(null)
   const [delV, setDelV] = useState<AccVendor | null>(null)
+
+  const q = search.trim().toLowerCase()
+  const shownCustomers = useMemo(
+    () => (q ? customers.filter((c) => [c.name, c.email, c.contactNumber, c.contactPerson].some((v) => (v || '').toLowerCase().includes(q))) : customers),
+    [customers, q],
+  )
+  const shownVendors = useMemo(
+    () => (q ? vendors.filter((v) => [v.name, v.email, v.contactNumber].some((x) => (x || '').toLowerCase().includes(q))) : vendors),
+    [vendors, q],
+  )
+
+  // reset search when switching tabs
+  useEffect(() => { setSearch('') }, [tab])
 
   return (
     <div className="acc-page">
@@ -77,22 +94,38 @@ export default function AccContacts() {
         <button className="acc-btn acc-btn-outline" onClick={() => setCompany(true)}>⚙ Company Profile</button>
       </div>
 
-      <div className="acc-grid acc-grid-2">
-        {/* Customers */}
-        <div className="acc-card acc-card-pad">
-          <div className="acc-head-row" style={{ marginBottom: 14 }}>
-            <h3 className="acc-card-title" style={{ margin: 0 }}>Customers</h3>
-            <button className="acc-btn acc-btn-primary acc-btn-sm" onClick={() => setEditCust({ ...emptyCust })}>+ Add</button>
-          </div>
-          {lc ? <p className="acc-muted">Loading…</p> : customers.length === 0 ? <p className="acc-muted">No customers yet.</p> : (
-            <div className="acc-table-wrap"><table>
-              <thead><tr><th>Name</th><th>Type</th><th>Number</th><th>Sales Agent</th><th className="acc-col-actions"></th></tr></thead>
-              <tbody>
-                {customers.map((c) => (
+      {/* tabs */}
+      <div className="acc-tabs">
+        <button className={`acc-tab${tab === 'customers' ? ' active' : ''}`} onClick={() => setTab('customers')}>Customers ({customers.length})</button>
+        <button className={`acc-tab${tab === 'vendors' ? ' active' : ''}`} onClick={() => setTab('vendors')}>Vendors ({vendors.length})</button>
+      </div>
+
+      <div className="acc-filter-bar">
+        <div className="acc-field" style={{ flex: 1, minWidth: 200 }}><label>Search</label>
+          <input placeholder={tab === 'customers' ? 'Name, email, number…' : 'Name, email, number…'} value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="acc-field" style={{ alignSelf: 'flex-end' }}>
+          {tab === 'customers'
+            ? <button className="acc-btn acc-btn-primary" onClick={() => setEditCust({ ...emptyCust })}>+ Add Customer</button>
+            : <button className="acc-btn acc-btn-primary" onClick={() => setEditVend({ ...emptyVend })}>+ Add Vendor</button>}
+        </div>
+      </div>
+
+      {/* Customers tab */}
+      {tab === 'customers' && (
+        <div className="acc-table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Number</th><th>Contact Person</th><th>Sales Agent</th><th className="acc-col-actions">Actions</th></tr></thead>
+            <tbody>
+              {lc ? <tr><td colSpan={7} className="acc-empty">Loading…</td></tr>
+                : shownCustomers.length === 0 ? <tr><td colSpan={7} className="acc-empty">{q ? 'No matching customers.' : 'No customers yet.'}</td></tr>
+                : shownCustomers.map((c) => (
                   <tr key={c.id}>
-                    <td>{c.name}{c.email && <div className="acc-muted" style={{ fontSize: 12 }}>{c.email}</div>}</td>
+                    <td style={{ fontWeight: 600 }}>{c.name}</td>
                     <td>{ACC_CUSTOMER_TYPE_LABELS[c.type]}</td>
+                    <td>{c.email || <span className="acc-muted">—</span>}</td>
                     <td>{c.contactNumber || <span className="acc-muted">—</span>}</td>
+                    <td>{c.contactPerson || <span className="acc-muted">—</span>}</td>
                     <td>{c.salesAgentName || <span className="acc-muted">—</span>}</td>
                     <td className="acc-col-actions"><span className="acc-row-actions">
                       <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setEditCust({ id: c.id, type: c.type, name: c.name, address: c.address || '', email: c.email || '', contactPerson: c.contactPerson || '', contactNumber: c.contactNumber || '' })}>Edit</button>
@@ -100,37 +133,35 @@ export default function AccContacts() {
                     </span></td>
                   </tr>
                 ))}
-              </tbody>
-            </table></div>
-          )}
+            </tbody>
+          </table>
         </div>
+      )}
 
-        {/* Vendors */}
-        <div className="acc-card acc-card-pad">
-          <div className="acc-head-row" style={{ marginBottom: 14 }}>
-            <h3 className="acc-card-title" style={{ margin: 0 }}>Vendors</h3>
-            <button className="acc-btn acc-btn-primary acc-btn-sm" onClick={() => setEditVend({ ...emptyVend })}>+ Add</button>
-          </div>
-          {lv ? <p className="acc-muted">Loading…</p> : vendors.length === 0 ? <p className="acc-muted">No vendors yet.</p> : (
-            <div className="acc-table-wrap"><table>
-              <thead><tr><th>Name</th><th>Email</th><th>Number</th><th className="acc-col-actions"></th></tr></thead>
-              <tbody>
-                {vendors.map((v) => (
+      {/* Vendors tab */}
+      {tab === 'vendors' && (
+        <div className="acc-table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Number</th><th>Address</th><th className="acc-col-actions">Actions</th></tr></thead>
+            <tbody>
+              {lv ? <tr><td colSpan={5} className="acc-empty">Loading…</td></tr>
+                : shownVendors.length === 0 ? <tr><td colSpan={5} className="acc-empty">{q ? 'No matching vendors.' : 'No vendors yet.'}</td></tr>
+                : shownVendors.map((v) => (
                   <tr key={v.id}>
-                    <td>{v.name}</td>
+                    <td style={{ fontWeight: 600 }}>{v.name}</td>
                     <td>{v.email || <span className="acc-muted">—</span>}</td>
                     <td>{v.contactNumber || <span className="acc-muted">—</span>}</td>
+                    <td>{v.address || <span className="acc-muted">—</span>}</td>
                     <td className="acc-col-actions"><span className="acc-row-actions">
                       <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setEditVend({ id: v.id, name: v.name, email: v.email || '', contactNumber: v.contactNumber || '', address: v.address || '' })}>Edit</button>
                       <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setDelV(v)}>Delete</button>
                     </span></td>
                   </tr>
                 ))}
-              </tbody>
-            </table></div>
-          )}
+            </tbody>
+          </table>
         </div>
-      </div>
+      )}
 
       {company && <CompanyModal onClose={() => setCompany(false)} />}
 
@@ -173,7 +204,7 @@ export default function AccContacts() {
       )}
 
       {delC && <ConfirmModal title={`Delete ${delC.name}?`} message="Past invoices keep their saved copy." confirmLabel="Delete" tone="danger" busy={delCust.isPending} onCancel={() => setDelC(null)} onConfirm={async () => { await delCust.mutateAsync(delC.id); setDelC(null) }} />}
-      {delV && <ConfirmModal title={`Delete ${delV.name}?`} message="Past purchases keep their saved copy." confirmLabel="Delete" tone="danger" busy={delVend.isPending} onCancel={() => setDelV(null)} onConfirm={async () => { await delVend.mutateAsync(delV.id); setDelV(null) }} />}
+      {delV && <ConfirmModal title={`Delete ${delV.name}?`} message="Past expenses keep their saved copy." confirmLabel="Delete" tone="danger" busy={delVend.isPending} onCancel={() => setDelV(null)} onConfirm={async () => { await delVend.mutateAsync(delV.id); setDelV(null) }} />}
     </div>
   )
 }

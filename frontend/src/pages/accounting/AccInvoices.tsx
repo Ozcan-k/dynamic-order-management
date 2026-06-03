@@ -1,15 +1,15 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ACC_PAYMENT_STATUS_LABELS, type AccSale } from '@dom/shared'
 import { useSales, useSalesStats, useDeleteSale, money, type SaleFilters } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
-import InvoiceForm from './InvoiceForm'
 
 export default function AccInvoices() {
+  const navigate = useNavigate()
   const [filters, setFilters] = useState<SaleFilters>({ page: 1, pageSize: 25 })
   const { data, isLoading } = useSales(filters)
   const { data: stats } = useSalesStats()
   const del = useDeleteSale()
-  const [form, setForm] = useState<null | { initial: AccSale | null }>(null)
   const [toDelete, setToDelete] = useState<AccSale | null>(null)
 
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1
@@ -18,7 +18,7 @@ export default function AccInvoices() {
     <div className="acc-page">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">Invoices</h1><p className="acc-sub">Manage and track all your invoices</p></div>
-        <button className="acc-btn acc-btn-success" onClick={() => setForm({ initial: null })}>+ New Invoice</button>
+        <button className="acc-btn acc-btn-success" onClick={() => navigate('/accounting/sales/new')}>+ New Invoice</button>
       </div>
 
       <div className="acc-grid acc-grid-4" style={{ marginBottom: 20 }}>
@@ -57,7 +57,7 @@ export default function AccInvoices() {
                   <td><span className={`acc-badge ${s.status === 'PAID' ? 'acc-badge-paid' : 'acc-badge-pending'}`}>{ACC_PAYMENT_STATUS_LABELS[s.status]}</span></td>
                   <td className="acc-col-actions"><span className="acc-row-actions">
                     <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => window.open(`/accounting/sales/${s.id}/pdf`, '_blank')}>PDF</button>
-                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setForm({ initial: s })}>Edit</button>
+                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => navigate(`/accounting/sales/${s.id}/edit`)}>Edit</button>
                     <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setToDelete(s)}>Delete</button>
                   </span></td>
                 </tr>
@@ -74,7 +74,6 @@ export default function AccInvoices() {
         </div>
       )}
 
-      {form && <InvoiceForm initial={form.initial} onClose={() => setForm(null)} />}
       {toDelete && (
         <ConfirmModal title={`Delete ${toDelete.invoiceNo}?`} message="This permanently removes the invoice and its line items." confirmLabel="Delete" tone="danger"
           busy={del.isPending} onCancel={() => setToDelete(null)} onConfirm={async () => { await del.mutateAsync(toDelete.id); setToDelete(null) }} />

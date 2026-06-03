@@ -266,7 +266,7 @@ export async function createSale(tenantId: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.customerId = await ensureCustomerId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, false)
+  await ensureItemsCatalog(tenantId, items, true)
   const invoiceNo = await nextNumber(tenantId, 'invoice')
   const sale = await prisma.accSale.create({
     data: {
@@ -289,7 +289,8 @@ export async function createSale(tenantId: string, d: any) {
       ...totals,
       items: {
         create: items.map((l) => ({
-          itemId: l.itemId ?? null, itemName: l.itemName, description: l.description ?? null,
+          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          description: l.description ?? null,
           quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
           lineTotal: computeLine(l).lineTotal,
         })),
@@ -306,7 +307,7 @@ export async function updateSale(tenantId: string, id: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.customerId = await ensureCustomerId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, false)
+  await ensureItemsCatalog(tenantId, items, true)
   await prisma.accSaleItem.deleteMany({ where: { saleId: id } })
   const sale = await prisma.accSale.update({
     where: { id },
@@ -329,7 +330,8 @@ export async function updateSale(tenantId: string, id: string, d: any) {
       ...totals,
       items: {
         create: items.map((l) => ({
-          itemId: l.itemId ?? null, itemName: l.itemName, description: l.description ?? null,
+          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          description: l.description ?? null,
           quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
           lineTotal: computeLine(l).lineTotal,
         })),

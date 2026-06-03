@@ -7,10 +7,14 @@ import { generateInvoicePdfBuffer } from '../services/accountingPdfService'
 
 const tenantOf = (request: any) => (request.user as JWTPayload).tenantId
 
+// Optional UUID that tolerates empty strings from the UI (treats '' as null).
+// Without this, a blank combo/select field sends "" and z.string().uuid() rejects it → 400 on save.
+const nullableUuid = z.preprocess((v) => (v === '' ? null : v), z.string().uuid().nullish())
+
 const lineSchema = z.object({
-  itemId: z.string().uuid().nullish(),
+  itemId: nullableUuid,
   itemName: z.string().min(1).max(200),
-  categoryId: z.string().uuid().nullish(),
+  categoryId: nullableUuid,
   categoryName: z.string().max(120).nullish(),
   description: z.string().max(500).nullish(),
   quantity: z.number().nonnegative(),
@@ -22,7 +26,7 @@ const lineSchema = z.object({
 const saleSchema = z
   .object({
     customerType: z.enum(['INDIVIDUAL', 'CORPORATION']),
-    customerId: z.string().uuid().nullish(),
+    customerId: nullableUuid,
     customerName: z.string().min(1).max(160),
     customerAddress: z.string().max(400).nullish(),
     customerEmail: z.string().max(160).nullish(),
@@ -31,7 +35,7 @@ const saleSchema = z
     dateIssued: z.string(),
     dueDate: z.string().nullish(),
     orderReference: z.string().max(200).nullish(),
-    salesAgentId: z.string().uuid().nullish(),
+    salesAgentId: nullableUuid,
     salesAgentName: z.string().max(160).nullish(),
     saleChannel: z.enum(['FACEBOOK', 'TIKTOK', 'INSTAGRAM', 'MARKETPLACE', 'OTHERS']),
     status: z.enum(['PAID', 'UNPAID']),
@@ -57,7 +61,7 @@ const saleSchema = z
 const expenseSchema = z.object({
   invoiceNumber: z.string().max(120).nullish(),
   country: z.enum(['PHILIPPINES', 'CHINA', 'TURKEY', 'CANADA']),
-  vendorId: z.string().uuid().nullish(),
+  vendorId: nullableUuid,
   vendorName: z.string().min(1).max(160),
   dateIssued: z.string(),
   dueDate: z.string().nullish(),

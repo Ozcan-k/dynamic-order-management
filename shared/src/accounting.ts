@@ -113,6 +113,8 @@ export interface AccSaleItem {
   id: string
   itemId: string | null
   itemName: string
+  categoryId: string | null
+  categoryName: string | null
   description: string | null
   quantity: number
   unitCost: number
