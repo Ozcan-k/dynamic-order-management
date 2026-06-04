@@ -46,28 +46,36 @@ export function generateInvoicePdfBuffer(sale: SaleLike, company: CompanyLike): 
       if (company.logoData) {
         try { doc.image(Buffer.from(company.logoData, 'base64'), 50, headerY, { fit: [120, 60] }) } catch { /* skip */ }
       }
-      doc.fontSize(18).fillColor(navy).font('Helvetica-Bold').text(company.name, 300, headerY, { width: 245, align: 'right' })
-      doc.fontSize(9).fillColor(gray).font('Helvetica')
-      doc.text([company.address, company.email, company.contactNumber].filter(Boolean).join('\n'), 300, headerY + 24, { width: 245, align: 'right' })
+      // Company block (right). Place the address *below* the (possibly multi-line)
+      // name using PDFKit's own cursor (doc.y) so a long name can't overlap it.
+      const rightX = 300, rightW = 245
+      doc.fontSize(18).fillColor(navy).font('Helvetica-Bold').text(company.name, rightX, headerY, { width: rightW, align: 'right' })
+      const afterName = doc.y
+      const companyLines = [company.address, company.email, company.contactNumber].filter(Boolean).join('\n')
+      if (companyLines) {
+        doc.fontSize(9).fillColor(gray).font('Helvetica').text(companyLines, rightX, afterName + 4, { width: rightW, align: 'right' })
+      }
 
-      doc.moveTo(50, 130).lineTo(545, 130).strokeColor('#e2e8f0').stroke()
-      doc.fontSize(26).fillColor(primary).font('Helvetica-Bold').text('INVOICE', 50, 145)
+      const dividerY = Math.max(130, doc.y + 12)
+      doc.moveTo(50, dividerY).lineTo(545, dividerY).strokeColor('#e2e8f0').stroke()
+      doc.fontSize(26).fillColor(primary).font('Helvetica-Bold').text('INVOICE', 50, dividerY + 15)
+      const metaY = dividerY + 50
       doc.fontSize(10).fillColor(gray).font('Helvetica')
-      doc.text(`Invoice No:  ${sale.invoiceNo}`, 50, 180)
-      doc.text(`Date Issued:  ${new Date(sale.dateIssued).toLocaleDateString('en-US')}`, 50, 195)
-      if (sale.dueDate) doc.text(`Due:  ${new Date(sale.dueDate).toLocaleDateString('en-US')}`, 50, 210)
-      if (sale.orderReference) doc.text(`Ref:  ${sale.orderReference}`, 50, 225)
+      doc.text(`Invoice No:  ${sale.invoiceNo}`, 50, metaY)
+      doc.text(`Date Issued:  ${new Date(sale.dateIssued).toLocaleDateString('en-US')}`, 50, metaY + 15)
+      if (sale.dueDate) doc.text(`Due:  ${new Date(sale.dueDate).toLocaleDateString('en-US')}`, 50, metaY + 30)
+      if (sale.orderReference) doc.text(`Ref:  ${sale.orderReference}`, 50, metaY + 45)
 
-      doc.fontSize(11).fillColor(navy).font('Helvetica-Bold').text('Bill To', 320, 180)
+      doc.fontSize(11).fillColor(navy).font('Helvetica-Bold').text('Bill To', 320, metaY)
       doc.fontSize(10).fillColor(gray).font('Helvetica')
       doc.text([
         sale.customerName,
         sale.contactPerson ? `Attn: ${sale.contactPerson}` : null,
         sale.customerAddress, sale.customerEmail, sale.customerNumber,
-      ].filter(Boolean).join('\n'), 320, 198, { width: 225 })
+      ].filter(Boolean).join('\n'), 320, metaY + 18, { width: 225 })
 
-      // Items table
-      let y = 270
+      // Items table — start below whichever column (meta / bill-to) is taller
+      let y = Math.max(metaY + 75, doc.y + 16)
       doc.rect(50, y, 495, 22).fill('#f1f5f9')
       doc.fillColor(navy).fontSize(9).font('Helvetica-Bold')
       doc.text('Description', 56, y + 6)

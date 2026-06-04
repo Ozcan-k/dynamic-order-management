@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ACC_PAYMENT_STATUS_LABELS, ACC_COUNTRY_LABELS, type AccExpense } from '@dom/shared'
-import { useExpenses, useExpensesStats, useDeleteExpense, money, type ExpenseFilters } from '../../api/accounting'
+import { useExpenses, useExpensesStats, useDeleteExpense, useCategories, money, type ExpenseFilters } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 
@@ -10,9 +10,11 @@ export default function AccPurchases() {
   const [filters, setFilters] = useState<ExpenseFilters>({ page: 1, pageSize: 25 })
   const { data, isLoading } = useExpenses(filters)
   const { data: stats } = useExpensesStats()
+  const { data: categories = [] } = useCategories('EXPENSE')
   const del = useDeleteExpense()
   const [toDelete, setToDelete] = useState<AccExpense | null>(null)
 
+  const subOptions = categories.find((c) => c.name === filters.category)?.subcategories ?? []
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1
 
   return (
@@ -37,6 +39,14 @@ export default function AccPurchases() {
         <div className="acc-field"><label>Country</label>
           <select value={filters.country || ''} onChange={(e) => setFilters({ ...filters, country: e.target.value, page: 1 })}>
             <option value="">All</option>{Object.entries(ACC_COUNTRY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select></div>
+        <div className="acc-field"><label>Category</label>
+          <select value={filters.category || ''} onChange={(e) => setFilters({ ...filters, category: e.target.value, subcategory: '', page: 1 })}>
+            <option value="">All</option>{categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select></div>
+        <div className="acc-field"><label>Subcategory</label>
+          <select value={filters.subcategory || ''} disabled={!filters.category} onChange={(e) => setFilters({ ...filters, subcategory: e.target.value, page: 1 })}>
+            <option value="">{filters.category ? 'All' : '—'}</option>{subOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select></div>
         <div className="acc-field"><label>Date</label>
           <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />

@@ -16,6 +16,8 @@ const lineSchema = z.object({
   itemName: z.string().min(1).max(200),
   categoryId: nullableUuid,
   categoryName: z.string().max(120).nullish(),
+  subcategoryId: nullableUuid,
+  subcategoryName: z.string().max(120).nullish(),
   description: z.string().max(500).nullish(),
   quantity: z.number().nonnegative(),
   unitCost: z.number().nonnegative(),
@@ -38,6 +40,7 @@ const saleSchema = z
     salesAgentId: nullableUuid,
     salesAgentName: z.string().max(160).nullish(),
     saleChannel: z.enum(['FACEBOOK', 'TIKTOK', 'INSTAGRAM', 'MARKETPLACE', 'OTHERS']),
+    storeName: z.string().max(160).nullish(),
     status: z.enum(['PAID', 'UNPAID']),
     paymentMethod: z.enum(['GCASH', 'CASH', 'BANK_TRANSFER', 'CHECK', 'CREDIT_CARD']).nullish(),
     bankName: z.string().max(160).nullish(),
@@ -123,18 +126,36 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const ok = await svc.deleteVendor(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
   })
 
-  // ─── Items / Categories catalogs ──────────────────────────────────────────
-  fastify.get('/items', g, async (req) => svc.listItems(tenantOf(req)))
+  // ─── Items / Categories / Stores catalogs (kind-scoped, select-only) ───────
+  const kindOf = (req: any): 'SALE' | 'EXPENSE' => ((req.query as any)?.kind === 'EXPENSE' ? 'EXPENSE' : 'SALE')
+
+  fastify.get('/items', g, async (req) => svc.listItems(tenantOf(req), kindOf(req)))
   fastify.post('/items', g, async (req, reply) => {
-    const p = z.object({ name: z.string().min(1).max(200), unitCost: z.number().nonnegative().nullish() }).safeParse(req.body)
+    const p = z.object({ name: z.string().min(1).max(200), unitCost: z.number().nonnegative().nullish(), kind: z.enum(['SALE', 'EXPENSE']).default('SALE') }).safeParse(req.body)
     if (!p.success) return reply.code(400).send({ error: 'Invalid body' })
     return reply.code(201).send(await svc.createItem(tenantOf(req), p.data))
   })
-  fastify.get('/categories', g, async (req) => svc.listCategories(tenantOf(req)))
+
+  fastify.get('/categories', g, async (req) => svc.listCategories(tenantOf(req), kindOf(req)))
   fastify.post('/categories', g, async (req, reply) => {
+    const p = z.object({ name: z.string().min(1).max(120), kind: z.enum(['SALE', 'EXPENSE']).default('SALE'), parentId: nullableUuid }).safeParse(req.body)
+    if (!p.success) return reply.code(400).send({ error: 'Invalid body', details: p.error.flatten() })
+    return reply.code(201).send(await svc.createCategory(tenantOf(req), p.data))
+  })
+  fastify.put('/categories/:id', g, async (req, reply) => {
     const p = z.object({ name: z.string().min(1).max(120) }).safeParse(req.body)
     if (!p.success) return reply.code(400).send({ error: 'Invalid body' })
-    return reply.code(201).send(await svc.createCategory(tenantOf(req), p.data))
+    const u = await svc.updateCategory(tenantOf(req), (req.params as any).id, p.data); if (!u) return reply.code(404).send({ error: 'Not found' }); return u
+  })
+  fastify.delete('/categories/:id', g, async (req, reply) => {
+    const ok = await svc.deleteCategory(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+
+  fastify.get('/stores', g, async (req) => svc.listStores(tenantOf(req)))
+  fastify.post('/stores', g, async (req, reply) => {
+    const p = z.object({ name: z.string().min(1).max(160) }).safeParse(req.body)
+    if (!p.success) return reply.code(400).send({ error: 'Invalid body' })
+    return reply.code(201).send(await svc.createStore(tenantOf(req), p.data))
   })
 
   // ─── Sales agents lookup ──────────────────────────────────────────────────
@@ -179,7 +200,8 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   fastify.get('/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}
     return svc.listExpenses(tenantOf(req), {
-      from: q.from, to: q.to, status: q.status, country: q.country, vendorId: q.vendorId, search: q.search,
+      from: q.from, to: q.to, status: q.status, country: q.country, vendorId: q.vendorId,
+      category: q.category, subcategory: q.subcategory, search: q.search,
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
     })
   })

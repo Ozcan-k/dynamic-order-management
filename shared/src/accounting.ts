@@ -98,11 +98,23 @@ export interface AccVendor {
 export interface AccItem {
   id: string
   name: string
+  kind?: AccCatalogKind | null
   unitCost: number | null
   createdAt: string
 }
 
+export type AccCatalogKind = 'SALE' | 'EXPENSE'
+
 export interface AccCategory {
+  id: string
+  name: string
+  kind?: AccCatalogKind | null
+  parentId?: string | null
+  subcategories?: { id: string; name: string }[] // populated for EXPENSE parent categories
+  createdAt: string
+}
+
+export interface AccStore {
   id: string
   name: string
   createdAt: string
@@ -129,6 +141,8 @@ export interface AccExpenseItem {
   itemName: string
   categoryId: string | null
   categoryName: string | null
+  subcategoryId: string | null
+  subcategoryName: string | null
   description: string | null
   quantity: number
   unitCost: number
@@ -154,6 +168,7 @@ export interface AccSale {
   salesAgentId: string | null
   salesAgentName: string | null
   saleChannel: AccSaleChannel
+  storeName: string | null
   status: AccPaymentStatus
   paymentMethod: AccPaymentMethod | null
   bankName: string | null
@@ -247,6 +262,7 @@ export interface AccExpenseReport {
   mode: 'monthly' | 'yearly'
   trend: { label: string; amount: number }[]
   byCategory: { categoryName: string; amount: number }[]
+  bySubcategory: { subcategoryName: string; amount: number }[]
   categories: string[]
   total: number          // filtered (country+vendor+category) — sum of trend
   byCategoryTotal: number // country+vendor scope (all categories) — % base

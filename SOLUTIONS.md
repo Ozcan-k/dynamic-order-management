@@ -5,6 +5,22 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-06-03] Windows PowerShell 5.1 corrupts `→` / `—` in large files via Get-Content -Raw + Set-Content (v2.56.0 docs)
+
+### Problem
+Patching `ARCHITECTURE.md` (too large for the Edit tool) with a PowerShell `(Get-Content -Raw).Replace(...) | Set-Content -Encoding utf8` round-trip silently mangled every `→` and `—` into mojibake (`â†'`, `â€"`), and the target `.Replace()` on a string containing `→` didn't even match (so the edit was a no-op + corruption).
+
+### Root cause
+Windows PowerShell 5.1 `Get-Content -Raw` reads as the system ANSI codepage, not UTF-8. A UTF-8 `→` (bytes E2 86 92) is read as 3 ANSI chars, so (a) `.Replace('…→…', …)` with a real single-char `→` never matches, and (b) writing back with `-Encoding utf8` re-encodes the mis-decoded chars → permanent mojibake across the whole file.
+
+### Fix
+Reverted with `git checkout -- ARCHITECTURE.md`, then patched with a tiny **Node** script (`readFileSync(f,'utf8')` → `.replace()` → `writeFileSync(f,'utf8')`). Node is UTF-8 native, so unicode round-trips cleanly. Verified `grep -c "→"` unchanged afterward.
+
+### Rule
+For unicode-bearing files too large for the Edit tool, do text surgery with **Node fs (utf8)** — never `Get-Content -Raw`/`Set-Content` in Windows PowerShell 5.1. After any large-file rewrite, `grep -c` a known unicode char to confirm no corruption.
+
+---
+
 ## [2026-06-03] Invoice "PDF" button opens the DOM login screen instead of the PDF (v2.53.1)
 
 ### Problem

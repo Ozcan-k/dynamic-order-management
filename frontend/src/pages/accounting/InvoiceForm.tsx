@@ -6,7 +6,7 @@ import {
 } from '@dom/shared'
 import {
   useCustomers, useSaveCustomer, useItems, useCreateItem, useCategories, useCreateCategory,
-  useSalesAgents, useNextInvoiceNo, useSaveSale, useSale,
+  useStores, useCreateStore, useSalesAgents, useNextInvoiceNo, useSaveSale, useSale,
 } from '../../api/accounting'
 import ComboBox from '../../components/shared/ComboBox'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
@@ -17,6 +17,7 @@ function initRows(s?: AccSale | null): LineRow[] {
   if (!s || !s.items?.length) return [emptyLine()]
   return s.items.map((it) => ({
     itemId: it.itemId, itemName: it.itemName, categoryId: it.categoryId, categoryName: it.categoryName || '',
+    subcategoryId: null, subcategoryName: '',
     description: it.description || '',
     quantity: String(it.quantity), unitCost: String(it.unitCost), discountPct: String(it.discountPct), taxPct: String(it.taxPct),
   }))
@@ -40,10 +41,12 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
   const isEdit = !!initial
   const { data: customers = [] } = useCustomers()
   const saveCustomer = useSaveCustomer()
-  const { data: items = [] } = useItems()
+  const { data: items = [] } = useItems('SALE')
   const createItem = useCreateItem()
-  const { data: categories = [] } = useCategories()
+  const { data: categories = [] } = useCategories('SALE')
   const createCategory = useCreateCategory()
+  const { data: stores = [] } = useStores()
+  const createStore = useCreateStore()
   const { data: agents = [] } = useSalesAgents()
   const { data: nextNo } = useNextInvoiceNo(!isEdit)
   const save = useSaveSale()
@@ -64,6 +67,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     salesAgentId: initial?.salesAgentId ?? '',
     salesAgentName: initial?.salesAgentName ?? '',
     saleChannel: (initial?.saleChannel ?? AccSaleChannel.OTHERS) as AccSaleChannel,
+    storeName: initial?.storeName ?? '',
     status: (initial?.status ?? AccPaymentStatus.UNPAID) as AccPaymentStatus,
     paymentMethod: (initial?.paymentMethod ?? AccPaymentMethod.CASH) as AccPaymentMethod,
     bankName: initial?.bankName ?? '', accountName: initial?.accountName ?? '',
@@ -72,6 +76,10 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
   const [error, setError] = useState('')
   const [newCust, setNewCust] = useState<null | typeof emptyNewCust>(null)
+  const [newCat, setNewCat] = useState('')
+  const [showNewCat, setShowNewCat] = useState(false)
+  const [newStore, setNewStore] = useState('')
+  const [showNewStore, setShowNewStore] = useState(false)
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }))
 
   const pickCustomer = (c: AccCustomer | null) => {
@@ -99,7 +107,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
       contactPerson: f.contactPerson || null,
       dateIssued: f.dateIssued, dueDate: f.dueDate || null, orderReference: f.orderReference || null,
       salesAgentId: f.salesAgentId || null, salesAgentName: agentName || null,
-      saleChannel: f.saleChannel, status: f.status,
+      saleChannel: f.saleChannel, storeName: f.storeName || null, status: f.status,
       paymentMethod: f.status === 'PAID' ? f.paymentMethod : null,
       bankName: f.bankName || null, accountName: f.accountName || null, referenceNumber: f.referenceNumber || null, gcashNumber: f.gcashNumber || null,
       items: validRows.map((r) => ({
@@ -166,6 +174,16 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
             <select value={f.saleChannel} onChange={(e) => set({ saleChannel: e.target.value as AccSaleChannel })}>
               {Object.entries(ACC_SALE_CHANNEL_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select></div>
+          <div className="acc-field"><label>Store</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select style={{ flex: 1 }} value={f.storeName} onChange={(e) => set({ storeName: e.target.value })}>
+                <option value="">— None —</option>
+                {stores.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                {f.storeName && !stores.some((s) => s.name === f.storeName) && <option value={f.storeName}>{f.storeName}</option>}
+              </select>
+              <button type="button" className="acc-btn acc-btn-outline acc-btn-sm" style={{ whiteSpace: 'nowrap' }}
+                onClick={() => { setNewStore(''); setShowNewStore(true) }}>+ New Store</button>
+            </div></div>
           <div className="acc-field"><label>Status</label>
             <select value={f.status} onChange={(e) => set({ status: e.target.value as AccPaymentStatus })}>
               <option value="UNPAID">Unpaid</option><option value="PAID">Paid</option>
@@ -192,10 +210,12 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
           </>}
         </div>
 
-        <div className="acc-section-label">Items</div>
-        <LineItemsEditor rows={rows} onChange={setRows} items={items} withCategory categories={categories}
-          onCreateItem={async (name) => createItem.mutateAsync({ name })}
-          onCreateCategory={async (name) => createCategory.mutateAsync({ name })} />
+        <div className="acc-section-label acc-section-label-row">
+          <span>Items</span>
+          <button type="button" className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => { setNewCat(''); setShowNewCat(true) }}>+ New Category</button>
+        </div>
+        <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="sale" categories={categories}
+          onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'SALE' })} />
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
@@ -203,6 +223,40 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
           <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Invoice' : 'Save Invoice'}</button>
         </div>
       </div>
+
+      {showNewCat && (
+        <div className="acc-modal-backdrop" onClick={() => setShowNewCat(false)}>
+          <div className="acc-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3 className="acc-modal-title">New Sales Category</h3>
+            <div className="acc-field"><label>Name <span className="req">*</span></label>
+              <input autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="e.g. Dried Fruits" /></div>
+            <div className="acc-modal-foot">
+              <button className="acc-btn acc-btn-outline" onClick={() => setShowNewCat(false)}>Cancel</button>
+              <button className="acc-btn acc-btn-primary" disabled={!newCat.trim() || createCategory.isPending}
+                onClick={async () => { await createCategory.mutateAsync({ name: newCat.trim(), kind: 'SALE' }); setShowNewCat(false) }}>
+                {createCategory.isPending ? 'Saving…' : 'Add Category'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNewStore && (
+        <div className="acc-modal-backdrop" onClick={() => setShowNewStore(false)}>
+          <div className="acc-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3 className="acc-modal-title">New Store</h3>
+            <div className="acc-field"><label>Name <span className="req">*</span></label>
+              <input autoFocus value={newStore} onChange={(e) => setNewStore(e.target.value)} placeholder="Store name" /></div>
+            <div className="acc-modal-foot">
+              <button className="acc-btn acc-btn-outline" onClick={() => setShowNewStore(false)}>Cancel</button>
+              <button className="acc-btn acc-btn-primary" disabled={!newStore.trim() || createStore.isPending}
+                onClick={async () => { const s: any = await createStore.mutateAsync({ name: newStore.trim() }); set({ storeName: s.name }); setShowNewStore(false) }}>
+                {createStore.isPending ? 'Saving…' : 'Add Store'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {newCust && (
         <div className="acc-modal-backdrop" onClick={() => setNewCust(null)}>

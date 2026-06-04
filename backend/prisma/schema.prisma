@@ -624,6 +624,11 @@ enum AccCountry {
   CANADA
 }
 
+enum AccCatalogKind {
+  SALE
+  EXPENSE
+}
+
 model AccCustomer {
   id             String          @id @default(uuid())
   tenantId       String          @map("tenant_id")
@@ -660,24 +665,41 @@ model AccVendor {
 }
 
 model AccItem {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
+  id        String          @id @default(uuid())
+  tenantId  String          @map("tenant_id")
   name      String
-  unitCost  Decimal? @db.Decimal(14, 2) @map("unit_cost")
-  createdAt DateTime @default(now()) @map("created_at")
+  kind      AccCatalogKind? // SALE | EXPENSE; independent Sales/Expense item catalogs (legacy rows NULL)
+  unitCost  Decimal?        @db.Decimal(14, 2) @map("unit_cost")
+  createdAt DateTime        @default(now()) @map("created_at")
 
   @@index([tenantId, name])
+  @@index([tenantId, kind])
   @@map("acc_items")
 }
 
 model AccCategory {
+  id        String           @id @default(uuid())
+  tenantId  String           @map("tenant_id")
+  name      String
+  kind      AccCatalogKind?  // SALE | EXPENSE; legacy rows stay NULL (hidden from dropdowns)
+  parentId  String?          @map("parent_id") // set → this row is a subcategory of parent
+  parent    AccCategory?     @relation("AccCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  AccCategory[]    @relation("AccCategoryTree")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId, name])
+  @@index([tenantId, kind])
+  @@map("acc_categories")
+}
+
+model AccStore {
   id        String   @id @default(uuid())
   tenantId  String   @map("tenant_id")
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, name])
-  @@map("acc_categories")
+  @@map("acc_stores")
 }
 
 model AccSale {
@@ -700,6 +722,7 @@ model AccSale {
   salesAgentId   String?   @map("sales_agent_id")
   salesAgentName String?   @map("sales_agent_name")
   saleChannel    AccSaleChannel @default(OTHERS) @map("sale_channel")
+  storeName      String?        @map("store_name")
 
   status          AccPaymentStatus  @default(UNPAID)
   paymentMethod   AccPaymentMethod? @map("payment_method")
@@ -781,10 +804,12 @@ model AccExpenseItem {
   id           String     @id @default(uuid())
   expenseId    String     @map("expense_id")
   expense      AccExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
-  itemId       String?    @map("item_id")
-  itemName     String     @map("item_name")
-  categoryId   String?    @map("category_id")
-  categoryName String?    @map("category_name")
+  itemId          String?    @map("item_id")
+  itemName        String     @map("item_name")
+  categoryId      String?    @map("category_id")
+  categoryName    String?    @map("category_name")
+  subcategoryId   String?    @map("subcategory_id")
+  subcategoryName String?    @map("subcategory_name")
   description  String?
   quantity     Decimal    @db.Decimal(14, 2) @default(1)
   unitCost     Decimal    @db.Decimal(14, 2) @default(0) @map("unit_cost")

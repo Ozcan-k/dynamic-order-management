@@ -43,17 +43,18 @@ export default function AccInvoices() {
       <div className="acc-table-wrap">
         <table>
           <thead><tr>
-            <th>Invoice Number</th><th>Record Date</th><th>Customer Name</th><th>Due Date</th>
+            <th>Invoice Number</th><th>Record Date</th><th>Customer Name</th><th>Store</th><th>Due Date</th>
             <th className="acc-col-num">Amount</th><th>Status</th><th className="acc-col-actions">Actions</th>
           </tr></thead>
           <tbody>
-            {isLoading ? <tr><td colSpan={7} className="acc-empty">Loading…</td></tr>
-              : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={7} className="acc-empty">No invoices present.</td></tr>
+            {isLoading ? <tr><td colSpan={8} className="acc-empty">Loading…</td></tr>
+              : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={8} className="acc-empty">No invoices present.</td></tr>
               : data!.items.map((s) => (
                 <tr key={s.id}>
                   <td style={{ fontWeight: 600 }}>{s.invoiceNo}</td>
                   <td>{new Date(s.dateIssued).toLocaleDateString('en-US')}</td>
                   <td>{s.customerName}{s.salesAgentName && <div className="acc-muted" style={{ fontSize: 12 }}>by {s.salesAgentName}</div>}</td>
+                  <td>{s.storeName || <span className="acc-muted">—</span>}</td>
                   <td>{s.dueDate ? new Date(s.dueDate).toLocaleDateString('en-US') : <span className="acc-muted">—</span>}</td>
                   <td className="acc-col-num">{money(s.total)}</td>
                   <td><span className={`acc-badge ${s.status === 'PAID' ? 'acc-badge-paid' : 'acc-badge-pending'}`}>{ACC_PAYMENT_STATUS_LABELS[s.status]}</span></td>

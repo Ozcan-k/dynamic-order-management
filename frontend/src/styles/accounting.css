@@ -145,6 +145,7 @@
 .acc-modal.acc-modal-form { max-width: 940px; max-height: 92vh; overflow-y: auto; }
 .acc-form-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .acc-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--acc-muted); margin: 18px 0 10px; }
+.acc-section-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* line item table tighter inputs */
 .acc-page table.acc-lines td { padding: 6px 8px; }

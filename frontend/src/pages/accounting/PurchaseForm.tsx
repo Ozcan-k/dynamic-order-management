@@ -8,6 +8,7 @@ import {
   useVendors, useSaveVendor, useItems, useCreateItem, useCategories, useCreateCategory,
   useNextPurchaseNo, useSaveExpense, useExpense,
 } from '../../api/accounting'
+import type { AccCategory } from '@dom/shared'
 import ComboBox from '../../components/shared/ComboBox'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
 
@@ -16,6 +17,7 @@ function initRows(e?: AccExpense | null): LineRow[] {
   if (!e || !e.items?.length) return [emptyLine()]
   return e.items.map((it) => ({
     itemId: it.itemId, itemName: it.itemName, categoryId: it.categoryId, categoryName: it.categoryName || '',
+    subcategoryId: it.subcategoryId, subcategoryName: it.subcategoryName || '',
     description: it.description || '', quantity: String(it.quantity), unitCost: String(it.unitCost),
     discountPct: String(it.discountPct), taxPct: String(it.taxPct),
   }))
@@ -37,9 +39,9 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const isEdit = !!initial
   const { data: vendors = [] } = useVendors()
   const saveVendor = useSaveVendor()
-  const { data: items = [] } = useItems()
+  const { data: items = [] } = useItems('EXPENSE')
   const createItem = useCreateItem()
-  const { data: categories = [] } = useCategories()
+  const { data: categories = [] } = useCategories('EXPENSE')
   const createCategory = useCreateCategory()
   const { data: nextNo } = useNextPurchaseNo(!isEdit)
   const save = useSaveExpense()
@@ -60,6 +62,10 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
   const [error, setError] = useState('')
   const [newVendor, setNewVendor] = useState<null | { name: string; email: string; contactNumber: string }>(null)
+  const [newCat, setNewCat] = useState('')
+  const [showNewCat, setShowNewCat] = useState(false)
+  const [newSub, setNewSub] = useState({ parentId: '', name: '' })
+  const [showNewSub, setShowNewSub] = useState(false)
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }))
 
   const purchaseNo = isEdit ? initial!.purchaseNo : (nextNo?.purchaseNo ?? '…')
@@ -76,6 +82,7 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
       status: f.status, paymentMethod: f.status === 'PAID' ? f.paymentMethod : null, paidBy: f.status === 'PAID' ? (f.paidBy || null) : null,
       items: validRows.map((r) => ({
         itemId: r.itemId || null, itemName: r.itemName, categoryId: r.categoryId || null, categoryName: r.categoryName || null,
+        subcategoryId: r.subcategoryId || null, subcategoryName: r.subcategoryName || null,
         description: r.description || null, quantity: Number(r.quantity), unitCost: Number(r.unitCost),
         discountPct: Number(r.discountPct) || 0, taxPct: Number(r.taxPct) || 0,
       })),
@@ -125,10 +132,15 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
           </>}
         </div>
 
-        <div className="acc-section-label">Items</div>
-        <LineItemsEditor rows={rows} onChange={setRows} items={items} withCategory categories={categories}
-          onCreateItem={async (name) => createItem.mutateAsync({ name })}
-          onCreateCategory={async (name) => createCategory.mutateAsync({ name })} />
+        <div className="acc-section-label acc-section-label-row">
+          <span>Items</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => { setNewCat(''); setShowNewCat(true) }}>+ New Category</button>
+            <button type="button" className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => { setNewSub({ parentId: categories[0]?.id || '', name: '' }); setShowNewSub(true) }}>+ New Subcategory</button>
+          </div>
+        </div>
+        <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="expense" categories={categories}
+          onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'EXPENSE' })} />
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
@@ -136,6 +148,47 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
           <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Expense' : 'Save Expense'}</button>
         </div>
       </div>
+
+      {showNewCat && (
+        <div className="acc-modal-backdrop" onClick={() => setShowNewCat(false)}>
+          <div className="acc-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3 className="acc-modal-title">New Expense Category</h3>
+            <div className="acc-field"><label>Name <span className="req">*</span></label>
+              <input autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="e.g. Packaging" /></div>
+            <div className="acc-modal-foot">
+              <button className="acc-btn acc-btn-outline" onClick={() => setShowNewCat(false)}>Cancel</button>
+              <button className="acc-btn acc-btn-primary" disabled={!newCat.trim() || createCategory.isPending}
+                onClick={async () => { await createCategory.mutateAsync({ name: newCat.trim(), kind: 'EXPENSE' }); setShowNewCat(false) }}>
+                {createCategory.isPending ? 'Saving…' : 'Add Category'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNewSub && (
+        <div className="acc-modal-backdrop" onClick={() => setShowNewSub(false)}>
+          <div className="acc-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <h3 className="acc-modal-title">New Subcategory</h3>
+            <div className="acc-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="acc-field"><label>Parent Category <span className="req">*</span></label>
+                <select value={newSub.parentId} onChange={(e) => setNewSub({ ...newSub, parentId: e.target.value })}>
+                  <option value="">— Select —</option>
+                  {(categories as AccCategory[]).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select></div>
+              <div className="acc-field"><label>Name <span className="req">*</span></label>
+                <input autoFocus value={newSub.name} onChange={(e) => setNewSub({ ...newSub, name: e.target.value })} placeholder="e.g. Bubble Wrap" /></div>
+            </div>
+            <div className="acc-modal-foot">
+              <button className="acc-btn acc-btn-outline" onClick={() => setShowNewSub(false)}>Cancel</button>
+              <button className="acc-btn acc-btn-primary" disabled={!newSub.parentId || !newSub.name.trim() || createCategory.isPending}
+                onClick={async () => { await createCategory.mutateAsync({ name: newSub.name.trim(), kind: 'EXPENSE', parentId: newSub.parentId }); setShowNewSub(false) }}>
+                {createCategory.isPending ? 'Saving…' : 'Add Subcategory'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {newVendor && (
         <div className="acc-modal-backdrop" onClick={() => setNewVendor(null)}>
