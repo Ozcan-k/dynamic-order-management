@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccSale, AccExpense,
   AccCompanyProfile, AccPaginated, AccListStats, AccReportData, AccSalesAgent,
-  AccYearlyReport, AccExpenseCategoryReport,
+  AccYearlyReport, AccExpenseReport,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -144,9 +144,10 @@ export function useReport(month: string) {
 export function useYearlyReport(year: number) {
   return useQuery({ queryKey: ['acc', 'report', 'yearly', year], queryFn: async () => (await api.get<AccYearlyReport>(`${BASE}/report/yearly`, { params: { year } })).data })
 }
-export function useExpenseCategoryReport(year: number, category: string) {
+export interface ExpenseReportParams { mode: 'monthly' | 'yearly'; month?: string; year?: number; country?: string; vendorId?: string; category?: string }
+export function useExpenseReport(p: ExpenseReportParams) {
   return useQuery({
-    queryKey: ['acc', 'report', 'exp-cat', year, category],
-    queryFn: async () => (await api.get<AccExpenseCategoryReport>(`${BASE}/report/expenses-by-category`, { params: { year, ...(category ? { category } : {}) } })).data,
+    queryKey: ['acc', 'report', 'expenses', p],
+    queryFn: async () => (await api.get<AccExpenseReport>(`${BASE}/report/expenses`, { params: clean(p as any) })).data,
   })
 }
