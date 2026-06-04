@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccSale, AccExpense,
   AccCompanyProfile, AccPaginated, AccListStats, AccReportData, AccSalesAgent,
+  AccYearlyReport, AccExpenseCategoryReport,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -139,4 +140,13 @@ export function useSaveCompany() {
 }
 export function useReport(month: string) {
   return useQuery({ queryKey: ['acc', 'report', month], queryFn: async () => (await api.get<AccReportData>(`${BASE}/report`, { params: { month } })).data })
+}
+export function useYearlyReport(year: number) {
+  return useQuery({ queryKey: ['acc', 'report', 'yearly', year], queryFn: async () => (await api.get<AccYearlyReport>(`${BASE}/report/yearly`, { params: { year } })).data })
+}
+export function useExpenseCategoryReport(year: number, category: string) {
+  return useQuery({
+    queryKey: ['acc', 'report', 'exp-cat', year, category],
+    queryFn: async () => (await api.get<AccExpenseCategoryReport>(`${BASE}/report/expenses-by-category`, { params: { year, ...(category ? { category } : {}) } })).data,
+  })
 }
