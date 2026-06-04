@@ -12,6 +12,22 @@ export function money(n: number): string {
 }
 const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null))
 
+// Authenticated PDF download. A plain <a>/window.open navigation sends Accept: text/html,
+// which nginx rewrites to the SPA fallback (→ login screen) instead of proxying to the
+// backend. Fetch as a blob through the api client (carries the auth cookie) and save it.
+// Mirrors the incident module's downloadIncidentPdf (see SOLUTIONS.md [2026-05-02] / [2026-06-03]).
+export async function downloadInvoicePdf(id: string, invoiceNo: string) {
+  const res = await api.get(`${BASE}/sales/${id}/pdf`, { responseType: 'blob' })
+  const url = window.URL.createObjectURL(res.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${(invoiceNo || id).replace(/\//g, '-')}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 // ─── Master data ────────────────────────────────────────────────────────────
 export function useCustomers() {
   return useQuery({ queryKey: ['acc', 'customers'], queryFn: async () => (await api.get<AccCustomer[]>(`${BASE}/customers`)).data })

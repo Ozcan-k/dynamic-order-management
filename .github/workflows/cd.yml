@@ -79,6 +79,11 @@ jobs:
           host: ${{ secrets.VULTR_HOST }}
           username: root
           password: ${{ secrets.VULTR_PASSWORD }}
+          # script_stop: any failing command (e.g. a refused `prisma db push`) aborts the
+          # script and fails the job. Without it the trailing `docker image prune` exit code
+          # masks an earlier db-push failure and CD reports a false success (see SOLUTIONS.md
+          # [2026-06-03] — prod acc schema silently stuck → all /accounting endpoints 500).
+          script_stop: true
           script: |
             cd /opt/dom
             git pull origin main
