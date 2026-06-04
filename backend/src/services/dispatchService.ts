@@ -212,19 +212,24 @@ export async function getDispatchReport(tenantId: string, from?: string, to?: st
 }
 
 // ─── Order pipeline funnel (Outbound Report; read-only order-pipeline stats) ──
-// How many DISTINCT orders transitioned INTO each pipeline stage within the Manila
-// date range (by OrderStatusHistory.changedAt). In a smooth single-day operation the
-// four counts should be close — gaps reveal where parcels are still stuck. Read-only;
-// never touches the order pipeline. Note: OrderStatusHistory is hard-deleted with the
-// order after 180 days, so this funnel only covers the retention window.
+// Stages 1-4 = how many DISTINCT orders transitioned INTO each pipeline stage within
+// the Manila date range (by OrderStatusHistory.changedAt) — the WAREHOUSE milestones
+// (packing complete auto-advances PACKER_COMPLETE → OUTBOUND, so those two track each
+// other). Stage 5 "dispatched" = in-house parcels physically handed to courier (the
+// independent Dispatch module, by dispatchParcel.createdAt) — a DIFFERENT event on a
+// DIFFERENT timeline, so it can exceed "outbound" on a given day (backlog packed on
+// earlier days but shipped today). Read-only; never touches the order pipeline. Note:
+// OrderStatusHistory is hard-deleted with the order after 180 days, so stages 1-4 only
+// cover the retention window (dispatch records are kept indefinitely).
 export async function getOrderPipeline(tenantId: string, from?: string, to?: string) {
-  const changedAt: Prisma.DateTimeFilter = {
+  const range: Prisma.DateTimeFilter = {
     ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
     ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
   }
+  const hasRange = Boolean(from || to)
   const base: Prisma.OrderStatusHistoryWhereInput = {
     order: { tenantId },
-    ...(from || to ? { changedAt } : {}),
+    ...(hasRange ? { changedAt: range } : {}),
   }
 
   const distinctOrders = async (toStatus: OrderStatus) => {
@@ -236,13 +241,17 @@ export async function getOrderPipeline(tenantId: string, from?: string, to?: str
     return rows.length
   }
 
-  const [inbound, pickerComplete, packerComplete, outbound] = await Promise.all([
+  const [inbound, pickerComplete, packerComplete, outbound, dispatched] = await Promise.all([
     distinctOrders(OrderStatus.INBOUND),
     distinctOrders(OrderStatus.PICKER_COMPLETE),
     distinctOrders(OrderStatus.PACKER_COMPLETE),
     distinctOrders(OrderStatus.OUTBOUND),
+    // In-house parcels handed to courier (matches the header "In-house" counter).
+    prisma.dispatchParcel.count({
+      where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
+    }),
   ])
-  return { inbound, pickerComplete, packerComplete, outbound }
+  return { inbound, pickerComplete, packerComplete, outbound, dispatched }
 }
 
 // ─── Paginated list + delete (admin corrections) ──────────────────────────────

@@ -57,6 +57,7 @@ export interface OrderPipeline {
   pickerComplete: number
   packerComplete: number
   outbound: number
+  dispatched: number // in-house parcels handed to courier (Dispatch module)
 }
 
 export interface CreateDispatchInput {

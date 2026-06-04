@@ -45,6 +45,7 @@ const PIPELINE_STAGES = [
   { key: 'pickerComplete', label: 'Picker Complete', color: '#6366f1', bg: '#eef2ff' },
   { key: 'packerComplete', label: 'Packer Complete', color: '#7c3aed', bg: '#f5f3ff' },
   { key: 'outbound',       label: 'Outbound',        color: '#16a34a', bg: '#f0fdf4' },
+  { key: 'dispatched',     label: 'Dispatched',      color: '#0d9488', bg: '#f0fdfa' },
 ] as const
 
 function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: boolean }) {
@@ -54,7 +55,7 @@ function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: bool
       <div style={{ marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Order Pipeline</h3>
         <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-          Distinct orders that reached each stage in this range — gaps show where parcels are still in flight.
+          Inbound → Outbound are warehouse milestones (distinct orders that reached each stage); <b>Dispatched</b> is in-house parcels handed to courier. Dispatched can exceed Outbound when backlog packed on earlier days ships in this range.
         </p>
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap' }}>
