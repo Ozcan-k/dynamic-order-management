@@ -5,6 +5,57 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-06-03] Invoice "PDF" button opens the DOM login screen instead of the PDF (v2.53.1)
+
+### Problem
+On the Invoices list, clicking **PDF** opened a new tab showing the DOM **login screen** instead of the invoice PDF.
+
+### Root cause
+The button did `window.open('/accounting/sales/:id/pdf', '_blank')`. A top-level navigation sends `Accept: text/html`, and `frontend/nginx.conf` rewrites html-accept requests on backend-prefixed routes to the SPA fallback (`/index.html`) — so the browser loaded the SPA (→ login), never reaching the backend PDF endpoint. Exact same gotcha the Incident module hit and fixed in v2.44.0 (see also SOLUTIONS.md [2026-05-02]).
+
+### Fix
+Added `downloadInvoicePdf(id, invoiceNo)` in `api/accounting.ts` that fetches `GET /accounting/sales/:id/pdf` via the axios api client with `responseType: 'blob'` (XHR carries the auth cookie and is proxied to the backend, not rewritten), then triggers an `<a download>` save. The list button calls it instead of `window.open`. Mirrors `downloadIncidentPdf`.
+
+### Rule
+Never open an authenticated backend file route with `window.open`/`<a href>` in this app — nginx serves the SPA to html-accept navigations. Always fetch as a blob through the api client and save/open the object URL.
+
+---
+
+## [2026-06-03] All /accounting endpoints 500 on prod — `prisma db push` silently failed on every deploy, acc schema stuck at v2.51.0 (v2.53.1)
+
+### Problem
+After v2.53.0 deployed, **every** accounting endpoint on `https://domwarehouse.com` returned 500 (GET /customers, /items, /categories, /sales, and POST save). Locally all the same endpoints returned 200 — so the code was fine; it was a prod-only DB issue.
+
+### Root cause
+The CD "Deploy to Vultr" step runs (inside the host):
+```
+docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate ...
+docker image prune -f
+```
+On prod, `acc_sales` still had the **v2.51.0** shape plus **1 leftover row**. The v2.52.0 redesign adds **required** columns (`invoice_no`, `date_issued`) with no default, so db push refused:
+```
+⚠️ We found changes that cannot be executed:
+  • Added the required column `date_issued` to `acc_sales` … There are 1 rows … not possible.
+Use the --force-reset flag … All data will be lost.
+```
+`--accept-data-loss` allows *dropping* things, but it **cannot add a NOT-NULL no-default column to a table that has rows** — that needs `--force-reset` (drops the whole DB, unacceptable). So the push aborted and applied **nothing**. Crucially the very next command `docker image prune -f` exited 0, and `appleboy/ssh-action` (without `script_stop`) returns the **last** command's status → **CD reported ✅ success** while the migration had failed. This had been silently failing since the v2.52.0 deploy (07:03), so prod's acc schema was frozen at v2.51.0 while v2.52/2.53 client code expected the new tables/columns → every acc query 500.
+
+### Fix
+1. **Prod recovery (one-off, surgical — only `acc_*`, no order/stock/incident data):**
+   ```bash
+   docker exec dom_postgres psql -U dom_user -d dom_db -c "DROP TABLE IF EXISTS acc_sale_items, acc_expense_items, acc_sales, acc_expenses, acc_invoices, acc_customers, acc_suppliers, acc_vendors, acc_items, acc_categories, acc_company_profiles, acc_counters CASCADE;"
+   docker exec dom_backend npx prisma db push --accept-data-loss --skip-generate --schema=backend/prisma/schema.prisma
+   ```
+   Second command then prints "🚀 Your database is now in sync". (The DROP's "does not exist" notices for acc_sale_items/acc_vendors/acc_items/acc_categories confirmed prod was at v2.51.0.)
+2. **CD hardening (`cd.yml`):** added `script_stop: true` to the ssh-action so a failing command (e.g. a refused db push) aborts the script and **fails the job** instead of being masked by the trailing `docker image prune` exit code.
+
+### Generalised rule
+- **`prisma db push --accept-data-loss` is NOT all-powerful** — adding a required, default-less column to a non-empty table is impossible without `--force-reset`. A destructive acc/schema redesign that was applied **locally** via a manual drop-then-push must be applied to **prod the same way** (drop just the affected tables, then push); it will never happen automatically.
+- **A remote deploy script must fail fast.** Any `ssh-action` (or shell deploy) that ends with a cleanup command (`docker image prune`, etc.) will mask earlier failures unless `script_stop: true` / `set -e`. Pairs with SOLUTIONS.md [2026-05-23] (CD green ≠ app healthy) and `feedback_verify_deploy.md`.
+- **Verify the db-push line in the deploy log**, not just the green check, after any schema change: `gh run view <id> --log | grep -i "in sync\|cannot be executed"`.
+
+---
+
 ## [2026-06-03] Accounting invoice/expense save fails with 400 "Invalid uuid" on blank combo fields (v2.53.0)
 
 ### Problem

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ACC_PAYMENT_STATUS_LABELS, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, useDeleteSale, money, type SaleFilters } from '../../api/accounting'
+import { useSales, useSalesStats, useDeleteSale, downloadInvoicePdf, money, type SaleFilters } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 
 export default function AccInvoices() {
@@ -56,7 +56,7 @@ export default function AccInvoices() {
                   <td className="acc-col-num">{money(s.total)}</td>
                   <td><span className={`acc-badge ${s.status === 'PAID' ? 'acc-badge-paid' : 'acc-badge-pending'}`}>{ACC_PAYMENT_STATUS_LABELS[s.status]}</span></td>
                   <td className="acc-col-actions"><span className="acc-row-actions">
-                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => window.open(`/accounting/sales/${s.id}/pdf`, '_blank')}>PDF</button>
+                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => downloadInvoicePdf(s.id, s.invoiceNo)}>PDF</button>
                     <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => navigate(`/accounting/sales/${s.id}/edit`)}>Edit</button>
                     <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setToDelete(s)}>Delete</button>
                   </span></td>
