@@ -534,30 +534,82 @@ export async function getYearlyReport(tenantId: string, year: number) {
   return { year, byMonth, totalSales, totalExpenses, net: r2(totalSales - totalExpenses), salesCount: sales.length, expenseCount: expenses.length }
 }
 
-// ─── Expenses by category (line-item level) for a year ──────────────────────
-// Category lives on AccExpenseItem, not on the expense header, so we aggregate
-// line totals. `byCategory` = year totals per category (for the "All" breakdown);
-// `byMonth` = 12-month trend for the selected category (or all expenses if none).
+// ─── Expense analytics (powers the whole Report → Expenses tab) ─────────────
+// Filters (country / vendor / category) affect everything. Category lives on the
+// line item (AccExpenseItem), not the expense header, so totals are aggregated at
+// line-item level. `trend` = per-day (monthly) or per-month (yearly) for the active
+// country+vendor+category filter; `byCategory` = period composition for the active
+// country+vendor scope (all categories, so it stays a usable picker); `total` =
+// filtered sum (incl. category); `byCategoryTotal` = the country+vendor sum (% base).
 const UNCATEGORIZED = 'Uncategorized'
-export async function getExpenseCategoryReport(tenantId: string, year: number, category?: string) {
-  const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0))
-  const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
-  const items = await prisma.accExpenseItem.findMany({
-    where: { expense: { tenantId, dateIssued: { gte: start, lte: end } } },
-    select: { categoryName: true, lineTotal: true, expense: { select: { dateIssued: true } } },
-  })
-  const catTotals = new Map<string, number>()
-  const byMonth = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0 }))
-  for (const it of items) {
-    const cat = (it.categoryName || '').trim() || UNCATEGORIZED
-    const amt = num(it.lineTotal)
-    catTotals.set(cat, (catTotals.get(cat) || 0) + amt)
-    if (!category || cat === category) byMonth[new Date(it.expense.dateIssued).getUTCMonth()].amount += amt
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+interface ExpenseReportOpts {
+  mode: 'monthly' | 'yearly'
+  month?: string // YYYY-MM
+  year?: number
+  country?: string
+  vendorId?: string
+  category?: string
+}
+
+export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts) {
+  const mode = opts.mode === 'yearly' ? 'yearly' : 'monthly'
+  let start: Date, end: Date, bucketCount: number, labels: string[]
+  let bucketIndex: (d: Date) => number
+  if (mode === 'monthly') {
+    const m = /^\d{4}-\d{2}$/.test(opts.month || '') ? (opts.month as string) : new Date().toISOString().slice(0, 7)
+    const [y, mo] = m.split('-').map(Number)
+    start = new Date(Date.UTC(y, mo - 1, 1, 0, 0, 0))
+    end = new Date(Date.UTC(y, mo, 0, 23, 59, 59, 999))
+    bucketCount = new Date(y, mo, 0).getDate()
+    labels = Array.from({ length: bucketCount }, (_, i) => String(i + 1))
+    bucketIndex = (d) => d.getUTCDate() - 1
+  } else {
+    const y = opts.year || new Date().getUTCFullYear()
+    start = new Date(Date.UTC(y, 0, 1, 0, 0, 0))
+    end = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999))
+    bucketCount = 12
+    labels = MONTH_ABBR
+    bucketIndex = (d) => d.getUTCMonth()
   }
-  byMonth.forEach((m) => { m.amount = r2(m.amount) })
+
+  const expWhere: any = { tenantId, dateIssued: { gte: start, lte: end } }
+  if (opts.country) expWhere.country = opts.country
+  if (opts.vendorId) expWhere.vendorId = opts.vendorId
+
+  const items = await prisma.accExpenseItem.findMany({
+    where: { expense: expWhere },
+    select: { categoryName: true, lineTotal: true, expenseId: true, expense: { select: { dateIssued: true } } },
+  })
+
+  const catName = (c?: string | null) => (c || '').trim() || UNCATEGORIZED
+  const catTotals = new Map<string, number>()
+  const trend = Array.from({ length: bucketCount }, (_, i) => ({ label: labels[i], amount: 0 }))
+  const matched = new Set<string>()
+  let total = 0
+  for (const it of items) {
+    const cn = catName(it.categoryName)
+    const amt = num(it.lineTotal)
+    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)
+    if (!opts.category || cn === opts.category) {
+      trend[bucketIndex(new Date(it.expense.dateIssued))].amount += amt
+      total += amt
+      matched.add(it.expenseId)
+    }
+  }
+  trend.forEach((t) => { t.amount = r2(t.amount) })
   const byCategory = Array.from(catTotals.entries())
     .map(([categoryName, amount]) => ({ categoryName, amount: r2(amount) }))
     .sort((a, b) => b.amount - a.amount)
-  const total = r2(byCategory.reduce((a, c) => a + c.amount, 0))
-  return { year, category: category || null, categories: byCategory.map((c) => c.categoryName), byCategory, byMonth, total }
+  const byCategoryTotal = r2(byCategory.reduce((a, c) => a + c.amount, 0))
+  return {
+    mode,
+    trend,
+    byCategory,
+    categories: byCategory.map((c) => c.categoryName),
+    total: r2(total),
+    byCategoryTotal,
+    count: matched.size,
+  }
 }

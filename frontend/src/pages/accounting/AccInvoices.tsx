@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ACC_PAYMENT_STATUS_LABELS, type AccSale } from '@dom/shared'
 import { useSales, useSalesStats, useDeleteSale, downloadInvoicePdf, money, type SaleFilters } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import DateRangePicker from '../../components/accounting/DateRangePicker'
 
 export default function AccInvoices() {
   const navigate = useNavigate()
@@ -33,8 +34,9 @@ export default function AccInvoices() {
           <select value={filters.status || ''} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}>
             <option value="">All</option><option value="PAID">Paid</option><option value="UNPAID">Unpaid</option>
           </select></div>
-        <div className="acc-field"><label>From</label><input type="date" value={filters.from || ''} onChange={(e) => setFilters({ ...filters, from: e.target.value, page: 1 })} /></div>
-        <div className="acc-field"><label>To</label><input type="date" value={filters.to || ''} onChange={(e) => setFilters({ ...filters, to: e.target.value, page: 1 })} /></div>
+        <div className="acc-field"><label>Date</label>
+          <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />
+        </div>
         <div className="acc-field" style={{ flex: 1, minWidth: 180 }}><label>Search</label><input placeholder="Invoice no. or customer…" value={filters.search || ''} onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} /></div>
       </div>
 

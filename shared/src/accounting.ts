@@ -243,11 +243,12 @@ export interface AccYearlyReport {
   expenseCount: number
 }
 
-export interface AccExpenseCategoryReport {
-  year: number
-  category: string | null
-  categories: string[]
+export interface AccExpenseReport {
+  mode: 'monthly' | 'yearly'
+  trend: { label: string; amount: number }[]
   byCategory: { categoryName: string; amount: number }[]
-  byMonth: { month: number; amount: number }[]
-  total: number
+  categories: string[]
+  total: number          // filtered (country+vendor+category) — sum of trend
+  byCategoryTotal: number // country+vendor scope (all categories) — % base
+  count: number          // # expenses matching the active filters
 }

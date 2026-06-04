@@ -233,11 +233,17 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     return svc.getYearlyReport(tenantOf(req), year)
   })
 
-  // ─── Expenses by category (per-year, optional category filter) ──────────────
-  fastify.get('/report/expenses-by-category', g, async (req) => {
+  // ─── Expense analytics (Report → Expenses tab; country/vendor/category filters) ──
+  fastify.get('/report/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}
-    const year = /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : new Date().getUTCFullYear()
-    const category = typeof q.category === 'string' && q.category.trim() ? q.category.trim() : undefined
-    return svc.getExpenseCategoryReport(tenantOf(req), year, category)
+    const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+    return svc.getExpenseReport(tenantOf(req), {
+      mode: q.mode === 'yearly' ? 'yearly' : 'monthly',
+      month: str(q.month),
+      year: /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : undefined,
+      country: str(q.country),
+      vendorId: str(q.vendorId),
+      category: str(q.category),
+    })
   })
 }
