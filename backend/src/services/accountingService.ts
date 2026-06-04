@@ -614,46 +614,95 @@ export async function getYearlyReport(tenantId: string, year: number) {
 }
 
 // ─── Expense analytics (powers the whole Report → Expenses tab) ─────────────
-// Filters (country / vendor / category) affect everything. Category lives on the
-// line item (AccExpenseItem), not the expense header, so totals are aggregated at
-// line-item level. `trend` = per-day (monthly) or per-month (yearly) for the active
-// country+vendor+category filter; `byCategory` = period composition for the active
-// country+vendor scope (all categories, so it stays a usable picker); `total` =
-// filtered sum (incl. category); `byCategoryTotal` = the country+vendor sum (% base).
+// Date-range driven (matches the Expenses list page's DateRangePicker semantics via
+// `dateWhere`). Filters (country / vendor / category / subcategory) affect everything.
+// Category/subcategory live on the line item (AccExpenseItem), not the expense header,
+// so totals are aggregated at line-item level. `trend` = per-day or per-month buckets
+// (auto granularity, see buildBuckets) honoring every filter; `byCategory` = composition
+// for the country+vendor scope (all categories); `bySubcategory` = composition for the
+// country+vendor+category scope (all subcategories); `total` = fully-filtered sum.
 const UNCATEGORIZED = 'Uncategorized'
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Resolve the effective [start,end] for bucketing. When the range is open-ended
+// ("All" preset → empty from/to), fall back to the data-derived min/max so the trend
+// still spans exactly the data. Returns null when there is nothing to plot.
+function resolveRange(from: string | undefined, to: string | undefined, dates: Date[]): { start: Date; end: Date } | null {
+  let start = from ? new Date(from + 'T00:00:00.000Z') : undefined
+  let end = to ? new Date(to + 'T23:59:59.999Z') : undefined
+  if (!start || !end) {
+    if (dates.length === 0) {
+      if (start) return { start, end: start }
+      if (end) return { start: end, end }
+      return null
+    }
+    const times = dates.map((d) => d.getTime())
+    if (!start) start = new Date(Math.min(...times))
+    if (!end) end = new Date(Math.max(...times))
+  }
+  return { start, end }
+}
+
+// Auto granularity: daily buckets for spans up to 92 days, monthly beyond. Labels
+// include the year only when the range straddles a year boundary.
+function buildBuckets(start: Date, end: Date) {
+  const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())
+  const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate())
+  const spanDays = Math.floor((endDay - startDay) / DAY_MS) + 1
+  const daily = spanDays <= 92
+  const multiYear = start.getUTCFullYear() !== end.getUTCFullYear()
+  const labels: string[] = []
+  const index = new Map<string, number>()
+  if (daily) {
+    for (let cur = startDay; cur <= endDay; cur += DAY_MS) {
+      const d = new Date(cur)
+      index.set(`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, labels.length)
+      labels.push(multiYear ? `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}` : `${d.getUTCMonth() + 1}/${d.getUTCDate()}`)
+    }
+  } else {
+    let y = start.getUTCFullYear(), m = start.getUTCMonth()
+    const ey = end.getUTCFullYear(), em = end.getUTCMonth()
+    while (y < ey || (y === ey && m <= em)) {
+      index.set(`${y}-${m}`, labels.length)
+      labels.push(multiYear ? `${MONTH_ABBR[m]} '${String(y).slice(2)}` : MONTH_ABBR[m])
+      m++; if (m > 11) { m = 0; y++ }
+    }
+  }
+  const keyOf = (d: Date) => daily
+    ? `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+    : `${d.getUTCFullYear()}-${d.getUTCMonth()}`
+  const trend = labels.map((label) => ({ label, amount: 0 }))
+  const add = (d: Date, amt: number) => { const i = index.get(keyOf(d)); if (i !== undefined) trend[i].amount += amt }
+  return { trend, add }
+}
+
+// ─── Sales trend (Report → Sales tab; date-range driven) ────────────────────
+export async function getSalesReport(tenantId: string, opts: { from?: string; to?: string }) {
+  const where: any = { tenantId }
+  const dw = dateWhere(opts.from, opts.to); if (dw) where.dateIssued = dw
+  const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true } })
+  const range = resolveRange(opts.from, opts.to, sales.map((s) => new Date(s.dateIssued)))
+  if (!range) return { trend: [], total: 0, count: 0 }
+  const { trend, add } = buildBuckets(range.start, range.end)
+  let total = 0
+  for (const s of sales) { const amt = num(s.total); add(new Date(s.dateIssued), amt); total += amt }
+  trend.forEach((t) => { t.amount = r2(t.amount) })
+  return { trend, total: r2(total), count: sales.length }
+}
 
 interface ExpenseReportOpts {
-  mode: 'monthly' | 'yearly'
-  month?: string // YYYY-MM
-  year?: number
+  from?: string
+  to?: string
   country?: string
   vendorId?: string
   category?: string
+  subcategory?: string
 }
 
 export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts) {
-  const mode = opts.mode === 'yearly' ? 'yearly' : 'monthly'
-  let start: Date, end: Date, bucketCount: number, labels: string[]
-  let bucketIndex: (d: Date) => number
-  if (mode === 'monthly') {
-    const m = /^\d{4}-\d{2}$/.test(opts.month || '') ? (opts.month as string) : new Date().toISOString().slice(0, 7)
-    const [y, mo] = m.split('-').map(Number)
-    start = new Date(Date.UTC(y, mo - 1, 1, 0, 0, 0))
-    end = new Date(Date.UTC(y, mo, 0, 23, 59, 59, 999))
-    bucketCount = new Date(y, mo, 0).getDate()
-    labels = Array.from({ length: bucketCount }, (_, i) => String(i + 1))
-    bucketIndex = (d) => d.getUTCDate() - 1
-  } else {
-    const y = opts.year || new Date().getUTCFullYear()
-    start = new Date(Date.UTC(y, 0, 1, 0, 0, 0))
-    end = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999))
-    bucketCount = 12
-    labels = MONTH_ABBR
-    bucketIndex = (d) => d.getUTCMonth()
-  }
-
-  const expWhere: any = { tenantId, dateIssued: { gte: start, lte: end } }
+  const expWhere: any = { tenantId }
+  const dw = dateWhere(opts.from, opts.to); if (dw) expWhere.dateIssued = dw
   if (opts.country) expWhere.country = opts.country
   if (opts.vendorId) expWhere.vendorId = opts.vendorId
 
@@ -663,21 +712,25 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
   })
 
   const catName = (c?: string | null) => (c || '').trim() || UNCATEGORIZED
+  const range = resolveRange(opts.from, opts.to, items.map((it) => new Date(it.expense.dateIssued)))
+  const { trend, add } = range ? buildBuckets(range.start, range.end) : { trend: [] as { label: string; amount: number }[], add: (_d: Date, _a: number) => {} }
+
   const catTotals = new Map<string, number>()
   const subTotals = new Map<string, number>() // honors the active category filter
-  const trend = Array.from({ length: bucketCount }, (_, i) => ({ label: labels[i], amount: 0 }))
   const matched = new Set<string>()
   let total = 0
   for (const it of items) {
     const cn = catName(it.categoryName)
     const amt = num(it.lineTotal)
-    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)
+    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)               // by-category: country+vendor scope (all categories)
     if (!opts.category || cn === opts.category) {
       const sn = catName(it.subcategoryName)
-      subTotals.set(sn, (subTotals.get(sn) || 0) + amt)
-      trend[bucketIndex(new Date(it.expense.dateIssued))].amount += amt
-      total += amt
-      matched.add(it.expenseId)
+      subTotals.set(sn, (subTotals.get(sn) || 0) + amt)             // by-subcategory: + category scope (all subcategories)
+      if (!opts.subcategory || sn === opts.subcategory) {
+        add(new Date(it.expense.dateIssued), amt)                   // trend/total/count: + subcategory filter
+        total += amt
+        matched.add(it.expenseId)
+      }
     }
   }
   trend.forEach((t) => { t.amount = r2(t.amount) })
@@ -688,14 +741,15 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
     .map(([subcategoryName, amount]) => ({ subcategoryName, amount: r2(amount) }))
     .sort((a, b) => b.amount - a.amount)
   const byCategoryTotal = r2(byCategory.reduce((a, c) => a + c.amount, 0))
+  const bySubcategoryTotal = r2(bySubcategory.reduce((a, c) => a + c.amount, 0))
   return {
-    mode,
     trend,
     byCategory,
     bySubcategory,
     categories: byCategory.map((c) => c.categoryName),
     total: r2(total),
     byCategoryTotal,
+    bySubcategoryTotal,
     count: matched.size,
   }
 }

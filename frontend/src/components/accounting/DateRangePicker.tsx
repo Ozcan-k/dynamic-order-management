@@ -24,8 +24,19 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'custom', label: 'Custom' },
 ]
 
+// Derive which preset a value corresponds to, so a parent-supplied default (e.g.
+// This Month) highlights the right pill instead of always falling back to Custom.
+function presetOf(value: DateRange): Preset {
+  if (!value.from && !value.to) return 'all'
+  for (const p of ['thisMonth', 'lastMonth', 'thisYear'] as Preset[]) {
+    const r = rangeFor(p)
+    if (r.from === value.from && r.to === value.to) return p
+  }
+  return 'custom'
+}
+
 export default function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (r: DateRange) => void }) {
-  const [preset, setPreset] = useState<Preset>(value.from || value.to ? 'custom' : 'all')
+  const [preset, setPreset] = useState<Preset>(() => presetOf(value))
   const pick = (p: Preset) => {
     setPreset(p)
     if (p !== 'custom') onChange(rangeFor(p))

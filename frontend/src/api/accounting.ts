@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccStore, AccSale, AccExpense,
-  AccCompanyProfile, AccPaginated, AccListStats, AccReportData, AccSalesAgent,
-  AccYearlyReport, AccExpenseReport, AccCatalogKind,
+  AccCompanyProfile, AccPaginated, AccListStats, AccSalesAgent,
+  AccSalesReport, AccExpenseReport, AccCatalogKind,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -167,13 +167,14 @@ export function useSaveCompany() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: async (form: FormData) => (await api.put(`${BASE}/company`, form, { headers: { 'Content-Type': 'multipart/form-data' } })).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'company'] }) })
 }
-export function useReport(month: string) {
-  return useQuery({ queryKey: ['acc', 'report', month], queryFn: async () => (await api.get<AccReportData>(`${BASE}/report`, { params: { month } })).data })
+export interface SalesReportParams { from?: string; to?: string }
+export function useSalesReport(p: SalesReportParams) {
+  return useQuery({
+    queryKey: ['acc', 'report', 'sales', p],
+    queryFn: async () => (await api.get<AccSalesReport>(`${BASE}/report/sales`, { params: clean(p as any) })).data,
+  })
 }
-export function useYearlyReport(year: number) {
-  return useQuery({ queryKey: ['acc', 'report', 'yearly', year], queryFn: async () => (await api.get<AccYearlyReport>(`${BASE}/report/yearly`, { params: { year } })).data })
-}
-export interface ExpenseReportParams { mode: 'monthly' | 'yearly'; month?: string; year?: number; country?: string; vendorId?: string; category?: string }
+export interface ExpenseReportParams { from?: string; to?: string; country?: string; vendorId?: string; category?: string; subcategory?: string }
 export function useExpenseReport(p: ExpenseReportParams) {
   return useQuery({
     queryKey: ['acc', 'report', 'expenses', p],

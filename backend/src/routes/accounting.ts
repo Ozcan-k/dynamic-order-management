@@ -255,17 +255,25 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     return svc.getYearlyReport(tenantOf(req), year)
   })
 
-  // ─── Expense analytics (Report → Expenses tab; country/vendor/category filters) ──
+  const dateStr = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+
+  // ─── Sales trend (Report → Sales tab; date-range driven) ────────────────────
+  fastify.get('/report/sales', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.getSalesReport(tenantOf(req), { from: dateStr(q.from), to: dateStr(q.to) })
+  })
+
+  // ─── Expense analytics (Report → Expenses tab; date-range + country/vendor/category/subcategory filters) ──
   fastify.get('/report/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}
-    const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
     return svc.getExpenseReport(tenantOf(req), {
-      mode: q.mode === 'yearly' ? 'yearly' : 'monthly',
-      month: str(q.month),
-      year: /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : undefined,
+      from: dateStr(q.from),
+      to: dateStr(q.to),
       country: str(q.country),
       vendorId: str(q.vendorId),
       category: str(q.category),
+      subcategory: str(q.subcategory),
     })
   })
 }

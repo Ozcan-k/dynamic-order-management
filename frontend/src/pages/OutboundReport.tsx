@@ -7,11 +7,14 @@ import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
 import { getDispatchReport } from '../api/dispatch'
 
-const PRESET_RANGES = [
-  { id: '1',  label: '1 Day',   days: 1 },
-  { id: '7',  label: '7 Days',  days: 7 },
-  { id: '30', label: '1 Month', days: 30 },
-] as const
+type PresetId = 'today' | 'yesterday' | '7' | '30' | 'custom'
+const PRESETS: { id: PresetId; label: string }[] = [
+  { id: 'today',     label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: '7',         label: 'Last 7 Days' },
+  { id: '30',        label: 'Last 30 Days' },
+  { id: 'custom',    label: 'Custom' },
+]
 
 function todayManila(): string {
   const ms = Date.now() + 8 * 60 * 60 * 1000
@@ -39,15 +42,23 @@ const OutboundIcon = (
 export default function OutboundReport() {
   const user = useAuthStore((s) => s.user)
   const today = todayManila()
-  const [presetId, setPresetId] = useState<string>('7')
-  const [customFrom, setCustomFrom] = useState<string>(shiftDate(today, -29))
+  // Default to "Today" so the figures line up with the Outbound board (which also
+  // lands on today) — selecting the same single day on both now yields identical counts.
+  const [presetId, setPresetId] = useState<PresetId>('today')
+  const [customFrom, setCustomFrom] = useState<string>(shiftDate(today, -6))
   const [customTo, setCustomTo] = useState<string>(today)
 
   const { from, to } = useMemo(() => {
-    if (presetId === 'custom') return { from: customFrom, to: customTo }
-    const days = PRESET_RANGES.find((p) => p.id === presetId)?.days ?? 7
-    return { from: shiftDate(today, -(days - 1)), to: today }
+    switch (presetId) {
+      case 'today':     return { from: today, to: today }
+      case 'yesterday': { const y = shiftDate(today, -1); return { from: y, to: y } }
+      case '7':         return { from: shiftDate(today, -6), to: today }
+      case '30':        return { from: shiftDate(today, -29), to: today }
+      case 'custom':    return { from: customFrom, to: customTo }
+    }
   }, [presetId, customFrom, customTo, today])
+
+  const isSingleDay = from === to
 
   const { data, isLoading } = useQuery({
     queryKey: ['dispatch-report', from, to],
@@ -77,14 +88,13 @@ export default function OutboundReport() {
       <div className="page-hero" style={{ marginBottom: 20 }}>
         <div className="page-hero-content">
           <div className="page-hero-label">Date Range</div>
-          <div className="page-hero-title">{from} → {to}</div>
+          <div className="page-hero-title">{isSingleDay ? from : `${from} → ${to}`}</div>
         </div>
         <div className="page-hero-actions">
           <div className="preset-btn-group">
-            {PRESET_RANGES.map((p) => (
+            {PRESETS.map((p) => (
               <button key={p.id} type="button" onClick={() => setPresetId(p.id)} className={`preset-btn${presetId === p.id ? ' preset-btn--active' : ''}`}>{p.label}</button>
             ))}
-            <button type="button" onClick={() => setPresetId('custom')} className={`preset-btn${presetId === 'custom' ? ' preset-btn--active' : ''}`}>Custom</button>
           </div>
           {presetId === 'custom' && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

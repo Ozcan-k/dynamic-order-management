@@ -73,7 +73,7 @@ export default function ScanLogin() {
     setLoading(true)
     try {
       const { data } = await api.post<{ user: AuthUser }>('/auth/login', {
-        username,
+        username: username.trim(),
         password,
         deviceType: 'handheld',
       })
@@ -158,6 +158,10 @@ export default function ScanLogin() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="text"
                 autoFocus
                 required
                 placeholder="Enter your username"

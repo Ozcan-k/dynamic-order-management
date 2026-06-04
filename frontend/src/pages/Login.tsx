@@ -97,7 +97,7 @@ export default function Login() {
     setLoading(true)
     try {
       const deviceType = isHandheld ? 'handheld' : 'desktop'
-      const { data } = await api.post<{ user: AuthUser }>('/auth/login', { username, password, deviceType })
+      const { data } = await api.post<{ user: AuthUser }>('/auth/login', { username: username.trim(), password, deviceType })
       setUser(data.user)
       const target = nextRoute && canAccess(nextRoute, data.user.role)
         ? nextRoute
@@ -188,6 +188,10 @@ export default function Login() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="text"
                 autoFocus
                 required
                 placeholder="Enter your username"

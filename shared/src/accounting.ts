@@ -258,13 +258,20 @@ export interface AccYearlyReport {
   expenseCount: number
 }
 
-export interface AccExpenseReport {
-  mode: 'monthly' | 'yearly'
+// Range-based sales trend (date-range driven; buckets auto daily/monthly).
+export interface AccSalesReport {
   trend: { label: string; amount: number }[]
+  total: number
+  count: number
+}
+
+export interface AccExpenseReport {
+  trend: { label: string; amount: number }[]            // date-range bucketed (auto daily/monthly)
   byCategory: { categoryName: string; amount: number }[]
   bySubcategory: { subcategoryName: string; amount: number }[]
-  categories: string[]
-  total: number          // filtered (country+vendor+category) — sum of trend
-  byCategoryTotal: number // country+vendor scope (all categories) — % base
+  categories: string[]                                  // categories that have spend in range (legacy; UI sources the filter from the catalog)
+  total: number          // filtered (country+vendor+category+subcategory) — sum of trend
+  byCategoryTotal: number // country+vendor scope (all categories) — % base for the category table
+  bySubcategoryTotal: number // country+vendor+category scope (all subcategories) — % base for the subcategory table
   count: number          // # expenses matching the active filters
 }
