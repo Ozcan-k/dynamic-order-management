@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  AccCustomer, AccVendor, AccItem, AccCategory, AccSale, AccExpense,
+  AccCustomer, AccVendor, AccItem, AccCategory, AccStore, AccSale, AccExpense,
   AccCompanyProfile, AccPaginated, AccListStats, AccReportData, AccSalesAgent,
-  AccYearlyReport, AccExpenseReport,
+  AccYearlyReport, AccExpenseReport, AccCatalogKind,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -60,19 +60,48 @@ export function useDeleteVendor() {
   return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/vendors/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'vendors'] }) })
 }
 
-export function useItems() {
-  return useQuery({ queryKey: ['acc', 'items'], queryFn: async () => (await api.get<AccItem[]>(`${BASE}/items`)).data })
+// Items — kind-scoped (Sales vs Expense catalogs are independent)
+export function useItems(kind: AccCatalogKind) {
+  return useQuery({ queryKey: ['acc', 'items', kind], queryFn: async () => (await api.get<AccItem[]>(`${BASE}/items`, { params: { kind } })).data })
 }
 export function useCreateItem() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: async (input: { name: string; unitCost?: number | null }) => (await api.post(`${BASE}/items`, input)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'items'] }) })
+  return useMutation({
+    mutationFn: async (input: { name: string; unitCost?: number | null; kind: AccCatalogKind }) => (await api.post(`${BASE}/items`, input)).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['acc', 'items', v.kind] }),
+  })
 }
-export function useCategories() {
-  return useQuery({ queryKey: ['acc', 'categories'], queryFn: async () => (await api.get<AccCategory[]>(`${BASE}/categories`)).data })
+
+// Categories — kind-scoped; EXPENSE entries carry nested `subcategories`
+export function useCategories(kind: AccCatalogKind) {
+  return useQuery({ queryKey: ['acc', 'categories', kind], queryFn: async () => (await api.get<AccCategory[]>(`${BASE}/categories`, { params: { kind } })).data })
 }
 export function useCreateCategory() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: async (input: { name: string }) => (await api.post(`${BASE}/categories`, input)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'categories'] }) })
+  return useMutation({
+    mutationFn: async (input: { name: string; kind: AccCatalogKind; parentId?: string | null }) => (await api.post(`${BASE}/categories`, input)).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['acc', 'categories', v.kind] }),
+  })
+}
+export function useUpdateCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: string; name: string }) => (await api.put(`${BASE}/categories/${input.id}`, { name: input.name })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'categories'] }),
+  })
+}
+export function useDeleteCategory() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/categories/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'categories'] }) })
+}
+
+// Stores (Invoice store dropdown) — managed list seeded from SALES_STORES
+export function useStores() {
+  return useQuery({ queryKey: ['acc', 'stores'], queryFn: async () => (await api.get<AccStore[]>(`${BASE}/stores`)).data })
+}
+export function useCreateStore() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (input: { name: string }) => (await api.post(`${BASE}/stores`, input)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'stores'] }) })
 }
 export function useSalesAgents() {
   return useQuery({ queryKey: ['acc', 'sales-agents'], queryFn: async () => (await api.get<AccSalesAgent[]>(`${BASE}/sales-agents`)).data })
@@ -105,7 +134,7 @@ export function useDeleteSale() {
 }
 
 // ─── Purchases (Expenses) ──────────────────────────────────────────────────────
-export interface ExpenseFilters { from?: string; to?: string; status?: string; country?: string; vendorId?: string; search?: string; page?: number; pageSize?: number }
+export interface ExpenseFilters { from?: string; to?: string; status?: string; country?: string; vendorId?: string; category?: string; subcategory?: string; search?: string; page?: number; pageSize?: number }
 export function useExpenses(filters: ExpenseFilters) {
   return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params: clean(filters) })).data })
 }

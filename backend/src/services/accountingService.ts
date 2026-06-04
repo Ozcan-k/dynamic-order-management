@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { SALES_STORES } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -13,6 +14,8 @@ interface LineInput {
   itemName: string
   categoryId?: string | null
   categoryName?: string | null
+  subcategoryId?: string | null
+  subcategoryName?: string | null
   description?: string | null
   quantity: number
   unitCost: number
@@ -105,17 +108,15 @@ async function ensureVendorId(tenantId: string, d: any): Promise<string | null> 
   const v = await prisma.accVendor.create({ data: { tenantId, name } })
   return v.id
 }
-async function ensureItemsCatalog(tenantId: string, items: LineInput[], withCategory: boolean) {
+// Items still self-populate the catalog when typed freely, but are now kind-scoped
+// (Sales and Expense item catalogs are independent). Categories/subcategories no
+// longer auto-create — they come exclusively from the managed (select-only) lists.
+async function ensureItemsCatalog(tenantId: string, items: LineInput[], kind: 'SALE' | 'EXPENSE') {
   for (const l of items) {
     if (!l.itemId && l.itemName?.trim()) {
       const name = l.itemName.trim()
-      const ex = await prisma.accItem.findFirst({ where: { tenantId, name } })
-      l.itemId = ex ? ex.id : (await prisma.accItem.create({ data: { tenantId, name, unitCost: l.unitCost ?? null } })).id
-    }
-    if (withCategory && !l.categoryId && (l.categoryName || '').trim()) {
-      const cname = (l.categoryName as string).trim()
-      const ex = await prisma.accCategory.findFirst({ where: { tenantId, name: cname } })
-      l.categoryId = ex ? ex.id : (await prisma.accCategory.create({ data: { tenantId, name: cname } })).id
+      const ex = await prisma.accItem.findFirst({ where: { tenantId, name, kind } })
+      l.itemId = ex ? ex.id : (await prisma.accItem.create({ data: { tenantId, name, kind, unitCost: l.unitCost ?? null } })).id
     }
   }
 }
@@ -177,17 +178,83 @@ export async function deleteVendor(tenantId: string, id: string) {
   return res.count > 0
 }
 
-export function listItems(tenantId: string) {
-  return prisma.accItem.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+export function listItems(tenantId: string, kind: 'SALE' | 'EXPENSE') {
+  return prisma.accItem.findMany({ where: { tenantId, kind }, orderBy: { name: 'asc' } })
 }
-export function createItem(tenantId: string, d: any) {
-  return prisma.accItem.create({ data: { tenantId, name: d.name, unitCost: d.unitCost ?? null } })
+export function createItem(tenantId: string, d: { name: string; unitCost?: number | null; kind: 'SALE' | 'EXPENSE' }) {
+  return prisma.accItem.create({ data: { tenantId, name: d.name, kind: d.kind, unitCost: d.unitCost ?? null } })
 }
-export function listCategories(tenantId: string) {
-  return prisma.accCategory.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+// ─── Managed catalogs: categories (kind-scoped, hierarchical) + stores ───────
+const DEFAULT_SALE_CATEGORIES = [
+  'Dried Fruits', 'Nuts', 'Seeds', 'Trail Mix', 'Herbal Teas', 'Superfood',
+  'Essential Oils', 'Herbs & Spices', 'Grain/Pulses', 'Essential Cooking',
+  'Protein & Energy Bars', 'Hookah Items',
+]
+const DEFAULT_EXPENSE_TAXONOMY: Record<string, string[]> = {
+  'Packaging': ['Bubble Wrap', 'Emailer Pouch', 'Box', 'Tape', 'Bottle', 'Pouch'],
+  'Utilities': ['Manila Water', 'Meralco', 'Internet'],
+  'Professional Fees': ['Accountant Fee', 'Lawyer Fee', 'Manpower Agency'],
+  'Salaries and Wages': ['Salaries', 'OT', 'Incentives'],
+  'Employee Benefits and Allowances': ['SSS', 'PhilHealth', 'Pag-IBIG', 'Incentive Leaves', '13th Month'],
 }
-export function createCategory(tenantId: string, d: any) {
-  return prisma.accCategory.create({ data: { tenantId, name: d.name } })
+
+// Idempotent per-tenant seeding. Inserts only (no destructive schema op), so it is
+// safe to run on every list call and needs no manual prod step. The first time a
+// SALE catalog is seeded we also purge the pre-v2.56 shared (kind=NULL) categories
+// the user asked to retire — existing line items keep their denormalized names.
+async function ensureCatalogs(tenantId: string) {
+  const saleCount = await prisma.accCategory.count({ where: { tenantId, kind: 'SALE' } })
+  if (saleCount === 0) {
+    await prisma.accCategory.deleteMany({ where: { tenantId, kind: null } })
+    await prisma.accCategory.createMany({ data: DEFAULT_SALE_CATEGORIES.map((name) => ({ tenantId, name, kind: 'SALE' as const })) })
+  }
+  const expCount = await prisma.accCategory.count({ where: { tenantId, kind: 'EXPENSE', parentId: null } })
+  if (expCount === 0) {
+    for (const [parentName, subs] of Object.entries(DEFAULT_EXPENSE_TAXONOMY)) {
+      const parent = await prisma.accCategory.create({ data: { tenantId, name: parentName, kind: 'EXPENSE' } })
+      if (subs.length) await prisma.accCategory.createMany({ data: subs.map((name) => ({ tenantId, name, kind: 'EXPENSE' as const, parentId: parent.id })) })
+    }
+  }
+  const storeCount = await prisma.accStore.count({ where: { tenantId } })
+  if (storeCount === 0) {
+    await prisma.accStore.createMany({ data: SALES_STORES.map((name) => ({ tenantId, name })) })
+  }
+}
+
+export async function listCategories(tenantId: string, kind: 'SALE' | 'EXPENSE') {
+  await ensureCatalogs(tenantId)
+  if (kind === 'EXPENSE') {
+    const parents = await prisma.accCategory.findMany({
+      where: { tenantId, kind: 'EXPENSE', parentId: null },
+      include: { children: { orderBy: { name: 'asc' } } },
+      orderBy: { name: 'asc' },
+    })
+    return parents.map((p) => ({
+      id: p.id, name: p.name, kind: p.kind, parentId: p.parentId, createdAt: p.createdAt,
+      subcategories: p.children.map((c) => ({ id: c.id, name: c.name })),
+    }))
+  }
+  return prisma.accCategory.findMany({ where: { tenantId, kind: 'SALE' }, orderBy: { name: 'asc' } })
+}
+export function createCategory(tenantId: string, d: { name: string; kind: 'SALE' | 'EXPENSE'; parentId?: string | null }) {
+  return prisma.accCategory.create({ data: { tenantId, name: d.name, kind: d.kind, parentId: d.parentId ?? null } })
+}
+export async function updateCategory(tenantId: string, id: string, d: { name: string }) {
+  const res = await prisma.accCategory.updateMany({ where: { id, tenantId }, data: { name: d.name } })
+  if (!res.count) return null
+  return prisma.accCategory.findUnique({ where: { id } })
+}
+export async function deleteCategory(tenantId: string, id: string) {
+  const res = await prisma.accCategory.deleteMany({ where: { id, tenantId } }) // children cascade
+  return res.count > 0
+}
+
+export async function listStores(tenantId: string) {
+  await ensureCatalogs(tenantId)
+  return prisma.accStore.findMany({ where: { tenantId }, orderBy: { name: 'asc' } })
+}
+export function createStore(tenantId: string, d: { name: string }) {
+  return prisma.accStore.create({ data: { tenantId, name: d.name } })
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -266,7 +333,7 @@ export async function createSale(tenantId: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.customerId = await ensureCustomerId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, true)
+  await ensureItemsCatalog(tenantId, items, 'SALE')
   const invoiceNo = await nextNumber(tenantId, 'invoice')
   const sale = await prisma.accSale.create({
     data: {
@@ -284,6 +351,7 @@ export async function createSale(tenantId: string, d: any) {
       salesAgentId: d.salesAgentId ?? null,
       salesAgentName: d.salesAgentName ?? null,
       saleChannel: d.saleChannel ?? 'OTHERS',
+      storeName: d.storeName ?? null,
       status: d.status ?? 'UNPAID',
       ...normalizeSalePayment(d),
       ...totals,
@@ -307,7 +375,7 @@ export async function updateSale(tenantId: string, id: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.customerId = await ensureCustomerId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, true)
+  await ensureItemsCatalog(tenantId, items, 'SALE')
   await prisma.accSaleItem.deleteMany({ where: { saleId: id } })
   const sale = await prisma.accSale.update({
     where: { id },
@@ -325,6 +393,7 @@ export async function updateSale(tenantId: string, id: string, d: any) {
       salesAgentId: d.salesAgentId ?? null,
       salesAgentName: d.salesAgentName ?? null,
       saleChannel: d.saleChannel ?? 'OTHERS',
+      storeName: d.storeName ?? null,
       status: d.status ?? 'UNPAID',
       ...normalizeSalePayment(d),
       ...totals,
@@ -352,6 +421,7 @@ export async function deleteSale(tenantId: string, id: string) {
 // ════════════════════════════════════════════════════════════════════════════
 export interface ExpenseFilters {
   from?: string; to?: string; status?: string; country?: string; vendorId?: string
+  category?: string; subcategory?: string
   search?: string; page: number; pageSize: number
 }
 
@@ -361,6 +431,13 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
   if (f.status) where.status = f.status
   if (f.country) where.country = f.country
   if (f.vendorId) where.vendorId = f.vendorId
+  // Category/subcategory live on line items → match expenses that have a matching line.
+  if (f.category || f.subcategory) {
+    const some: any = {}
+    if (f.category) some.categoryName = f.category
+    if (f.subcategory) some.subcategoryName = f.subcategory
+    where.items = { some }
+  }
   if (f.search) where.OR = [
     { purchaseNo: { contains: f.search, mode: 'insensitive' } },
     { vendorName: { contains: f.search, mode: 'insensitive' } },
@@ -393,7 +470,7 @@ export async function createExpense(tenantId: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.vendorId = await ensureVendorId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, true)
+  await ensureItemsCatalog(tenantId, items, 'EXPENSE')
   const purchaseNo = await nextNumber(tenantId, 'purchase')
   const exp = await prisma.accExpense.create({
     data: {
@@ -411,6 +488,7 @@ export async function createExpense(tenantId: string, d: any) {
       items: {
         create: items.map((l) => ({
           itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          subcategoryId: l.subcategoryId ?? null, subcategoryName: l.subcategoryName ?? null,
           description: l.description ?? null, quantity: l.quantity, unitCost: l.unitCost,
           discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0, lineTotal: computeLine(l).lineTotal,
         })),
@@ -427,7 +505,7 @@ export async function updateExpense(tenantId: string, id: string, d: any) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.vendorId = await ensureVendorId(tenantId, d)
-  await ensureItemsCatalog(tenantId, items, true)
+  await ensureItemsCatalog(tenantId, items, 'EXPENSE')
   await prisma.accExpenseItem.deleteMany({ where: { expenseId: id } })
   const exp = await prisma.accExpense.update({
     where: { id },
@@ -445,6 +523,7 @@ export async function updateExpense(tenantId: string, id: string, d: any) {
       items: {
         create: items.map((l) => ({
           itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+          subcategoryId: l.subcategoryId ?? null, subcategoryName: l.subcategoryName ?? null,
           description: l.description ?? null, quantity: l.quantity, unitCost: l.unitCost,
           discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0, lineTotal: computeLine(l).lineTotal,
         })),
@@ -580,11 +659,12 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
 
   const items = await prisma.accExpenseItem.findMany({
     where: { expense: expWhere },
-    select: { categoryName: true, lineTotal: true, expenseId: true, expense: { select: { dateIssued: true } } },
+    select: { categoryName: true, subcategoryName: true, lineTotal: true, expenseId: true, expense: { select: { dateIssued: true } } },
   })
 
   const catName = (c?: string | null) => (c || '').trim() || UNCATEGORIZED
   const catTotals = new Map<string, number>()
+  const subTotals = new Map<string, number>() // honors the active category filter
   const trend = Array.from({ length: bucketCount }, (_, i) => ({ label: labels[i], amount: 0 }))
   const matched = new Set<string>()
   let total = 0
@@ -593,6 +673,8 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
     const amt = num(it.lineTotal)
     catTotals.set(cn, (catTotals.get(cn) || 0) + amt)
     if (!opts.category || cn === opts.category) {
+      const sn = catName(it.subcategoryName)
+      subTotals.set(sn, (subTotals.get(sn) || 0) + amt)
       trend[bucketIndex(new Date(it.expense.dateIssued))].amount += amt
       total += amt
       matched.add(it.expenseId)
@@ -602,11 +684,15 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
   const byCategory = Array.from(catTotals.entries())
     .map(([categoryName, amount]) => ({ categoryName, amount: r2(amount) }))
     .sort((a, b) => b.amount - a.amount)
+  const bySubcategory = Array.from(subTotals.entries())
+    .map(([subcategoryName, amount]) => ({ subcategoryName, amount: r2(amount) }))
+    .sort((a, b) => b.amount - a.amount)
   const byCategoryTotal = r2(byCategory.reduce((a, c) => a + c.amount, 0))
   return {
     mode,
     trend,
     byCategory,
+    bySubcategory,
     categories: byCategory.map((c) => c.categoryName),
     total: r2(total),
     byCategoryTotal,

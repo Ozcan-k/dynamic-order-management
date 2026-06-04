@@ -7,6 +7,8 @@ export interface LineRow {
   itemName: string
   categoryId?: string | null
   categoryName?: string | null
+  subcategoryId?: string | null
+  subcategoryName?: string | null
   description: string
   quantity: string
   unitCost: string
@@ -15,7 +17,7 @@ export interface LineRow {
 }
 
 export const emptyLine = (): LineRow => ({
-  itemId: null, itemName: '', categoryId: null, categoryName: '', description: '',
+  itemId: null, itemName: '', categoryId: null, categoryName: '', subcategoryId: null, subcategoryName: '', description: '',
   quantity: '1', unitCost: '', discountPct: '0', taxPct: '0',
 })
 
@@ -38,21 +40,53 @@ function rowTotal(l: LineRow) {
   return net + net * ((Number(l.taxPct) || 0) / 100)
 }
 
+type CategoryMode = 'none' | 'sale' | 'expense'
+
 interface Props {
   rows: LineRow[]
   onChange: (rows: LineRow[]) => void
   items: AccItem[]
-  withCategory?: boolean
-  categories?: AccCategory[]
+  categoryMode?: CategoryMode
+  categories?: AccCategory[] // SALE: flat list; EXPENSE: parents with nested subcategories
   onCreateItem?: (name: string) => Promise<AccItem>
-  onCreateCategory?: (name: string) => Promise<AccCategory>
 }
 
-export default function LineItemsEditor({ rows, onChange, items, withCategory, categories = [], onCreateItem, onCreateCategory }: Props) {
+// Renders a managed (select-only) category option set, preserving a legacy value
+// that is no longer in the catalog so editing old records doesn't lose it.
+function CategorySelect({
+  value, valueName, options, placeholder, onPick,
+}: {
+  value: string | null | undefined
+  valueName: string | null | undefined
+  options: { id: string; name: string }[]
+  placeholder: string
+  onPick: (id: string, name: string) => void
+}) {
+  const known = value ? options.some((o) => o.id === value) : true
+  return (
+    <select
+      value={value || ''}
+      onChange={(e) => {
+        const opt = options.find((o) => o.id === e.target.value)
+        onPick(e.target.value, opt?.name ?? '')
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {!known && value && <option value={value}>{valueName || '(legacy)'}</option>}
+      {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+    </select>
+  )
+}
+
+export default function LineItemsEditor({ rows, onChange, items, categoryMode = 'none', categories = [], onCreateItem }: Props) {
   const set = (i: number, patch: Partial<LineRow>) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
   const addRow = () => onChange([...rows, emptyLine()])
   const removeRow = (i: number) => onChange(rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows)
   const t = lineTotals(rows)
+
+  const withCategory = categoryMode !== 'none'
+  const withSub = categoryMode === 'expense'
+  const subsFor = (categoryId?: string | null) => categories.find((c) => c.id === categoryId)?.subcategories ?? []
 
   return (
     <div>
@@ -61,7 +95,8 @@ export default function LineItemsEditor({ rows, onChange, items, withCategory, c
           <thead>
             <tr>
               <th style={{ minWidth: 160 }}>Item *</th>
-              {withCategory && <th style={{ minWidth: 130 }}>Category</th>}
+              {withCategory && <th style={{ minWidth: 140 }}>Category</th>}
+              {withSub && <th style={{ minWidth: 150 }}>Subcategory</th>}
               <th style={{ minWidth: 140 }}>Description</th>
               <th className="acc-col-num">Qty *</th>
               <th className="acc-col-num">Unit cost *</th>
@@ -85,12 +120,19 @@ export default function LineItemsEditor({ rows, onChange, items, withCategory, c
                 </td>
                 {withCategory && (
                   <td>
-                    <ComboBox<AccCategory>
-                      items={categories} value={l.categoryName || ''} placeholder="Category"
-                      showOthers={false}
-                      onChange={(text) => set(i, { categoryName: text, categoryId: null })}
-                      onPick={(c) => set(i, c ? { categoryName: c.name, categoryId: c.id } : { categoryId: null })}
-                      onAddNew={onCreateCategory ? async (name) => { const c = await onCreateCategory(name); set(i, { categoryName: c.name, categoryId: c.id }) } : undefined}
+                    <CategorySelect
+                      value={l.categoryId} valueName={l.categoryName} placeholder="— Category —"
+                      options={categories.map((c) => ({ id: c.id, name: c.name }))}
+                      onPick={(id, name) => set(i, { categoryId: id || null, categoryName: name, subcategoryId: null, subcategoryName: '' })}
+                    />
+                  </td>
+                )}
+                {withSub && (
+                  <td>
+                    <CategorySelect
+                      value={l.subcategoryId} valueName={l.subcategoryName} placeholder={l.categoryId ? '— Subcategory —' : 'Pick category first'}
+                      options={subsFor(l.categoryId)}
+                      onPick={(id, name) => set(i, { subcategoryId: id || null, subcategoryName: name })}
                     />
                   </td>
                 )}

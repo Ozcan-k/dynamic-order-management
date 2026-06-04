@@ -92,6 +92,7 @@ export default function AccReport() {
   const expReport = exp.data
   const expTrend = (expReport?.trend ?? []).map((t) => ({ label: t.label, value: t.amount }))
   const byCategory = expReport?.byCategory ?? []
+  const bySubcategory = expReport?.bySubcategory ?? []
   const expTotal = expReport?.total ?? 0
   const byCatTotal = expReport?.byCategoryTotal ?? 0
   const expCount = expReport?.count ?? 0
@@ -212,6 +213,27 @@ export default function AccReport() {
                 </table>
               </div>
             )}
+          </ChartCard>
+
+          <ChartCard
+            title="Expenses by Subcategory"
+            subtitle={`${category ? `Within ${category}` : 'All categories'} · ${periodLabel} · Total ${money(expTotal)}`}
+          >
+            {exp.isLoading ? <div className="acc-empty">Loading…</div>
+              : bySubcategory.length === 0 ? <div className="acc-empty">No subcategory data for this period.</div>
+              : (
+                <ResponsiveContainer width="100%" height={Math.max(180, bySubcategory.length * 38 + 30)}>
+                  <BarChart data={bySubcategory} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
+                    <XAxis type="number" tickFormatter={compact} tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis type="category" dataKey="subcategoryName" tick={{ fontSize: 12, fill: '#334155' }} width={140} />
+                    <Tooltip formatter={tip} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
+                    <Bar dataKey="amount" name="Expenses" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                      {bySubcategory.map((_, i) => <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
           </ChartCard>
         </>
       )}
