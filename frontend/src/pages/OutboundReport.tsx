@@ -5,7 +5,7 @@ import { colors } from '../theme'
 import { Carrier, CARRIER_LABELS } from '@dom/shared'
 import PageShell from '../components/shared/PageShell'
 import StatCard from '../components/shared/StatCard'
-import { getDispatchReport } from '../api/dispatch'
+import { getDispatchReport, getOrderPipeline, type OrderPipeline } from '../api/dispatch'
 
 type PresetId = 'today' | 'yesterday' | '7' | '30' | 'custom'
 const PRESETS: { id: PresetId; label: string }[] = [
@@ -39,6 +39,60 @@ const OutboundIcon = (
   </svg>
 )
 
+// ─── Order pipeline funnel ────────────────────────────────────────────────────
+const PIPELINE_STAGES = [
+  { key: 'inbound',        label: 'Inbound',         color: '#2563eb', bg: '#eff6ff' },
+  { key: 'pickerComplete', label: 'Picker Complete', color: '#6366f1', bg: '#eef2ff' },
+  { key: 'packerComplete', label: 'Packer Complete', color: '#7c3aed', bg: '#f5f3ff' },
+  { key: 'outbound',       label: 'Outbound',        color: '#16a34a', bg: '#f0fdf4' },
+] as const
+
+function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: boolean }) {
+  const values = PIPELINE_STAGES.map((s) => (data ? data[s.key] : 0))
+  return (
+    <div className="acc-card" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: '18px 20px', marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+      <div style={{ marginBottom: 14 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Order Pipeline</h3>
+        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+          Distinct orders that reached each stage in this range — gaps show where parcels are still in flight.
+        </p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap' }}>
+        {PIPELINE_STAGES.map((s, i) => {
+          const value = values[i]
+          const delta = i === 0 ? null : value - values[i - 1]
+          return (
+            <div key={s.key} style={{ display: 'flex', alignItems: 'stretch', flex: '1 1 150px', minWidth: 150 }}>
+              {i > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 6px', flexShrink: 0 }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                  {delta !== null && (
+                    <span style={{
+                      marginTop: 4, fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                      padding: '1px 7px', borderRadius: 999,
+                      color: delta < 0 ? '#b45309' : delta > 0 ? '#2563eb' : '#16a34a',
+                      background: delta < 0 ? '#fffbeb' : delta > 0 ? '#eff6ff' : '#f0fdf4',
+                      border: `1px solid ${delta < 0 ? '#fde68a' : delta > 0 ? '#bfdbfe' : '#bbf7d0'}`,
+                    }}>
+                      {delta > 0 ? `+${delta}` : delta}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={{ flex: 1, background: s.bg, border: `1px solid ${s.color}22`, borderTop: `3px solid ${s.color}`, borderRadius: 12, padding: '14px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: s.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</div>
+                <div style={{ marginTop: 6, fontSize: 28, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                  {loading ? '—' : value}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function OutboundReport() {
   const user = useAuthStore((s) => s.user)
   const today = todayManila()
@@ -63,6 +117,11 @@ export default function OutboundReport() {
   const { data, isLoading } = useQuery({
     queryKey: ['dispatch-report', from, to],
     queryFn: () => getDispatchReport(from, to),
+  })
+
+  const { data: pipeline, isLoading: pipelineLoading } = useQuery({
+    queryKey: ['dispatch-pipeline', from, to],
+    queryFn: () => getOrderPipeline(from, to),
   })
 
   const carriers = data?.carriers ?? []
@@ -105,6 +164,9 @@ export default function OutboundReport() {
           )}
         </div>
       </div>
+
+      {/* Order pipeline funnel — reflects the same selected range */}
+      <PipelineFunnel data={pipeline} loading={pipelineLoading} />
 
       {/* Per-carrier table */}
       {isLoading ? (

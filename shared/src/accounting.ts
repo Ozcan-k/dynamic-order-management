@@ -267,11 +267,14 @@ export interface AccSalesReport {
 
 export interface AccExpenseReport {
   trend: { label: string; amount: number }[]            // date-range bucketed (auto daily/monthly)
-  byCategory: { categoryName: string; amount: number }[]
-  bySubcategory: { subcategoryName: string; amount: number }[]
+  byCategory: { categoryName: string; amount: number }[] // main categories only
+  // Flattened category+subcategory rows (country+vendor scope): a category with no
+  // subcategory shows as just its name; one with subcategories yields a row per sub,
+  // labelled "Category - Subcategory".
+  byCategorySub: { label: string; categoryName: string; subcategoryName: string | null; amount: number }[]
   categories: string[]                                  // categories that have spend in range (legacy; UI sources the filter from the catalog)
   total: number          // filtered (country+vendor+category+subcategory) — sum of trend
   byCategoryTotal: number // country+vendor scope (all categories) — % base for the category table
-  bySubcategoryTotal: number // country+vendor+category scope (all subcategories) — % base for the subcategory table
+  byCategorySubTotal: number // country+vendor scope (all category+subcategory rows) — % base for the breakdown table
   count: number          // # expenses matching the active filters
 }

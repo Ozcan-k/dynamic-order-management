@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, OrderStatus } from '@prisma/client'
 import { Platform, Carrier, DispatchSource } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { getManilaStartOf, getManilaStartOfToday } from '../lib/manila'
@@ -209,6 +209,40 @@ export async function getDispatchReport(tenantId: string, from?: string, to?: st
   )
 
   return { carriers, totals }
+}
+
+// ─── Order pipeline funnel (Outbound Report; read-only order-pipeline stats) ──
+// How many DISTINCT orders transitioned INTO each pipeline stage within the Manila
+// date range (by OrderStatusHistory.changedAt). In a smooth single-day operation the
+// four counts should be close — gaps reveal where parcels are still stuck. Read-only;
+// never touches the order pipeline. Note: OrderStatusHistory is hard-deleted with the
+// order after 180 days, so this funnel only covers the retention window.
+export async function getOrderPipeline(tenantId: string, from?: string, to?: string) {
+  const changedAt: Prisma.DateTimeFilter = {
+    ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
+    ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
+  }
+  const base: Prisma.OrderStatusHistoryWhereInput = {
+    order: { tenantId },
+    ...(from || to ? { changedAt } : {}),
+  }
+
+  const distinctOrders = async (toStatus: OrderStatus) => {
+    const rows = await prisma.orderStatusHistory.findMany({
+      where: { ...base, toStatus },
+      distinct: ['orderId'],
+      select: { orderId: true },
+    })
+    return rows.length
+  }
+
+  const [inbound, pickerComplete, packerComplete, outbound] = await Promise.all([
+    distinctOrders(OrderStatus.INBOUND),
+    distinctOrders(OrderStatus.PICKER_COMPLETE),
+    distinctOrders(OrderStatus.PACKER_COMPLETE),
+    distinctOrders(OrderStatus.OUTBOUND),
+  ])
+  return { inbound, pickerComplete, packerComplete, outbound }
 }
 
 // ─── Paginated list + delete (admin corrections) ──────────────────────────────

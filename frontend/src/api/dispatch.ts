@@ -52,6 +52,13 @@ export interface DispatchReport {
   totals: { total: number; inHouse: number; external: number }
 }
 
+export interface OrderPipeline {
+  inbound: number
+  pickerComplete: number
+  packerComplete: number
+  outbound: number
+}
+
 export interface CreateDispatchInput {
   trackingNumber: string
   source: DispatchSource
@@ -84,5 +91,10 @@ export async function getDispatchStats(date?: string): Promise<DispatchStats> {
 
 export async function getDispatchReport(from?: string, to?: string): Promise<DispatchReport> {
   const res = await api.get<DispatchReport>('/dispatch/report', { params: { from, to } })
+  return res.data
+}
+
+export async function getOrderPipeline(from?: string, to?: string): Promise<OrderPipeline> {
+  const res = await api.get<OrderPipeline>('/dispatch/pipeline', { params: { from, to } })
   return res.data
 }

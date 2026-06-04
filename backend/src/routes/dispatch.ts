@@ -8,6 +8,7 @@ import {
   getDispatchGrouped,
   getDispatchStats,
   getDispatchReport,
+  getOrderPipeline,
   listDispatch,
   deleteDispatch,
   DuplicateDispatchError,
@@ -101,6 +102,15 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
     const validTo = to && DATE_RE.test(to) ? to : undefined
     const { tenantId } = request.user as JWTPayload
     return reply.send(await getDispatchReport(tenantId, validFrom, validTo))
+  })
+
+  // GET /dispatch/pipeline?from=&to= — order-pipeline funnel (Inbound→Picker→Packer→Outbound)
+  fastify.get('/pipeline', { preHandler }, async (request, reply) => {
+    const { from, to } = request.query as { from?: string; to?: string }
+    const validFrom = from && DATE_RE.test(from) ? from : undefined
+    const validTo = to && DATE_RE.test(to) ? to : undefined
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getOrderPipeline(tenantId, validFrom, validTo))
   })
 
   // GET /dispatch — paginated list (admin corrections)

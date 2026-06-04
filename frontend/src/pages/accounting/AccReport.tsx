@@ -58,7 +58,7 @@ function TrendChart({ data, color }: { data: { label: string; value: number }[];
 // Horizontal ranked bars + percentage breakdown table — shared layout for the
 // "by Category" and "by Subcategory" sections so both read identically.
 function BreakdownChart({
-  rows, total, selected, onSelect, nameKey, label,
+  rows, total, selected, onSelect, nameKey, label, interactive = true,
 }: {
   rows: { name: string; amount: number }[]
   total: number
@@ -66,6 +66,7 @@ function BreakdownChart({
   onSelect: (name: string) => void
   nameKey: string
   label: string
+  interactive?: boolean
 }) {
   return (
     <>
@@ -89,7 +90,9 @@ function BreakdownChart({
               <tr key={r.name} style={selected === r.name ? { background: '#f1f5f9' } : undefined}>
                 <td>
                   <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: CAT_COLORS[i % CAT_COLORS.length], marginRight: 8, verticalAlign: 'middle' }} />
-                  <button type="button" className="acc-link-btn" onClick={() => onSelect(selected === r.name ? '' : r.name)}>{r.name}</button>
+                  {interactive
+                    ? <button type="button" className="acc-link-btn" onClick={() => onSelect(selected === r.name ? '' : r.name)}>{r.name}</button>
+                    : <span>{r.name}</span>}
                 </td>
                 <td className="acc-col-num">{money(r.amount)}</td>
                 <td className="acc-col-num">{total > 0 ? ((r.amount / total) * 100).toFixed(1) : '0.0'}%</td>
@@ -139,10 +142,10 @@ export default function AccReport() {
   const expReport = exp.data
   const expTrend = (expReport?.trend ?? []).map((t) => ({ label: t.label, value: t.amount }))
   const byCategory = (expReport?.byCategory ?? []).map((c) => ({ name: c.categoryName, amount: c.amount }))
-  const bySubcategory = (expReport?.bySubcategory ?? []).map((s) => ({ name: s.subcategoryName, amount: s.amount }))
+  const byCategorySub = (expReport?.byCategorySub ?? []).map((r) => ({ name: r.label, amount: r.amount }))
   const expTotal = expReport?.total ?? 0
   const byCatTotal = expReport?.byCategoryTotal ?? 0
-  const bySubTotal = expReport?.bySubcategoryTotal ?? 0
+  const byCatSubTotal = expReport?.byCategorySubTotal ?? 0
   const expCount = expReport?.count ?? 0
 
   const subOptions = categories.find((c) => c.name === category)?.subcategories ?? []
@@ -232,12 +235,12 @@ export default function AccReport() {
           </ChartCard>
 
           <ChartCard
-            title="Expenses by Subcategory"
-            subtitle={`${category ? `Within ${category}` : 'All categories'} · ${periodLabel} · Total ${money(bySubTotal)}`}
+            title="Expenses by Category & Subcategory"
+            subtitle={`${periodLabel} · Total ${money(byCatSubTotal)} · categories with subcategories are split per "Category - Subcategory"`}
           >
             {exp.isLoading ? <div className="acc-empty">Loading…</div>
-              : bySubcategory.length === 0 ? <div className="acc-empty">No subcategory data for this period.</div>
-              : <BreakdownChart rows={bySubcategory} total={bySubTotal} selected={subcategory} onSelect={setSubcategory} nameKey="Subcategory" label="Expenses" />}
+              : byCategorySub.length === 0 ? <div className="acc-empty">No expense data for this period.</div>
+              : <BreakdownChart rows={byCategorySub} total={byCatSubTotal} selected="" onSelect={() => {}} nameKey="Category / Subcategory" label="Expenses" interactive={false} />}
           </ChartCard>
         </>
       )}

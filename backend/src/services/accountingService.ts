@@ -716,18 +716,24 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
   const { trend, add } = range ? buildBuckets(range.start, range.end) : { trend: [] as { label: string; amount: number }[], add: (_d: Date, _a: number) => {} }
 
   const catTotals = new Map<string, number>()
-  const subTotals = new Map<string, number>() // honors the active category filter
+  // Combined category+subcategory breakdown (country+vendor scope, all categories).
+  // A line item with no subcategory rolls up under its bare category name; one with a
+  // subcategory becomes its own "Category - Subcategory" row.
+  const combo = new Map<string, { categoryName: string; subcategoryName: string | null; amount: number }>()
   const matched = new Set<string>()
   let total = 0
   for (const it of items) {
     const cn = catName(it.categoryName)
+    const sn = (it.subcategoryName || '').trim()
     const amt = num(it.lineTotal)
-    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)               // by-category: country+vendor scope (all categories)
-    if (!opts.category || cn === opts.category) {
-      const sn = catName(it.subcategoryName)
-      subTotals.set(sn, (subTotals.get(sn) || 0) + amt)             // by-subcategory: + category scope (all subcategories)
+    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)               // by-category: main categories only
+    const key = cn + ' ' + sn
+    const ex = combo.get(key)
+    if (ex) ex.amount += amt
+    else combo.set(key, { categoryName: cn, subcategoryName: sn || null, amount: amt })
+    if (!opts.category || cn === opts.category) {                   // trend/total/count: honor category + subcategory filter
       if (!opts.subcategory || sn === opts.subcategory) {
-        add(new Date(it.expense.dateIssued), amt)                   // trend/total/count: + subcategory filter
+        add(new Date(it.expense.dateIssued), amt)
         total += amt
         matched.add(it.expenseId)
       }
@@ -737,19 +743,24 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
   const byCategory = Array.from(catTotals.entries())
     .map(([categoryName, amount]) => ({ categoryName, amount: r2(amount) }))
     .sort((a, b) => b.amount - a.amount)
-  const bySubcategory = Array.from(subTotals.entries())
-    .map(([subcategoryName, amount]) => ({ subcategoryName, amount: r2(amount) }))
+  const byCategorySub = Array.from(combo.values())
+    .map((v) => ({
+      label: v.subcategoryName ? `${v.categoryName} - ${v.subcategoryName}` : v.categoryName,
+      categoryName: v.categoryName,
+      subcategoryName: v.subcategoryName,
+      amount: r2(v.amount),
+    }))
     .sort((a, b) => b.amount - a.amount)
   const byCategoryTotal = r2(byCategory.reduce((a, c) => a + c.amount, 0))
-  const bySubcategoryTotal = r2(bySubcategory.reduce((a, c) => a + c.amount, 0))
+  const byCategorySubTotal = r2(byCategorySub.reduce((a, c) => a + c.amount, 0))
   return {
     trend,
     byCategory,
-    bySubcategory,
+    byCategorySub,
     categories: byCategory.map((c) => c.categoryName),
     total: r2(total),
     byCategoryTotal,
-    bySubcategoryTotal,
+    byCategorySubTotal,
     count: matched.size,
   }
 }
