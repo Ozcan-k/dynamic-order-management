@@ -711,32 +711,46 @@ export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts
     select: { categoryName: true, subcategoryName: true, lineTotal: true, expenseId: true, expense: { select: { dateIssued: true } } },
   })
 
-  const catName = (c?: string | null) => (c || '').trim() || UNCATEGORIZED
+  // Categories were sometimes entered as a single flat "Main - Sub" name (e.g.
+  // "Packaging - Email Pouch") instead of using the dedicated subcategory field, so
+  // by-category alone would wrongly show each sub as its own category. splitCat
+  // normalises BOTH shapes: a real subcategory field, or a " - " inside the name.
+  const splitCat = (categoryName?: string | null, subcategoryName?: string | null) => {
+    const raw = (categoryName || '').trim()
+    const sub = (subcategoryName || '').trim()
+    if (sub) return { main: raw || UNCATEGORIZED, sub }                                  // proper parent/child
+    const idx = raw.indexOf(' - ')
+    if (idx >= 0) return { main: raw.slice(0, idx).trim() || UNCATEGORIZED, sub: raw.slice(idx + 3).trim() } // flat "Main - Sub"
+    return { main: raw || UNCATEGORIZED, sub: '' }                                       // plain category
+  }
   const range = resolveRange(opts.from, opts.to, items.map((it) => new Date(it.expense.dateIssued)))
   const { trend, add } = range ? buildBuckets(range.start, range.end) : { trend: [] as { label: string; amount: number }[], add: (_d: Date, _a: number) => {} }
 
-  const catTotals = new Map<string, number>()
-  // Combined category+subcategory breakdown (country+vendor scope, all categories).
-  // A line item with no subcategory rolls up under its bare category name; one with a
-  // subcategory becomes its own "Category - Subcategory" row.
+  const catTotals = new Map<string, number>() // keyed by MAIN category
+  // Combined main-category + subcategory breakdown (country+vendor scope, all
+  // categories). A category with no subcategory shows as its bare main name; one with
+  // a subcategory becomes a "Main - Sub" row.
   const combo = new Map<string, { categoryName: string; subcategoryName: string | null; amount: number }>()
   const matched = new Set<string>()
   let total = 0
   for (const it of items) {
-    const cn = catName(it.categoryName)
-    const sn = (it.subcategoryName || '').trim()
+    const rawCn = (it.categoryName || '').trim()
+    const rawSn = (it.subcategoryName || '').trim()
+    const { main, sub } = splitCat(rawCn, rawSn)
     const amt = num(it.lineTotal)
-    catTotals.set(cn, (catTotals.get(cn) || 0) + amt)               // by-category: main categories only
-    const key = cn + ' ' + sn
+    catTotals.set(main, (catTotals.get(main) || 0) + amt)            // by-category: rolled up to the MAIN category
+    const key = JSON.stringify([main, sub])
     const ex = combo.get(key)
     if (ex) ex.amount += amt
-    else combo.set(key, { categoryName: cn, subcategoryName: sn || null, amount: amt })
-    if (!opts.category || cn === opts.category) {                   // trend/total/count: honor category + subcategory filter
-      if (!opts.subcategory || sn === opts.subcategory) {
-        add(new Date(it.expense.dateIssued), amt)
-        total += amt
-        matched.add(it.expenseId)
-      }
+    else combo.set(key, { categoryName: main, subcategoryName: sub || null, amount: amt })
+    // Filters accept either the raw stored value (the catalog dropdown) or the derived
+    // main/sub (a click on a rolled-up chart bar), so both drill-downs work.
+    const catMatch = !opts.category || opts.category === rawCn || opts.category === main
+    const subMatch = !opts.subcategory || opts.subcategory === rawSn || opts.subcategory === sub
+    if (catMatch && subMatch) {
+      add(new Date(it.expense.dateIssued), amt)
+      total += amt
+      matched.add(it.expenseId)
     }
   }
   trend.forEach((t) => { t.amount = r2(t.amount) })
