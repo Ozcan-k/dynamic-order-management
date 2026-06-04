@@ -225,4 +225,19 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const month = /^\d{4}-\d{2}$/.test(q.month || '') ? q.month : new Date().toISOString().slice(0, 7)
     return svc.getReport(tenantOf(req), month)
   })
+
+  // ─── Yearly report (12-month Sales vs Expenses) ─────────────────────────────
+  fastify.get('/report/yearly', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    const year = /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : new Date().getUTCFullYear()
+    return svc.getYearlyReport(tenantOf(req), year)
+  })
+
+  // ─── Expenses by category (per-year, optional category filter) ──────────────
+  fastify.get('/report/expenses-by-category', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    const year = /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : new Date().getUTCFullYear()
+    const category = typeof q.category === 'string' && q.category.trim() ? q.category.trim() : undefined
+    return svc.getExpenseCategoryReport(tenantOf(req), year, category)
+  })
 }

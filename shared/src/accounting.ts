@@ -232,3 +232,22 @@ export interface AccSalesAgent {
   id: string
   username: string
 }
+
+export interface AccYearlyReport {
+  year: number
+  byMonth: { month: number; sales: number; expenses: number; net: number }[]
+  totalSales: number
+  totalExpenses: number
+  net: number
+  salesCount: number
+  expenseCount: number
+}
+
+export interface AccExpenseCategoryReport {
+  year: number
+  category: string | null
+  categories: string[]
+  byCategory: { categoryName: string; amount: number }[]
+  byMonth: { month: number; amount: number }[]
+  total: number
+}

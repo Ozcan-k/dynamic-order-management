@@ -515,3 +515,49 @@ export async function getReport(tenantId: string, month: string) {
     sales: sales.map(serSale), expenses: expenses.map(serExpense),
   }
 }
+
+// ─── Yearly Sales vs Expenses (12-month buckets) ────────────────────────────
+export async function getYearlyReport(tenantId: string, year: number) {
+  const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0))
+  const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
+  const range = { gte: start, lte: end }
+  const [sales, expenses] = await Promise.all([
+    prisma.accSale.findMany({ where: { tenantId, dateIssued: range }, select: { dateIssued: true, total: true } }),
+    prisma.accExpense.findMany({ where: { tenantId, dateIssued: range }, select: { dateIssued: true, total: true } }),
+  ])
+  const byMonth = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, sales: 0, expenses: 0, net: 0 }))
+  for (const s of sales) byMonth[new Date(s.dateIssued).getUTCMonth()].sales += num(s.total)
+  for (const e of expenses) byMonth[new Date(e.dateIssued).getUTCMonth()].expenses += num(e.total)
+  byMonth.forEach((m) => { m.sales = r2(m.sales); m.expenses = r2(m.expenses); m.net = r2(m.sales - m.expenses) })
+  const totalSales = r2(byMonth.reduce((a, m) => a + m.sales, 0))
+  const totalExpenses = r2(byMonth.reduce((a, m) => a + m.expenses, 0))
+  return { year, byMonth, totalSales, totalExpenses, net: r2(totalSales - totalExpenses), salesCount: sales.length, expenseCount: expenses.length }
+}
+
+// ─── Expenses by category (line-item level) for a year ──────────────────────
+// Category lives on AccExpenseItem, not on the expense header, so we aggregate
+// line totals. `byCategory` = year totals per category (for the "All" breakdown);
+// `byMonth` = 12-month trend for the selected category (or all expenses if none).
+const UNCATEGORIZED = 'Uncategorized'
+export async function getExpenseCategoryReport(tenantId: string, year: number, category?: string) {
+  const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0))
+  const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
+  const items = await prisma.accExpenseItem.findMany({
+    where: { expense: { tenantId, dateIssued: { gte: start, lte: end } } },
+    select: { categoryName: true, lineTotal: true, expense: { select: { dateIssued: true } } },
+  })
+  const catTotals = new Map<string, number>()
+  const byMonth = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0 }))
+  for (const it of items) {
+    const cat = (it.categoryName || '').trim() || UNCATEGORIZED
+    const amt = num(it.lineTotal)
+    catTotals.set(cat, (catTotals.get(cat) || 0) + amt)
+    if (!category || cat === category) byMonth[new Date(it.expense.dateIssued).getUTCMonth()].amount += amt
+  }
+  byMonth.forEach((m) => { m.amount = r2(m.amount) })
+  const byCategory = Array.from(catTotals.entries())
+    .map(([categoryName, amount]) => ({ categoryName, amount: r2(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+  const total = r2(byCategory.reduce((a, c) => a + c.amount, 0))
+  return { year, category: category || null, categories: byCategory.map((c) => c.categoryName), byCategory, byMonth, total }
+}
