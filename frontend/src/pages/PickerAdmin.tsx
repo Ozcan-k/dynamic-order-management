@@ -818,7 +818,7 @@ function PickerStatCard({ stat, onClick, onPrefetch }: { stat: PickerStat; onCli
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <StatusChip
           label="Assigned"
-          count={stat.statusCounts.PICKER_ASSIGNED}
+          count={stat.statusCounts.PICKER_ASSIGNED + stat.statusCounts.PICKING}
           bg="#dbeafe"
           color="#1e40af"
           dot="#3b82f6"
@@ -1142,7 +1142,7 @@ export default function PickerAdmin() {
   const { data: statsData } = useQuery({
     queryKey: ['picker-admin-stats'],
     queryFn: async () => {
-      const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number }>('/picker-admin/stats')
+      const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number; inProgressTotal: number; completedTodayTotal: number }>('/picker-admin/stats')
       return res.data
     },
     staleTime: 5_000,
@@ -1242,6 +1242,10 @@ export default function PickerAdmin() {
   const pickerList = pickers ?? []
   const statsList = statsData?.stats ?? []
   const returnedFromPacker = statsData?.returnedCount ?? 0
+  // In Progress = orders assigned to pickers (PICKER_ASSIGNED + PICKING); equals the sum
+  // of the workload cards below. Total Completed = pickers' completions today (resets daily).
+  const inProgressTotal = statsData?.inProgressTotal ?? 0
+  const completedTodayTotal = statsData?.completedTodayTotal ?? 0
 
   // Distinct platforms present in current data — drives filter chips
   const availablePlatforms = useMemo(
@@ -1364,8 +1368,8 @@ export default function PickerAdmin() {
     <>
       {readOnly && <ViewOnlyBadge />}
       <StatCard label="In Queue" value={orderStats?.pendingInbound ?? orderList.length} color={colors.primary} />
-      <StatCard label="In Progress" value={orderStats?.inProgressCount ?? 0} color={colors.success} />
-      <StatCard label="Total Completed" value={orderStats?.pickerDoneCount ?? 0} color="#10b981" />
+      <StatCard label="In Progress" value={inProgressTotal} color={colors.success} />
+      <StatCard label="Total Completed" value={completedTodayTotal} color="#10b981" />
       <StatCard label="Returned from Packer" value={returnedFromPacker} color="#f59e0b" />
       {/* Delay breakdown */}
       <div style={{

@@ -43,6 +43,10 @@ export default function Inbound() {
   const [lastShop, setLastShop] = useState(() => localStorage.getItem('quickScan_shop') ?? '')
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [generatedTN, setGeneratedTN] = useState<string | null>(null)
+  // Inbound counter date scope — counts orders SCANNED that day (createdAt), not the live queue.
+  const [dateMode, setDateMode] = useState<'today' | 'yesterday' | 'custom'>('today')
+  const [customFrom, setCustomFrom] = useState(() => getManilaDateString())
+  const [customTo, setCustomTo] = useState(() => getManilaDateString())
 
   const canDelete =
     user?.role === UserRole.ADMIN || user?.role === UserRole.INBOUND_ADMIN
@@ -102,14 +106,21 @@ export default function Inbound() {
     refetchInterval: 10_000,
   })
 
-  const { data: statsData } = useQuery({
-    queryKey: ['orders-stats'],
+  // Resolve the Inbound counter's date scope into Manila day strings.
+  const yesterdayStr = getManilaDateString(new Date(Date.now() - 86_400_000))
+  const fromDate = dateMode === 'today' ? getManilaDateString() : dateMode === 'yesterday' ? yesterdayStr : customFrom
+  const toDate = dateMode === 'today' ? getManilaDateString() : dateMode === 'yesterday' ? yesterdayStr : customTo
+
+  // Inbound counter — orders SCANNED (createdAt) in the selected Manila day range.
+  const { data: inboundCountData } = useQuery({
+    queryKey: ['inbound-count', fromDate, toDate],
     queryFn: async () => {
-      const res = await api.get<{ totalScanned: number; pendingInbound: number; delayBreakdown: number[] }>('/orders/stats')
+      const res = await api.get<{ from: string; to: string; count: number }>('/orders/inbound-count', { params: { from: fromDate, to: toDate } })
       return res.data
     },
     refetchInterval: 10_000,
   })
+  const inboundCount = inboundCountData?.count ?? 0
 
   const scanMutation = useMutation({
     mutationFn: (payload: { trackingNumber: string; carrierName?: string; shopName?: string }) =>
@@ -156,7 +167,6 @@ export default function Inbound() {
   const todayOrders = allOrders.filter(o => getManilaDateString(new Date(o.workDate)) === todayStr)
   const carryoverOrders = allOrders.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr)
   const pending = allOrders.length
-  const totalScanned = statsData?.totalScanned ?? pending
   const totalPages = Math.max(1, Math.ceil(pending / PAGE_SIZE))
   const safePage = Math.min(currentPage, totalPages)
   const pagedOrders = allOrders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
@@ -166,7 +176,50 @@ export default function Inbound() {
   const headerStats = (
     <>
       {readOnly && <ViewOnlyBadge />}
-      <StatCard label="Inbound" value={totalScanned} color={colors.primary} />
+      <StatCard label="Inbound" value={inboundCount} color={colors.primary} />
+      {/* Date scope for the Inbound counter (scanned that day) */}
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {([['today', 'Today'], ['yesterday', 'Yesterday'], ['custom', 'Custom']] as const).map(([m, label]) => {
+          const active = dateMode === m
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setDateMode(m)}
+              style={{
+                padding: '5px 11px', fontSize: 12, fontWeight: 600,
+                borderRadius: 999, cursor: 'pointer',
+                border: `1px solid ${active ? colors.primary : colors.border}`,
+                background: active ? colors.primary : '#fff',
+                color: active ? '#fff' : colors.textSecondary,
+                transition: 'all 0.12s',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+        {dateMode === 'custom' && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="date"
+              value={customFrom}
+              max={todayStr}
+              onChange={(e) => { const v = e.target.value; setCustomFrom(v); if (v > customTo) setCustomTo(v) }}
+              style={{ padding: '4px 8px', fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 8, color: colors.textPrimary }}
+            />
+            <span style={{ color: colors.textMuted, fontSize: 12 }}>→</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              max={todayStr}
+              onChange={(e) => setCustomTo(e.target.value)}
+              style={{ padding: '4px 8px', fontSize: 12, border: `1px solid ${colors.border}`, borderRadius: 8, color: colors.textPrimary }}
+            />
+          </span>
+        )}
+      </div>
       {isLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
           <span className="spinner spinner-sm" />

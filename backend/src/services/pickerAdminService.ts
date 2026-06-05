@@ -407,5 +407,14 @@ export async function getPickerStats(tenantId: string) {
     }
   })
 
-  return { stats, returnedCount, totalCompleted }
+  // Header "In Progress" = orders currently assigned to a picker (PICKER_ASSIGNED + PICKING),
+  // derived from the SAME per-picker workload so the card always equals the sum of the cards.
+  const inProgressTotal = stats.reduce(
+    (sum, s) => sum + s.statusCounts.PICKER_ASSIGNED + s.statusCounts.PICKING,
+    0,
+  )
+  // Header "Total Completed" = pickers' completions THIS Manila day (resets at midnight).
+  const completedTodayTotal = stats.reduce((sum, s) => sum + s.completedToday, 0)
+
+  return { stats, returnedCount, totalCompleted, inProgressTotal, completedTodayTotal }
 }

@@ -843,7 +843,7 @@ export default function PackerAdmin() {
   const { data: statsData } = useQuery({
     queryKey: ['packer-admin-stats'],
     queryFn: async () => {
-      const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number }>('/packer-admin/stats')
+      const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number; inProgressTotal: number; completedTodayTotal: number }>('/packer-admin/stats')
       return res.data
     },
     staleTime: 0,
@@ -865,8 +865,11 @@ export default function PackerAdmin() {
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr).length
   const statsList = statsData?.stats ?? []
-  const totalCompleted = statsData?.totalCompleted ?? 0
   const returnedCount = statsData?.returnedCount ?? 0
+  // In Progress = orders assigned to packers (PACKER_ASSIGNED + PACKING); equals the sum of
+  // the workload cards below. Total Packed = packers' completions today (resets at midnight).
+  const inProgressTotal = statsData?.inProgressTotal ?? 0
+  const packedTodayTotal = statsData?.completedTodayTotal ?? 0
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['packer-admin-orders'] })
@@ -1093,7 +1096,8 @@ export default function PackerAdmin() {
     <>
       {readOnly && <ViewOnlyBadge />}
       <StatCard label="Waiting to Pack" value={orderList.length} color={colors.warning} />
-      <StatCard label="Total Packed" value={totalCompleted} color={colors.success} />
+      <StatCard label="In Progress" value={inProgressTotal} color={colors.primary} />
+      <StatCard label="Total Packed" value={packedTodayTotal} color={colors.success} />
       <StatCard label="Returned to Picker" value={returnedCount} color="#f59e0b" />
       {ordersLoading && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted }}>
