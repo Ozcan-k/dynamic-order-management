@@ -159,6 +159,11 @@ export default function OutboundScan() {
           playBeep(false); vibrate([180, 100, 180, 100, 180])
           return
         }
+        if (!lookup.packerComplete) {
+          setError(`Waybill ${wb} is not packer-complete yet — the packer must scan it before it can be dispatched. Outbound cannot accept it.`)
+          playBeep(false); vibrate([180, 100, 180, 100, 180])
+          return
+        }
         playBeep(true); vibrate([90, 50, 140])
         setPending({
           trackingNumber: wb,

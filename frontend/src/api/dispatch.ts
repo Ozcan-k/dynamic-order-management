@@ -20,6 +20,7 @@ export interface OrderLookupResult {
   platform: Platform | null
   shopName: string | null
   carrierName: string | null
+  packerComplete: boolean // false until the packer has scanned the parcel complete
 }
 
 export interface ShopCount {

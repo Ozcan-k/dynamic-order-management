@@ -13,6 +13,7 @@ import {
   deleteDispatch,
   DuplicateDispatchError,
   OrderNotFoundError,
+  OrderNotPackerCompleteError,
 } from '../services/dispatchService'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -74,6 +75,9 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
       }
       if (err instanceof OrderNotFoundError) {
         return reply.code(404).send({ error: `Waybill ${tn} was not found in our orders. In-house parcels must already be in the system.` })
+      }
+      if (err instanceof OrderNotPackerCompleteError) {
+        return reply.code(409).send({ error: `Waybill ${tn} is not packer-complete yet — the packer must scan it before it can be dispatched. Outbound cannot accept it.` })
       }
       throw err
     }
