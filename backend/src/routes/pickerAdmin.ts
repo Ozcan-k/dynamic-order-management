@@ -145,8 +145,9 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
   // GET /picker-admin/stats
   fastify.get('/stats', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
-    const { stats, returnedCount, totalCompleted } = await getPickerStats(tenantId)
-    return reply.send({ stats, returnedCount, totalCompleted })
+    // Forward the whole result so new fields (inProgressTotal, completedTodayTotal)
+    // reach the client — destructuring a subset here silently dropped them before.
+    return reply.send(await getPickerStats(tenantId))
   })
 
   // GET /picker-admin/picker/:pickerId/orders

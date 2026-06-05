@@ -183,8 +183,9 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
   // GET /packer-admin/stats — per-packer completion counts + overall total
   fastify.get('/stats', { preHandler: readPreHandler }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
-    const { stats, totalCompleted, returnedCount } = await getPackerStats(tenantId)
-    return reply.send({ stats, totalCompleted, returnedCount })
+    // Forward the whole result so new fields (inProgressTotal, completedTodayTotal)
+    // reach the client — destructuring a subset here silently dropped them before.
+    return reply.send(await getPackerStats(tenantId))
   })
 
   // GET /packer-admin/packer/:packerId/orders — specific packer's completed orders
