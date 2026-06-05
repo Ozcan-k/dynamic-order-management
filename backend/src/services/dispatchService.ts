@@ -1,7 +1,7 @@
 import { Prisma, OrderStatus } from '@prisma/client'
 import { Platform, Carrier, DispatchSource } from '@dom/shared'
 import { prisma } from '../lib/prisma'
-import { getManilaStartOf, getManilaStartOfToday } from '../lib/manila'
+import { getManilaStartOf, getManilaStartOfToday, getManilaDateString } from '../lib/manila'
 
 // ─── Outbound (dispatch) service ──────────────────────────────────────────────
 // Independent "handed-to-courier" log. NEVER writes to the Order pipeline — the
@@ -230,15 +230,21 @@ export async function getDispatchReport(tenantId: string, from?: string, to?: st
 }
 
 // ─── Order pipeline funnel (Outbound Report; read-only order-pipeline stats) ──
-// Stages 1-4 = how many DISTINCT orders transitioned INTO each pipeline stage within
+// Stages 1-3 = how many DISTINCT orders transitioned INTO each pipeline stage within
 // the Manila date range (by OrderStatusHistory.changedAt) — the WAREHOUSE milestones
-// (packing complete auto-advances PACKER_COMPLETE → OUTBOUND, so those two track each
-// other). Stage 5 "dispatched" = in-house parcels physically handed to courier (the
-// independent Dispatch module, by dispatchParcel.createdAt) — a DIFFERENT event on a
-// DIFFERENT timeline, so it can exceed "outbound" on a given day (backlog packed on
-// earlier days but shipped today). Read-only; never touches the order pipeline. Note:
-// OrderStatusHistory is hard-deleted with the order after 180 days, so stages 1-4 only
-// cover the retention window (dispatch records are kept indefinitely).
+// Inbound → Picker Complete → Packer Complete.
+//
+// Stage 4 "outbound" is SCAN-DRIVEN, not the PACKER_COMPLETE → OUTBOUND auto-advance:
+// it counts the in-house parcels the Outbound Admin actually SCANNED out in this range
+// (Dispatch module, by dispatchParcel.createdAt). A parcel not scanned is NOT counted,
+// even though its order auto-advanced to OUTBOUND when the packer finished it.
+//
+// Stage 5 "oldOrders" is a SUBSET of stage 4 (not a sequential drop): of the scanned
+// parcels, how many were packer-completed on an EARLIER Manila day than the scan day
+// (backlog packed before, shipped today). Same-day packed-and-scanned parcels are the
+// normal flow and are NOT counted here. A scanned parcel whose order is gone (archived
+// after 180 days) counts as old — archival means it was packed long ago.
+// Read-only; never touches the order pipeline.
 export async function getOrderPipeline(tenantId: string, from?: string, to?: string) {
   const range: Prisma.DateTimeFilter = {
     ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
@@ -259,17 +265,42 @@ export async function getOrderPipeline(tenantId: string, from?: string, to?: str
     return rows.length
   }
 
-  const [inbound, pickerComplete, packerComplete, outbound, dispatched] = await Promise.all([
+  // In-house parcels actually scanned out in this range (drives "outbound").
+  const scannedParcels = await prisma.dispatchParcel.findMany({
+    where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
+    select: { createdAt: true, orderId: true },
+  })
+
+  // Resolve each scanned parcel's packer-complete day to split same-day vs backlog.
+  // slaCompletedAt is stamped at the PACKER_COMPLETE → OUTBOUND auto-advance, i.e. the
+  // moment the packer finished — the right "packed on" timestamp to compare against.
+  const orderIds = scannedParcels
+    .map((p) => p.orderId)
+    .filter((id): id is string => Boolean(id))
+  const completedOrders = orderIds.length
+    ? await prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, slaCompletedAt: true },
+      })
+    : []
+  const completedAtById = new Map(completedOrders.map((o) => [o.id, o.slaCompletedAt]))
+
+  let oldOrders = 0
+  for (const p of scannedParcels) {
+    const completedAt = p.orderId ? completedAtById.get(p.orderId) ?? null : null
+    const packedDay = completedAt ? getManilaDateString(completedAt) : null
+    const scanDay = getManilaDateString(p.createdAt)
+    // packed on an earlier day, or order archived/unknown → backlog "old order".
+    if (packedDay === null || packedDay < scanDay) oldOrders++
+  }
+  const outbound = scannedParcels.length
+
+  const [inbound, pickerComplete, packerComplete] = await Promise.all([
     distinctOrders(OrderStatus.INBOUND),
     distinctOrders(OrderStatus.PICKER_COMPLETE),
     distinctOrders(OrderStatus.PACKER_COMPLETE),
-    distinctOrders(OrderStatus.OUTBOUND),
-    // In-house parcels handed to courier (matches the header "In-house" counter).
-    prisma.dispatchParcel.count({
-      where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
-    }),
   ])
-  return { inbound, pickerComplete, packerComplete, outbound, dispatched }
+  return { inbound, pickerComplete, packerComplete, outbound, oldOrders }
 }
 
 // ─── Paginated list + delete (admin corrections) ──────────────────────────────
