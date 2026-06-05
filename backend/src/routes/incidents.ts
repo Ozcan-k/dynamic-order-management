@@ -27,8 +27,10 @@ import {
 import { generateIncidentPdfBuffer } from '../services/incidentPdfService'
 import { isSmtpConfigured, sendIncidentEmail } from '../services/incidentEmailService'
 
-const MAX_SIGNED_BYTES = 10 * 1024 * 1024 // 10 MB
+const MAX_SIGNED_MB = 10
+const MAX_SIGNED_BYTES = MAX_SIGNED_MB * 1024 * 1024 // plenty for a signed PDF/JPG scan
 const ALLOWED_SIGNED_MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'] as const
+const TOO_LARGE_MSG = `File is too large. The maximum allowed size is ${MAX_SIGNED_MB} MB — please upload a smaller PDF or JPG (scan at lower resolution or compress it).`
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -298,9 +300,21 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: `Unsupported file type: ${file.mimetype}. Allowed: PDF, PNG, JPG.` })
       }
 
-      const buffer = await file.toBuffer()
+      // @fastify/multipart (throwFileSizeLimit defaults to true) THROWS once the stream
+      // passes limits.fileSize, so the truncated check below was never reached — the raw
+      // 413 propagated as an unfriendly "request file too large" message. Catch it and
+      // return a clear, human message instead. Keep the truncated check as a fallback.
+      let buffer: Buffer
+      try {
+        buffer = await file.toBuffer()
+      } catch (err: any) {
+        if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
+          return reply.code(413).send({ error: TOO_LARGE_MSG })
+        }
+        throw err
+      }
       if (file.file.truncated) {
-        return reply.code(413).send({ error: `File exceeds maximum size of ${MAX_SIGNED_BYTES} bytes.` })
+        return reply.code(413).send({ error: TOO_LARGE_MSG })
       }
 
       const updated = await saveSignedFile(tenantId, id, buffer, file.mimetype)
