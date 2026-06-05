@@ -47,6 +47,7 @@ const saleSchema = z
     accountName: z.string().max(160).nullish(),
     referenceNumber: z.string().max(120).nullish(),
     gcashNumber: z.string().max(120).nullish(),
+    note: z.string().max(2000).nullish(),
     items: z.array(lineSchema).min(1),
   })
   .superRefine((d, ctx) => {
@@ -275,5 +276,15 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
       category: str(q.category),
       subcategory: str(q.subcategory),
     })
+  })
+
+  // ─── Transactions ledger — flat per-line-item rows (Sales | Expenses) ───────
+  fastify.get('/ledger/sales', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.listSalesLedger(tenantOf(req), dateStr(q.from), dateStr(q.to))
+  })
+  fastify.get('/ledger/expenses', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.listExpenseLedger(tenantOf(req), dateStr(q.from), dateStr(q.to))
   })
 }
