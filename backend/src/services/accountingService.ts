@@ -357,6 +357,7 @@ export async function createSale(tenantId: string, d: any) {
       saleChannel: d.saleChannel ?? 'OTHERS',
       storeName: d.storeName ?? null,
       status: d.status ?? 'UNPAID',
+      note: d.note ?? null,
       ...normalizeSalePayment(d),
       ...totals,
       items: {
@@ -399,6 +400,7 @@ export async function updateSale(tenantId: string, id: string, d: any) {
       saleChannel: d.saleChannel ?? 'OTHERS',
       storeName: d.storeName ?? null,
       status: d.status ?? 'UNPAID',
+      note: d.note ?? null,
       ...normalizeSalePayment(d),
       ...totals,
       items: {
@@ -418,6 +420,40 @@ export async function updateSale(tenantId: string, id: string, d: any) {
 export async function deleteSale(tenantId: string, id: string) {
   const res = await prisma.accSale.deleteMany({ where: { id, tenantId } })
   return res.count > 0
+}
+
+// ─── Transactions ledger — flat per-line-item rows (Sales) ──────────────────
+// One row PER line item, so an invoice with N items yields N rows. Date-range
+// filtered by the invoice's dateIssued (same semantics as the list/report).
+export async function listSalesLedger(tenantId: string, from?: string, to?: string) {
+  const where: any = { tenantId }
+  const dw = dateWhere(from, to); if (dw) where.dateIssued = dw
+  const sales = await prisma.accSale.findMany({ where, orderBy: { dateIssued: 'desc' }, include: { items: true } })
+  const rows = sales.flatMap((s) =>
+    s.items.map((it) => ({
+      id: it.id, saleId: s.id, dateIssued: s.dateIssued, invoiceNo: s.invoiceNo,
+      customerName: s.customerName, storeName: s.storeName,
+      itemName: it.itemName, categoryName: it.categoryName, description: it.description,
+      quantity: num(it.quantity), unitCost: num(it.unitCost), discountPct: num(it.discountPct), taxPct: num(it.taxPct), lineTotal: num(it.lineTotal),
+    })),
+  )
+  return { rows, total: rows.reduce((a, r) => a + r.lineTotal, 0), count: rows.length }
+}
+
+// ─── Transactions ledger — flat per-line-item rows (Expenses) ───────────────
+export async function listExpenseLedger(tenantId: string, from?: string, to?: string) {
+  const where: any = { tenantId }
+  const dw = dateWhere(from, to); if (dw) where.dateIssued = dw
+  const expenses = await prisma.accExpense.findMany({ where, orderBy: { dateIssued: 'desc' }, include: { items: true } })
+  const rows = expenses.flatMap((e) =>
+    e.items.map((it) => ({
+      id: it.id, expenseId: e.id, dateIssued: e.dateIssued, purchaseNo: e.purchaseNo,
+      vendorName: e.vendorName, country: e.country,
+      itemName: it.itemName, categoryName: it.categoryName, subcategoryName: it.subcategoryName, description: it.description,
+      quantity: num(it.quantity), unitCost: num(it.unitCost), discountPct: num(it.discountPct), taxPct: num(it.taxPct), lineTotal: num(it.lineTotal),
+    })),
+  )
+  return { rows, total: rows.reduce((a, r) => a + r.lineTotal, 0), count: rows.length }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

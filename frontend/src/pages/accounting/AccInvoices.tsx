@@ -18,12 +18,12 @@ export default function AccInvoices() {
   return (
     <div className="acc-page">
       <div className="acc-head acc-head-row">
-        <div><h1 className="acc-title">Invoices</h1><p className="acc-sub">Manage and track all your invoices</p></div>
+        <div><h1 className="acc-title">Sales</h1><p className="acc-sub">Manage and track all your sales</p></div>
         <button className="acc-btn acc-btn-success" onClick={() => navigate('/accounting/sales/new')}>+ New Invoice</button>
       </div>
 
       <div className="acc-grid acc-grid-4" style={{ marginBottom: 20 }}>
-        <div className="acc-stat acc-stat--blue"><div className="acc-stat-label">Total Invoices</div><div className="acc-stat-value">{money(stats?.total ?? 0)}</div><div className="acc-stat-sub">{stats?.count ?? 0} invoices</div></div>
+        <div className="acc-stat acc-stat--blue"><div className="acc-stat-label">Total Sales</div><div className="acc-stat-value">{money(stats?.total ?? 0)}</div><div className="acc-stat-sub">{stats?.count ?? 0} sales</div></div>
         <div className="acc-stat acc-stat--red"><div className="acc-stat-label">Unpaid</div><div className="acc-stat-value neg">{money(stats?.unpaid ?? 0)}</div><div className="acc-stat-sub">pending</div></div>
         <div className="acc-stat acc-stat--green"><div className="acc-stat-label">Collected</div><div className="acc-stat-value pos">{money(stats?.paid ?? 0)}</div><div className="acc-stat-sub">paid</div></div>
         <div className="acc-stat acc-stat--amber"><div className="acc-stat-label">This Month</div><div className="acc-stat-value warn">{money(stats?.thisMonth ?? 0)}</div><div className="acc-stat-sub">issued</div></div>
@@ -48,10 +48,22 @@ export default function AccInvoices() {
           </tr></thead>
           <tbody>
             {isLoading ? <tr><td colSpan={8} className="acc-empty">Loading…</td></tr>
-              : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={8} className="acc-empty">No invoices present.</td></tr>
+              : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={8} className="acc-empty">No sales present.</td></tr>
               : data!.items.map((s) => (
                 <tr key={s.id}>
-                  <td style={{ fontWeight: 600 }}>{s.invoiceNo}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {s.invoiceNo}
+                      {s.note && s.note.trim() && (
+                        <span title={s.note} style={{ display: 'inline-flex', alignItems: 'center', color: '#b45309', cursor: 'help' }} aria-label="Has note">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="#fef3c7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" />
+                          </svg>
+                        </span>
+                      )}
+                    </span>
+                  </td>
                   <td>{new Date(s.dateIssued).toLocaleDateString('en-US')}</td>
                   <td>{s.customerName}{s.salesAgentName && <div className="acc-muted" style={{ fontSize: 12 }}>by {s.salesAgentName}</div>}</td>
                   <td>{s.storeName || <span className="acc-muted">—</span>}</td>

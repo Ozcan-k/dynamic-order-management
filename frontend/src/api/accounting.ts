@@ -3,6 +3,7 @@ import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccStore, AccSale, AccExpense,
   AccCompanyProfile, AccPaginated, AccListStats, AccSalesAgent,
   AccSalesReport, AccExpenseReport, AccCatalogKind,
+  AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -179,5 +180,22 @@ export function useExpenseReport(p: ExpenseReportParams) {
   return useQuery({
     queryKey: ['acc', 'report', 'expenses', p],
     queryFn: async () => (await api.get<AccExpenseReport>(`${BASE}/report/expenses`, { params: clean(p as any) })).data,
+  })
+}
+
+// ─── Transactions ledger (flat per-line-item rows) ───────────────────────────
+export interface LedgerParams { from?: string; to?: string }
+export function useSalesLedger(p: LedgerParams) {
+  return useQuery({
+    queryKey: ['acc', 'ledger', 'sales', p],
+    queryFn: async () => (await api.get<AccLedger<AccSalesLedgerRow>>(`${BASE}/ledger/sales`, { params: clean(p as any) })).data,
+    placeholderData: keepPreviousData, staleTime: 15_000,
+  })
+}
+export function useExpenseLedger(p: LedgerParams) {
+  return useQuery({
+    queryKey: ['acc', 'ledger', 'expenses', p],
+    queryFn: async () => (await api.get<AccLedger<AccExpenseLedgerRow>>(`${BASE}/ledger/expenses`, { params: clean(p as any) })).data,
+    placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }

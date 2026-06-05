@@ -736,6 +736,8 @@ model AccSale {
   taxTotal      Decimal @db.Decimal(14, 2) @default(0) @map("tax_total")
   total         Decimal @db.Decimal(14, 2) @default(0)
 
+  note      String?  @db.Text
+
   items     AccSaleItem[]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

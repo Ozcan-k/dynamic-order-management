@@ -179,6 +179,7 @@ export interface AccSale {
   discountTotal: number
   taxTotal: number
   total: number
+  note: string | null
   items: AccSaleItem[]
   createdAt: string
   updatedAt: string
@@ -246,6 +247,48 @@ export interface AccReportData {
 export interface AccSalesAgent {
   id: string
   username: string
+}
+
+// ─── Transactions ledger — one row per line item ────────────────────────────
+export interface AccSalesLedgerRow {
+  id: string
+  saleId: string
+  dateIssued: string
+  invoiceNo: string
+  customerName: string
+  storeName: string | null
+  itemName: string
+  categoryName: string | null
+  description: string | null
+  quantity: number
+  unitCost: number
+  discountPct: number
+  taxPct: number
+  lineTotal: number
+}
+
+export interface AccExpenseLedgerRow {
+  id: string
+  expenseId: string
+  dateIssued: string
+  purchaseNo: string
+  vendorName: string
+  country: AccCountry
+  itemName: string
+  categoryName: string | null
+  subcategoryName: string | null
+  description: string | null
+  quantity: number
+  unitCost: number
+  discountPct: number
+  taxPct: number
+  lineTotal: number
+}
+
+export interface AccLedger<T> {
+  rows: T[]
+  total: number
+  count: number
 }
 
 export interface AccYearlyReport {

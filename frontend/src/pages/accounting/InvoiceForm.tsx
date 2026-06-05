@@ -72,6 +72,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     paymentMethod: (initial?.paymentMethod ?? AccPaymentMethod.CASH) as AccPaymentMethod,
     bankName: initial?.bankName ?? '', accountName: initial?.accountName ?? '',
     referenceNumber: initial?.referenceNumber ?? '', gcashNumber: initial?.gcashNumber ?? '',
+    note: initial?.note ?? '',
   })
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
   const [error, setError] = useState('')
@@ -110,6 +111,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
       saleChannel: f.saleChannel, storeName: f.storeName || null, status: f.status,
       paymentMethod: f.status === 'PAID' ? f.paymentMethod : null,
       bankName: f.bankName || null, accountName: f.accountName || null, referenceNumber: f.referenceNumber || null, gcashNumber: f.gcashNumber || null,
+      note: f.note.trim() || null,
       items: validRows.map((r) => ({
         itemId: r.itemId || null, itemName: r.itemName, categoryId: r.categoryId || null, categoryName: r.categoryName || null,
         description: r.description || null,
@@ -124,7 +126,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     <div className="acc-page">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">{isEdit ? `Edit ${invoiceNo}` : 'New Invoice'}</h1><p className="acc-sub">Fill in the invoice details and line items</p></div>
-        <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Invoices</button>
+        <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Sales</button>
       </div>
 
       <div className="acc-card acc-card-pad">
@@ -216,6 +218,13 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
         </div>
         <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="sale" categories={categories}
           onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'SALE' })} />
+
+        <div className="acc-section-label" style={{ marginTop: 18 }}>Note</div>
+        <div className="acc-field">
+          <textarea value={f.note} onChange={(e) => set({ note: e.target.value })} rows={3} maxLength={2000}
+            placeholder="Optional note about this invoice (e.g. special instructions, follow-up, context)…"
+            style={{ width: '100%', resize: 'vertical', minHeight: 64 }} />
+        </div>
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
