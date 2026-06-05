@@ -61,6 +61,15 @@ export interface OrderPipeline {
   oldOrders: number // subset of outbound: packed on an earlier day, shipped in range
 }
 
+export interface OldOrderRow {
+  trackingNumber: string
+  inboundDate: string | null
+  packerCompleteDate: string | null
+  packedBy: string | null
+  scanDate: string
+  archived: boolean
+}
+
 export interface CreateDispatchInput {
   trackingNumber: string
   source: DispatchSource
@@ -98,5 +107,10 @@ export async function getDispatchReport(from?: string, to?: string): Promise<Dis
 
 export async function getOrderPipeline(from?: string, to?: string): Promise<OrderPipeline> {
   const res = await api.get<OrderPipeline>('/dispatch/pipeline', { params: { from, to } })
+  return res.data
+}
+
+export async function getOldOrders(from?: string, to?: string): Promise<OldOrderRow[]> {
+  const res = await api.get<OldOrderRow[]>('/dispatch/old-orders', { params: { from, to } })
   return res.data
 }
