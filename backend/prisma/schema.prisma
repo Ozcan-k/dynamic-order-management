@@ -514,11 +514,27 @@ model Incident {
   employee   User @relation("IncidentEmployee", fields: [employeeUserId], references: [id], onDelete: Restrict)
   reportedBy User @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
   createdBy  User @relation("IncidentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  documents  IncidentDocument[]
 
   @@index([tenantId, incidentDate(sort: Desc)])
   @@index([tenantId, employeeUserId])
   @@index([tenantId, incidentType])
   @@map("incidents")
+}
+
+// Multiple signed documents (PDF/JPG/PNG) per incident. Replaces the single
+// signed_file_* columns on Incident; those are lazily migrated into the first row.
+model IncidentDocument {
+  id           String   @id @default(uuid())
+  incidentId   String   @map("incident_id")
+  incident     Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  filePath     String   @map("file_path")
+  mime         String
+  originalName String?  @map("original_name")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@index([incidentId])
+  @@map("incident_documents")
 }
 
 model CompanyBranding {

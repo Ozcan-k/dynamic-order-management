@@ -4,8 +4,10 @@ import { INCIDENT_TYPE_LABELS, IncidentType } from '@dom/shared'
 import {
   type Incident,
   downloadIncidentPdf,
-  downloadSignedFile,
-  useUploadSignedFile,
+  downloadIncidentDocument,
+  useIncidentDocuments,
+  useUploadIncidentDocument,
+  useDeleteIncidentDocument,
   useSendIncidentEmail,
 } from '../../api/incidents'
 
@@ -20,13 +22,16 @@ interface Props {
 }
 
 export default function ViewIncidentModal({ incident, smtpConfigured, onClose, onChanged }: Props) {
-  const upload = useUploadSignedFile()
+  const upload = useUploadIncidentDocument()
+  const delDoc = useDeleteIncidentDocument()
+  const docsQuery = useIncidentDocuments(incident.id)
+  const documents = docsQuery.data ?? []
   const sendEmail = useSendIncidentEmail()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [pdfBusy, setPdfBusy] = useState(false)
-  const [signedBusy, setSignedBusy] = useState(false)
+  const [busyDocId, setBusyDocId] = useState<string | null>(null)
 
   async function handleDownloadPdf() {
     setFeedback(null)
@@ -41,16 +46,30 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
     }
   }
 
-  async function handleDownloadSigned() {
+  async function handleDownloadDoc(docId: string, name: string | null) {
     setFeedback(null)
-    setSignedBusy(true)
+    setBusyDocId(docId)
     try {
-      await downloadSignedFile(incident.id)
+      await downloadIncidentDocument(incident.id, docId, name)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Download failed'
       setFeedback({ kind: 'err', text: msg })
     } finally {
-      setSignedBusy(false)
+      setBusyDocId(null)
+    }
+  }
+
+  async function handleDeleteDoc(docId: string) {
+    setFeedback(null)
+    setBusyDocId(docId)
+    try {
+      await delDoc.mutateAsync({ incidentId: incident.id, docId })
+      onChanged()
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? (err instanceof Error ? err.message : 'Delete failed')
+      setFeedback({ kind: 'err', text: msg })
+    } finally {
+      setBusyDocId(null)
     }
   }
 
@@ -126,7 +145,7 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
               ['Created',      new Date(incident.createdAt).toLocaleString()],
               ...(incident.trackingNumber ? [['Tracking #', `${incident.trackingNumber} · ${incident.platform ?? '—'} · ${incident.shopName ?? '—'}`] as [string, string]] : []),
               ['Email Sent',   incident.emailSentAt ? `${new Date(incident.emailSentAt).toLocaleString()} → ${incident.emailSentTo ?? ''}` : 'Not yet'],
-              ['Signed File',  incident.signedFilePath ? `Uploaded ${incident.signedUploadedAt ? new Date(incident.signedUploadedAt).toLocaleString() : ''}` : 'Not yet'],
+              ['Documents',    documents.length ? `${documents.length} uploaded` : 'None yet'],
             ]}
           />
 
@@ -153,7 +172,7 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
               className="btn btn-outline"
               onClick={() => fileInputRef.current?.click()}
               disabled={upload.isPending}
-            >{upload.isPending ? 'Uploading…' : '📤 Upload Signed'}</button>
+            >{upload.isPending ? 'Uploading…' : '📤 Upload Document'}</button>
             <input
               ref={fileInputRef}
               type="file"
@@ -171,17 +190,38 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
             >{sendEmail.isPending ? 'Sending…' : '✉ Send Email'}</button>
           </div>
 
-          {incident.signedFilePath && (
-            <button
-              type="button"
-              onClick={handleDownloadSigned}
-              disabled={signedBusy}
-              style={{
-                fontSize: 12, color: 'var(--color-primary)', textAlign: 'center',
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              }}
-            >{signedBusy ? 'Preparing…' : 'Download signed file'}</button>
-          )}
+          {/* Uploaded documents list */}
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid var(--color-border)' }}>
+              Documents ({documents.length})
+            </div>
+            {docsQuery.isLoading ? (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>
+            ) : documents.length === 0 ? (
+              <div style={{ padding: 12, fontSize: 13, color: 'var(--color-text-muted)' }}>No documents uploaded yet.</div>
+            ) : (
+              documents.map((d) => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: 16 }}>{d.mime.includes('pdf') ? '📄' : '🖼️'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {d.originalName || 'Document'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{new Date(d.uploadedAt).toLocaleString()}</div>
+                  </div>
+                  <button type="button" className="btn btn-outline btn-sm" disabled={busyDocId === d.id}
+                    onClick={() => handleDownloadDoc(d.id, d.originalName)}>
+                    {busyDocId === d.id ? '…' : '⬇'}
+                  </button>
+                  <button type="button" title="Delete document" disabled={busyDocId === d.id}
+                    onClick={() => handleDeleteDoc(d.id)}
+                    style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #fecaca', background: '#fff', color: '#dc2626', cursor: 'pointer', fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
 
           {feedback && (
             <div style={{
