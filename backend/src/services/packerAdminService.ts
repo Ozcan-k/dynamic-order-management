@@ -367,7 +367,7 @@ export async function getPackerStats(tenantId: string) {
             where: {
               packerId: packer.id,
               completedAt: null,
-              order: { tenantId, archivedAt: null, status: OrderStatus.PACKER_ASSIGNED },
+              order: { tenantId, archivedAt: null, status: { in: [OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING] } },
             },
           }),
         ])
@@ -395,7 +395,13 @@ export async function getPackerStats(tenantId: string) {
     }),
   ])
 
-  return { stats, totalCompleted, returnedCount }
+  // Header "In Progress" = orders currently assigned to a packer (PACKER_ASSIGNED + PACKING),
+  // derived from the SAME per-packer workload so the card always equals the sum of the cards.
+  const inProgressTotal = stats.reduce((sum, s) => sum + s.assigned, 0)
+  // Header "Total Packed" = packers' completions THIS Manila day (resets at midnight).
+  const completedTodayTotal = stats.reduce((sum, s) => sum + s.completedToday, 0)
+
+  return { stats, totalCompleted, returnedCount, inProgressTotal, completedTodayTotal }
 }
 
 // Returns the packer's ACTIVE workload — orders still assigned to them
@@ -407,7 +413,7 @@ export async function getPackerOrders(packerId: string, tenantId: string) {
     where: {
       packerId,
       completedAt: null,
-      order: { tenantId, archivedAt: null, status: OrderStatus.PACKER_ASSIGNED },
+      order: { tenantId, archivedAt: null, status: { in: [OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING] } },
     },
     include: {
       order: {

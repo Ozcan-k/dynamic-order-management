@@ -12,6 +12,7 @@ import {
   listOrders,
   deleteOrder,
   getOrderStats,
+  getInboundScannedCount,
   generateDirectTrackingNumber,
 } from '../services/orderService'
 
@@ -167,6 +168,25 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { tenantId } = request.user as JWTPayload
       return reply.send(await getOrderStats(tenantId))
+    },
+  )
+
+  // GET /orders/inbound-count?from=&to= — orders SCANNED in a Manila day range (createdAt)
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+  fastify.get(
+    '/inbound-count',
+    {
+      preHandler: [
+        fastify.authenticate,
+        requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.OUTBOUND_ADMIN),
+      ],
+    },
+    async (request, reply) => {
+      const { tenantId } = request.user as JWTPayload
+      const { from, to } = request.query as { from?: string; to?: string }
+      const validFrom = from && DATE_RE.test(from) ? from : undefined
+      const validTo = to && DATE_RE.test(to) ? to : undefined
+      return reply.send(await getInboundScannedCount(tenantId, validFrom, validTo))
     },
   )
 

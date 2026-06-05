@@ -1,7 +1,7 @@
 import { OrderStatus } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { detectPlatform } from '../lib/platformDetect'
-import { getManilaStartOfToday } from '../lib/manila'
+import { getManilaStartOfToday, getManilaStartOf, getManilaDateString } from '../lib/manila'
 
 export async function scanOrder(
   trackingNumber: string,
@@ -107,6 +107,25 @@ export async function getOrderStats(tenantId: string) {
     prisma.order.count({ where: { tenantId, delayLevel: 4, archivedAt: null } }),
   ])
   return { totalScanned, pendingInbound, inProgressCount, pickerDoneCount, delayBreakdown: [d0, d1, d2, d3, d4] }
+}
+
+// Count every order that ENTERED the system (was scanned) within the given Manila
+// day range — by createdAt (the scan timestamp). Status and archival are ignored on
+// purpose: "how many orders came in that day" must include orders that have since
+// moved down the pipeline or been archived. Defaults to today when no range is given.
+export async function getInboundScannedCount(
+  tenantId: string,
+  from?: string,
+  to?: string,
+): Promise<{ from: string; to: string; count: number }> {
+  const fromStr = from ?? getManilaDateString()
+  const toStr = to ?? fromStr
+  const start = getManilaStartOf(fromStr)
+  const end = new Date(getManilaStartOf(toStr).getTime() + 24 * 60 * 60 * 1000)
+  const count = await prisma.order.count({
+    where: { tenantId, createdAt: { gte: start, lt: end } },
+  })
+  return { from: fromStr, to: toStr, count }
 }
 
 export async function generateDirectTrackingNumber(tenantId: string): Promise<string> {
