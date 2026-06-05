@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import { Prisma, IncidentType, Platform } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { INCIDENTS_DIR, extFromMime, ensureUploadDirs } from '../lib/uploads'
@@ -108,11 +109,13 @@ export async function updateIncident(tenantId: string, id: string, input: Update
 export async function deleteIncident(tenantId: string, id: string): Promise<{ id: string } | null> {
   const existing = await prisma.incident.findFirst({
     where: { id, tenantId },
-    select: { id: true, signedFilePath: true },
+    select: { id: true, signedFilePath: true, documents: { select: { filePath: true } } },
   })
   if (!existing) return null
-  if (existing.signedFilePath) {
-    try { await fs.unlink(existing.signedFilePath) } catch { /* ignore */ }
+  // Unlink the legacy single file + every uploaded document (rows cascade-delete).
+  const paths = [existing.signedFilePath, ...existing.documents.map((d) => d.filePath)].filter(Boolean) as string[]
+  for (const p of paths) {
+    try { await fs.unlink(p) } catch { /* ignore */ }
   }
   await prisma.incident.delete({ where: { id: existing.id } })
   return { id: existing.id }
@@ -271,6 +274,112 @@ export async function readSignedFile(tenantId: string, incidentId: string) {
   } catch {
     return null
   }
+}
+
+// ─── Multiple signed documents per incident ─────────────────────────────────
+
+/** Thrown when an identical document (same name + same type) is re-uploaded. */
+export class DuplicateDocumentError extends Error {
+  constructor() {
+    super('DUPLICATE_DOCUMENT')
+    this.name = 'DuplicateDocumentError'
+  }
+}
+
+function serDoc(d: { id: string; mime: string; originalName: string | null; uploadedAt: Date }) {
+  return { id: d.id, mime: d.mime, originalName: d.originalName, uploadedAt: d.uploadedAt.toISOString() }
+}
+
+// One-time lazy migration: fold a legacy single signed_file_* into the documents
+// table so old uploads still appear in the list. Idempotent — runs only while the
+// legacy column is still populated.
+async function migrateLegacySignedFile(incident: { id: string; signedFilePath: string | null; signedFileMime: string | null; signedUploadedAt: Date | null }) {
+  if (!incident.signedFilePath) return
+  const already = await prisma.incidentDocument.findFirst({ where: { incidentId: incident.id, filePath: incident.signedFilePath }, select: { id: true } })
+  if (!already) {
+    await prisma.incidentDocument.create({
+      data: {
+        incidentId: incident.id,
+        filePath: incident.signedFilePath,
+        mime: incident.signedFileMime ?? 'application/octet-stream',
+        originalName: `signed${extFromMime(incident.signedFileMime ?? '') || ''}`,
+        uploadedAt: incident.signedUploadedAt ?? new Date(),
+      },
+    })
+  }
+  await prisma.incident.update({ where: { id: incident.id }, data: { signedFilePath: null, signedFileMime: null, signedUploadedAt: null } })
+}
+
+export async function listIncidentDocuments(tenantId: string, incidentId: string) {
+  const incident = await prisma.incident.findFirst({
+    where: { id: incidentId, tenantId },
+    select: { id: true, signedFilePath: true, signedFileMime: true, signedUploadedAt: true },
+  })
+  if (!incident) return null
+  await migrateLegacySignedFile(incident)
+  const docs = await prisma.incidentDocument.findMany({
+    where: { incidentId },
+    orderBy: { uploadedAt: 'asc' },
+    select: { id: true, mime: true, originalName: true, uploadedAt: true },
+  })
+  return docs.map(serDoc)
+}
+
+export async function addIncidentDocument(
+  tenantId: string,
+  incidentId: string,
+  buffer: Buffer,
+  mime: string,
+  originalName: string | null,
+) {
+  const incident = await prisma.incident.findFirst({ where: { id: incidentId, tenantId }, select: { id: true } })
+  if (!incident) return null
+
+  // Reject an identical re-upload: same (case-insensitive) name AND same type.
+  const name = (originalName ?? '').trim()
+  if (name) {
+    const dup = await prisma.incidentDocument.findFirst({
+      where: { incidentId, mime, originalName: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    })
+    if (dup) throw new DuplicateDocumentError()
+  }
+
+  await ensureUploadDirs()
+  const ext = extFromMime(mime) || '.bin'
+  const fullPath = path.join(INCIDENTS_DIR, `${incidentId}-${randomUUID()}${ext}`)
+  await fs.writeFile(fullPath, buffer)
+
+  const doc = await prisma.incidentDocument.create({
+    data: { incidentId, filePath: fullPath, mime, originalName: name || null },
+    select: { id: true, mime: true, originalName: true, uploadedAt: true },
+  })
+  return serDoc(doc)
+}
+
+export async function readIncidentDocument(tenantId: string, incidentId: string, docId: string) {
+  const doc = await prisma.incidentDocument.findFirst({
+    where: { id: docId, incidentId, incident: { tenantId } },
+    select: { filePath: true, mime: true, originalName: true },
+  })
+  if (!doc) return null
+  try {
+    const buffer = await fs.readFile(doc.filePath)
+    return { buffer, mime: doc.mime, originalName: doc.originalName }
+  } catch {
+    return null
+  }
+}
+
+export async function deleteIncidentDocument(tenantId: string, incidentId: string, docId: string) {
+  const doc = await prisma.incidentDocument.findFirst({
+    where: { id: docId, incidentId, incident: { tenantId } },
+    select: { id: true, filePath: true },
+  })
+  if (!doc) return false
+  try { await fs.unlink(doc.filePath) } catch { /* ignore */ }
+  await prisma.incidentDocument.delete({ where: { id: doc.id } })
+  return true
 }
 
 export async function markEmailSent(tenantId: string, incidentId: string, sentTo: string) {

@@ -20,6 +20,11 @@ import {
   lookupOrderByTrackingNumber,
   saveSignedFile,
   readSignedFile,
+  listIncidentDocuments,
+  addIncidentDocument,
+  readIncidentDocument,
+  deleteIncidentDocument,
+  DuplicateDocumentError,
   markEmailSent,
   listSelectableUsers,
   getRememberedFullName,
@@ -335,6 +340,68 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
       return reply.send(signed.buffer)
     },
   )
+
+  // ─── Multiple documents per incident (list / upload / download / delete) ────
+  const docRoles = [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)]
+
+  fastify.get('/:id/documents', { preHandler: docRoles }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { tenantId } = request.user as JWTPayload
+    const docs = await listIncidentDocuments(tenantId, id)
+    if (docs === null) return reply.code(404).send({ error: 'Incident not found' })
+    return reply.send({ documents: docs })
+  })
+
+  fastify.post('/:id/documents', { preHandler: docRoles }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { tenantId } = request.user as JWTPayload
+    const incident = await getIncidentById(tenantId, id)
+    if (!incident) return reply.code(404).send({ error: 'Incident not found' })
+
+    const file = await request.file({ limits: { fileSize: MAX_SIGNED_BYTES } })
+    if (!file) return reply.code(400).send({ error: 'No file uploaded' })
+    if (!ALLOWED_SIGNED_MIMES.includes(file.mimetype as typeof ALLOWED_SIGNED_MIMES[number])) {
+      return reply.code(400).send({ error: `Unsupported file type: ${file.mimetype}. Allowed: PDF, PNG, JPG.` })
+    }
+    let buffer: Buffer
+    try {
+      buffer = await file.toBuffer()
+    } catch (err: any) {
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') return reply.code(413).send({ error: TOO_LARGE_MSG })
+      throw err
+    }
+    if (file.file.truncated) return reply.code(413).send({ error: TOO_LARGE_MSG })
+
+    try {
+      const doc = await addIncidentDocument(tenantId, id, buffer, file.mimetype, file.filename ?? null)
+      if (!doc) return reply.code(404).send({ error: 'Incident not found' })
+      return reply.code(201).send(doc)
+    } catch (err) {
+      if (err instanceof DuplicateDocumentError) {
+        return reply.code(409).send({ error: `"${file.filename}" is already uploaded for this incident. Rename the file or delete the existing one first.` })
+      }
+      throw err
+    }
+  })
+
+  fastify.get('/:id/documents/:docId', { preHandler: docRoles }, async (request, reply) => {
+    const { id, docId } = request.params as { id: string; docId: string }
+    const { tenantId } = request.user as JWTPayload
+    const doc = await readIncidentDocument(tenantId, id, docId)
+    if (!doc) return reply.code(404).send({ error: 'Document not found' })
+    const fallback = `incident-${id.slice(0, 8)}-doc${guessExt(doc.mime)}`
+    reply.header('Content-Type', doc.mime)
+    reply.header('Content-Disposition', `inline; filename="${(doc.originalName || fallback).replace(/"/g, '')}"`)
+    return reply.send(doc.buffer)
+  })
+
+  fastify.delete('/:id/documents/:docId', { preHandler: docRoles }, async (request, reply) => {
+    const { id, docId } = request.params as { id: string; docId: string }
+    const { tenantId } = request.user as JWTPayload
+    const ok = await deleteIncidentDocument(tenantId, id, docId)
+    if (!ok) return reply.code(404).send({ error: 'Document not found' })
+    return reply.send({ ok: true })
+  })
 
   // ─── Send email ─────────────────────────────────────────────────────────────
 

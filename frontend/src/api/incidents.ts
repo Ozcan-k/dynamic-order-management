@@ -202,6 +202,52 @@ export function useUploadSignedFile() {
   })
 }
 
+// ─── Multiple documents per incident ─────────────────────────────────────────
+export interface IncidentDocument {
+  id: string
+  mime: string
+  originalName: string | null
+  uploadedAt: string
+}
+
+export function useIncidentDocuments(incidentId: string | null) {
+  return useQuery({
+    queryKey: ['incident-documents', incidentId],
+    enabled: !!incidentId,
+    queryFn: async () => (await api.get<{ documents: IncidentDocument[] }>(`/incidents/${incidentId}/documents`)).data.documents,
+  })
+}
+
+export function useUploadIncidentDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ incidentId, file }: { incidentId: string; file: File }) => {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await api.post<IncidentDocument>(`/incidents/${incidentId}/documents`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return res.data
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['incident-documents', v.incidentId] })
+      qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
+export function useDeleteIncidentDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ incidentId, docId }: { incidentId: string; docId: string }) =>
+      (await api.delete(`/incidents/${incidentId}/documents/${docId}`)).data,
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['incident-documents', v.incidentId] })
+      qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
+  })
+}
+
 export function useSendIncidentEmail() {
   const qc = useQueryClient()
   return useMutation({
@@ -241,4 +287,11 @@ export async function downloadSignedFile(id: string) {
   const mime = String(res.headers['content-type'] ?? '')
   const ext = mime.includes('pdf') ? 'pdf' : mime.includes('png') ? 'png' : 'jpg'
   saveBlob(res.data as Blob, `incident-${id.slice(0, 8)}-signed.${ext}`)
+}
+
+export async function downloadIncidentDocument(incidentId: string, docId: string, name?: string | null) {
+  const res = await api.get(`/incidents/${incidentId}/documents/${docId}`, { responseType: 'blob' })
+  const mime = String(res.headers['content-type'] ?? '')
+  const ext = mime.includes('pdf') ? 'pdf' : mime.includes('png') ? 'png' : 'jpg'
+  saveBlob(res.data as Blob, name || `incident-${incidentId.slice(0, 8)}-doc.${ext}`)
 }
