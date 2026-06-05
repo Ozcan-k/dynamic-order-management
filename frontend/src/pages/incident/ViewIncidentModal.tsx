@@ -9,6 +9,9 @@ import {
   useSendIncidentEmail,
 } from '../../api/incidents'
 
+// Keep in sync with the backend's MAX_SIGNED_MB (routes/incidents.ts).
+const MAX_SIGNED_MB = 10
+
 interface Props {
   incident: Incident
   smtpConfigured: boolean
@@ -55,15 +58,31 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
     const file = e.target.files?.[0]
     if (!file) return
     setFeedback(null)
+    const clearInput = () => { if (fileInputRef.current) fileInputRef.current.value = '' }
+
+    // Validate up front so the user gets instant feedback instead of a failed upload.
+    const ALLOWED = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']
+    if (file.type && !ALLOWED.includes(file.type)) {
+      setFeedback({ kind: 'err', text: 'Unsupported file type. Please upload a PDF, PNG, or JPG.' })
+      clearInput()
+      return
+    }
+    if (file.size > MAX_SIGNED_MB * 1024 * 1024) {
+      setFeedback({ kind: 'err', text: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). The maximum allowed size is ${MAX_SIGNED_MB} MB — please upload a smaller PDF or JPG.` })
+      clearInput()
+      return
+    }
+
     try {
       await upload.mutateAsync({ incidentId: incident.id, file })
       setFeedback({ kind: 'ok', text: `Uploaded ${file.name}` })
       onChanged()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed'
+    } catch (err: any) {
+      // Surface the backend's friendly { error } message, not axios's generic text.
+      const msg = err?.response?.data?.error ?? (err instanceof Error ? err.message : 'Upload failed')
       setFeedback({ kind: 'err', text: msg })
     }
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    clearInput()
   }
 
   async function handleSendEmail() {

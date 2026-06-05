@@ -306,8 +306,12 @@ export async function listSales(tenantId: string, f: SaleFilters) {
     { invoiceNo: { contains: f.search, mode: 'insensitive' } },
     { customerName: { contains: f.search, mode: 'insensitive' } },
   ]
+  // The list table only renders header columns — do NOT join every invoice's line
+  // items here (serSale tolerates a missing `items` relation → []). Fetching items
+  // for each row was a needless join + payload that slowed the page. The edit screen
+  // loads the full record (with items) separately via getSale().
   const [items, total] = await Promise.all([
-    prisma.accSale.findMany({ where, include: { items: true }, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
+    prisma.accSale.findMany({ where, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
     prisma.accSale.count({ where }),
   ])
   return { items: items.map(serSale), total, page: f.page, pageSize: f.pageSize }
@@ -443,8 +447,11 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
     { vendorName: { contains: f.search, mode: 'insensitive' } },
     { invoiceNumber: { contains: f.search, mode: 'insensitive' } },
   ]
+  // List table renders header columns only — skip the per-row line-item join
+  // (serExpense tolerates a missing `items` relation → []). The edit screen loads
+  // the full record via getExpense().
   const [items, total] = await Promise.all([
-    prisma.accExpense.findMany({ where, include: { items: true }, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
+    prisma.accExpense.findMany({ where, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
     prisma.accExpense.count({ where }),
   ])
   return { items: items.map(serExpense), total, page: f.page, pageSize: f.pageSize }
