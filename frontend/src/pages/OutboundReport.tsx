@@ -45,7 +45,6 @@ const PIPELINE_STAGES = [
   { key: 'pickerComplete', label: 'Picker Complete', color: '#6366f1', bg: '#eef2ff' },
   { key: 'packerComplete', label: 'Packer Complete', color: '#7c3aed', bg: '#f5f3ff' },
   { key: 'outbound',       label: 'Outbound',        color: '#16a34a', bg: '#f0fdf4' },
-  { key: 'dispatched',     label: 'Dispatched',      color: '#0d9488', bg: '#f0fdfa' },
 ] as const
 
 function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: boolean }) {
@@ -55,7 +54,7 @@ function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: bool
       <div style={{ marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Order Pipeline</h3>
         <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-          Inbound → Outbound are warehouse milestones (distinct orders that reached each stage); <b>Dispatched</b> is in-house parcels handed to courier. Dispatched can exceed Outbound when backlog packed on earlier days ships in this range.
+          Inbound → Packer Complete are warehouse milestones (distinct orders that reached each stage). <b>Outbound</b> counts only parcels the Outbound Admin actually scanned out in this range — packed but un-scanned orders are not included. Of those, <b>old orders</b> were packed on an earlier day and shipped now (backlog).
         </p>
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap' }}>
@@ -85,6 +84,15 @@ function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: bool
                 <div style={{ marginTop: 6, fontSize: 28, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
                   {loading ? '—' : value}
                 </div>
+                {s.key === 'outbound' && !loading && data && data.oldOrders > 0 && (
+                  <div style={{
+                    marginTop: 8, display: 'inline-block', fontSize: 10.5, fontWeight: 700,
+                    color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a',
+                    borderRadius: 999, padding: '2px 9px', fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    incl. {data.oldOrders} old {data.oldOrders === 1 ? 'order' : 'orders'}
+                  </div>
+                )}
               </div>
             </div>
           )

@@ -57,8 +57,8 @@ export interface OrderPipeline {
   inbound: number
   pickerComplete: number
   packerComplete: number
-  outbound: number
-  dispatched: number // in-house parcels handed to courier (Dispatch module)
+  outbound: number // in-house parcels actually SCANNED out in range (not auto-advance)
+  oldOrders: number // subset of outbound: packed on an earlier day, shipped in range
 }
 
 export interface CreateDispatchInput {
