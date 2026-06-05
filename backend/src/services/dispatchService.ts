@@ -28,7 +28,14 @@ export interface OrderLookupResult {
   platform: Platform | null
   shopName: string | null
   carrierName: string | null
+  packerComplete: boolean
 }
+
+// An order may only be dispatched once the packer has finished it. Packing
+// complete auto-advances PACKER_COMPLETE → OUTBOUND, and the nightly archive
+// keeps it OUTBOUND, so both statuses mean "the packer scanned it". Any earlier
+// status means the packer has not completed the parcel yet.
+const DISPATCHABLE_STATUSES: OrderStatus[] = [OrderStatus.PACKER_COMPLETE, OrderStatus.OUTBOUND]
 
 /** Read-only lookup of OUR orders by tracking number. Never mutates the order. */
 export async function lookupOrderForDispatch(
@@ -45,14 +52,15 @@ export async function lookupOrderForDispatch(
   const order = await prisma.order.findFirst({
     where: { tenantId, trackingNumber: { equals: tn, mode: 'insensitive' } },
     orderBy: { createdAt: 'desc' },
-    select: { platform: true, shopName: true, carrierName: true },
+    select: { platform: true, shopName: true, carrierName: true, status: true },
   })
-  if (!order) return { found: false, platform: null, shopName: null, carrierName: null }
+  if (!order) return { found: false, platform: null, shopName: null, carrierName: null, packerComplete: false }
   return {
     found: true,
     platform: order.platform as Platform,
     shopName: order.shopName,
     carrierName: order.carrierName,
+    packerComplete: DISPATCHABLE_STATUSES.includes(order.status),
   }
 }
 
@@ -84,6 +92,14 @@ export class OrderNotFoundError extends Error {
   }
 }
 
+/** Thrown when an in-house parcel's order hasn't been packer-completed yet. */
+export class OrderNotPackerCompleteError extends Error {
+  constructor() {
+    super('ORDER_NOT_PACKER_COMPLETE')
+    this.name = 'OrderNotPackerCompleteError'
+  }
+}
+
 export async function createDispatchParcel(input: CreateDispatchInput) {
   const trackingNumber = input.trackingNumber.trim().toUpperCase()
 
@@ -103,9 +119,11 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
     const order = await prisma.order.findFirst({
       where: { tenantId: input.tenantId, trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, shopName: true },
+      select: { id: true, shopName: true, status: true },
     })
     if (!order) throw new OrderNotFoundError()
+    // The packer must have finished the parcel before it can leave on a courier.
+    if (!DISPATCHABLE_STATUSES.includes(order.status)) throw new OrderNotPackerCompleteError()
     orderId = order.id
     shopName = (input.shopName?.trim() || order.shopName || 'Unknown')
   }
