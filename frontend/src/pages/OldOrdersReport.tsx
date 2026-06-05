@@ -71,21 +71,22 @@ export default function OldOrdersReport() {
             In-house parcels shipped in this range whose order was packed (packer-complete) on an earlier day.
           </p>
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
           <thead>
             <tr>
               <th style={th}>Barcode</th>
               <th style={th}>Inbound Date</th>
               <th style={th}>Packer Complete</th>
-              <th style={th}>Packed By</th>
+              <th style={th}>Assigned Picker</th>
+              <th style={th}>Assigned Packer</th>
               <th style={th}>Outbound Scan</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td style={{ ...td, textAlign: 'center', color: '#94a3b8' }} colSpan={5}>Loading…</td></tr>
+              <tr><td style={{ ...td, textAlign: 'center', color: '#94a3b8' }} colSpan={6}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td style={{ ...td, textAlign: 'center', color: '#94a3b8' }} colSpan={5}>No old orders in this range.</td></tr>
+              <tr><td style={{ ...td, textAlign: 'center', color: '#94a3b8' }} colSpan={6}>No old orders in this range.</td></tr>
             ) : (
               rows.map((r, i) => (
                 <tr key={`${r.trackingNumber}-${i}`}>
@@ -99,7 +100,8 @@ export default function OldOrdersReport() {
                   </td>
                   <td style={{ ...td, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>{fmtManila(r.inboundDate)}</td>
                   <td style={{ ...td, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>{fmtManila(r.packerCompleteDate)}</td>
-                  <td style={td}>{r.packedBy ?? '—'}</td>
+                  <td style={td}>{r.assignedPicker ?? '—'}</td>
+                  <td style={td}>{r.assignedPacker ?? '—'}</td>
                   <td style={{ ...td, color: '#16a34a', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtManila(r.scanDate)}</td>
                 </tr>
               ))

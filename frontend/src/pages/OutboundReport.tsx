@@ -98,7 +98,7 @@ function PipelineFunnel({ data, loading, from, to }: { data?: OrderPipeline; loa
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    incl. {data.oldOrders} old {data.oldOrders === 1 ? 'order' : 'orders'}
+                    {data.oldOrders} old {data.oldOrders === 1 ? 'order' : 'orders'}
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                   </button>
                 )}
