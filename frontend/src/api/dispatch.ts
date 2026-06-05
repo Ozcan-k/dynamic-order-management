@@ -65,7 +65,8 @@ export interface OldOrderRow {
   trackingNumber: string
   inboundDate: string | null
   packerCompleteDate: string | null
-  packedBy: string | null
+  assignedPicker: string | null
+  assignedPacker: string | null
   scanDate: string
   archived: boolean
 }

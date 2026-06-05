@@ -312,7 +312,8 @@ export interface OldOrderRow {
   trackingNumber: string
   inboundDate: string | null        // order.createdAt — when it entered the system
   packerCompleteDate: string | null // order.slaCompletedAt — when the packer finished
-  packedBy: string | null           // packer username (completed PackerAssignment)
+  assignedPicker: string | null     // picker username (completed PickerAssignment)
+  assignedPacker: string | null     // packer username (completed PackerAssignment)
   scanDate: string                  // dispatchParcel.createdAt — the outbound scan
   archived: boolean                 // order row gone (>180d retention) → definitely backlog
 }
@@ -344,6 +345,12 @@ export async function getOldOrdersList(
           id: true,
           createdAt: true,
           slaCompletedAt: true,
+          pickerAssignments: {
+            where: { completedAt: { not: null } },
+            orderBy: { completedAt: 'desc' },
+            take: 1,
+            select: { picker: { select: { username: true } } },
+          },
           packerAssignments: {
             where: { completedAt: { not: null } },
             orderBy: { completedAt: 'desc' },
@@ -367,7 +374,8 @@ export async function getOldOrdersList(
       trackingNumber: p.trackingNumber,
       inboundDate: order?.createdAt ? order.createdAt.toISOString() : null,
       packerCompleteDate: completedAt ? completedAt.toISOString() : null,
-      packedBy: order?.packerAssignments[0]?.packer.username ?? null,
+      assignedPicker: order?.pickerAssignments[0]?.picker.username ?? null,
+      assignedPacker: order?.packerAssignments[0]?.packer.username ?? null,
       scanDate: p.createdAt.toISOString(),
       archived: order === null,
     })
