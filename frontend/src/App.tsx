@@ -14,6 +14,7 @@ import PackerMobile from './pages/PackerMobile'
 import PackedReport from './pages/PackedReport'
 import OutboundBoard from './pages/OutboundBoard'
 import OutboundReport from './pages/OutboundReport'
+import OldOrdersReport from './pages/OldOrdersReport'
 import OutboundScan from './pages/OutboundScan'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
@@ -160,6 +161,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
                 <AppLayout><OutboundReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/outbound/report/old-orders"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+                <AppLayout><OldOrdersReport /></AppLayout>
               </ProtectedRoute>
             }
           />

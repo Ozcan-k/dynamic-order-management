@@ -303,6 +303,78 @@ export async function getOrderPipeline(tenantId: string, from?: string, to?: str
   return { inbound, pickerComplete, packerComplete, outbound, oldOrders }
 }
 
+// ─── Old-orders drill-down (backlog behind the funnel's "incl. N old orders") ──
+// The list behind the Outbound box badge: in-house parcels scanned out in the range
+// whose order was packer-completed on an EARLIER Manila day (or whose order is already
+// archived). Same backlog predicate as getOrderPipeline's oldOrders counter, so the
+// row count matches the badge. Read-only.
+export interface OldOrderRow {
+  trackingNumber: string
+  inboundDate: string | null        // order.createdAt — when it entered the system
+  packerCompleteDate: string | null // order.slaCompletedAt — when the packer finished
+  packedBy: string | null           // packer username (completed PackerAssignment)
+  scanDate: string                  // dispatchParcel.createdAt — the outbound scan
+  archived: boolean                 // order row gone (>180d retention) → definitely backlog
+}
+
+export async function getOldOrdersList(
+  tenantId: string,
+  from?: string,
+  to?: string,
+): Promise<OldOrderRow[]> {
+  const range: Prisma.DateTimeFilter = {
+    ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
+    ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
+  }
+  const hasRange = Boolean(from || to)
+
+  const scannedParcels = await prisma.dispatchParcel.findMany({
+    where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
+    select: { trackingNumber: true, createdAt: true, orderId: true },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const orderIds = scannedParcels
+    .map((p) => p.orderId)
+    .filter((id): id is string => Boolean(id))
+  const orders = orderIds.length
+    ? await prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        select: {
+          id: true,
+          createdAt: true,
+          slaCompletedAt: true,
+          packerAssignments: {
+            where: { completedAt: { not: null } },
+            orderBy: { completedAt: 'desc' },
+            take: 1,
+            select: { packer: { select: { username: true } } },
+          },
+        },
+      })
+    : []
+  const orderById = new Map(orders.map((o) => [o.id, o]))
+
+  const rows: OldOrderRow[] = []
+  for (const p of scannedParcels) {
+    const order = p.orderId ? orderById.get(p.orderId) ?? null : null
+    const completedAt = order?.slaCompletedAt ?? null
+    const packedDay = completedAt ? getManilaDateString(completedAt) : null
+    const scanDay = getManilaDateString(p.createdAt)
+    // Same-day packed-and-scanned is the normal flow — only backlog belongs here.
+    if (packedDay !== null && packedDay >= scanDay) continue
+    rows.push({
+      trackingNumber: p.trackingNumber,
+      inboundDate: order?.createdAt ? order.createdAt.toISOString() : null,
+      packerCompleteDate: completedAt ? completedAt.toISOString() : null,
+      packedBy: order?.packerAssignments[0]?.packer.username ?? null,
+      scanDate: p.createdAt.toISOString(),
+      archived: order === null,
+    })
+  }
+  return rows
+}
+
 // ─── Paginated list + delete (admin corrections) ──────────────────────────────
 
 export interface ListDispatchParams {

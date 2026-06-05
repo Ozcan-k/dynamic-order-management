@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { colors } from '../theme'
@@ -47,14 +48,15 @@ const PIPELINE_STAGES = [
   { key: 'outbound',       label: 'Outbound',        color: '#16a34a', bg: '#f0fdf4' },
 ] as const
 
-function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: boolean }) {
+function PipelineFunnel({ data, loading, from, to }: { data?: OrderPipeline; loading: boolean; from: string; to: string }) {
+  const navigate = useNavigate()
   const values = PIPELINE_STAGES.map((s) => (data ? data[s.key] : 0))
   return (
     <div className="acc-card" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: '18px 20px', marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
       <div style={{ marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Order Pipeline</h3>
         <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-          Inbound → Packer Complete are warehouse milestones (distinct orders that reached each stage). <b>Outbound</b> counts only parcels the Outbound Admin actually scanned out in this range — packed but un-scanned orders are not included. Of those, <b>old orders</b> were packed on an earlier day and shipped now (backlog).
+          Inbound → Packer Complete are warehouse milestones (distinct orders that reached each stage). <b>Outbound</b> counts only parcels the Outbound Admin actually scanned out in this range — packed but un-scanned orders are not included. Of those, <b>old orders</b> were packed on an earlier day and shipped now (backlog); tap the badge to see them.
         </p>
       </div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, flexWrap: 'wrap' }}>
@@ -85,13 +87,20 @@ function PipelineFunnel({ data, loading }: { data?: OrderPipeline; loading: bool
                   {loading ? '—' : value}
                 </div>
                 {s.key === 'outbound' && !loading && data && data.oldOrders > 0 && (
-                  <div style={{
-                    marginTop: 8, display: 'inline-block', fontSize: 10.5, fontWeight: 700,
-                    color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a',
-                    borderRadius: 999, padding: '2px 9px', fontVariantNumeric: 'tabular-nums',
-                  }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/outbound/report/old-orders?from=${from}&to=${to}`)}
+                    title="View these old orders"
+                    style={{
+                      marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                      fontSize: 10.5, fontWeight: 700, color: '#b45309', background: '#fffbeb',
+                      border: '1px solid #fde68a', borderRadius: 999, padding: '3px 9px',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
                     incl. {data.oldOrders} old {data.oldOrders === 1 ? 'order' : 'orders'}
-                  </div>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                  </button>
                 )}
               </div>
             </div>
@@ -175,7 +184,7 @@ export default function OutboundReport() {
       </div>
 
       {/* Order pipeline funnel — reflects the same selected range */}
-      <PipelineFunnel data={pipeline} loading={pipelineLoading} />
+      <PipelineFunnel data={pipeline} loading={pipelineLoading} from={from} to={to} />
 
       {/* Per-carrier table */}
       {isLoading ? (
