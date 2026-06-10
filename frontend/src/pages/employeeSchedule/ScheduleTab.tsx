@@ -44,7 +44,7 @@ const ClockIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
 )
 
-export default function ScheduleTab() {
+export default function ScheduleTab({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient()
   // anchor = any day inside the displayed week; the backend snaps to that week's Sunday
   const [anchor, setAnchor] = useState<string>(todayStr())
@@ -232,6 +232,7 @@ export default function ScheduleTab() {
                         <DayCell
                           key={d}
                           cell={row.cells[d]}
+                          readOnly={readOnly}
                           onStatus={(v) => changeStatus(row.employee.id, d, v, row.cells[d])}
                           onOt={(ot) => changeOt(row.employee.id, d, ot)}
                         />
@@ -249,8 +250,9 @@ export default function ScheduleTab() {
 }
 
 // ─── Single day cell ─────────────────────────────────────────────────────────
-function DayCell({ cell, onStatus, onOt }: {
+function DayCell({ cell, readOnly, onStatus, onOt }: {
   cell?: EmpScheduleCell
+  readOnly?: boolean
   onStatus: (value: string) => void
   onOt: (ot: number) => void
 }) {
@@ -267,10 +269,13 @@ function DayCell({ cell, onStatus, onOt }: {
       <select
         value={cell?.status ?? ''}
         onChange={(e) => onStatus(e.target.value)}
+        disabled={readOnly}
         style={{
           width: '100%', padding: '5px 6px', borderRadius: radius.sm,
-          border: `1.5px solid ${style.border}`, background: '#fff',
-          color: style.text, fontSize: '12px', fontWeight: 600, cursor: 'pointer', outline: 'none',
+          border: `1.5px solid ${style.border}`, background: readOnly ? 'transparent' : '#fff',
+          color: style.text, fontSize: '12px', fontWeight: 600,
+          cursor: readOnly ? 'default' : 'pointer', outline: 'none',
+          appearance: readOnly ? 'none' : undefined, opacity: 1,
         }}
       >
         <option value="">—</option>
@@ -292,10 +297,12 @@ function DayCell({ cell, onStatus, onOt }: {
               <select
                 value={cell.otHours}
                 onChange={(e) => onOt(Number(e.target.value))}
+                disabled={readOnly}
                 style={{
                   padding: '2px 4px', borderRadius: radius.xs, border: `1px solid ${colors.border}`,
-                  background: '#fff', color: colors.textPrimary, fontSize: '11px', fontWeight: 600,
-                  cursor: 'pointer', outline: 'none', fontVariantNumeric: 'tabular-nums',
+                  background: readOnly ? 'transparent' : '#fff', color: colors.textPrimary, fontSize: '11px', fontWeight: 600,
+                  cursor: readOnly ? 'default' : 'pointer', outline: 'none', fontVariantNumeric: 'tabular-nums',
+                  appearance: readOnly ? 'none' : undefined,
                 }}
               >
                 {Array.from({ length: MAX_OT_HOURS + 1 }, (_, i) => (

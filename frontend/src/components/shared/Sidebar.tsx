@@ -296,7 +296,8 @@ const NAV_ITEMS: NavItem[] = [
     path: '/employee-schedule',
     label: 'Employee Schedule',
     icon: <EmployeeScheduleIcon />,
-    roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN],
+    // INCIDENT_REPORTER sees it read-only (view, no edit)
+    roles: [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER],
   },
   {
     path: '/accounting',

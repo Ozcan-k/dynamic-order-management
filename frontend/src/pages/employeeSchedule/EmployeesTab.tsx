@@ -63,7 +63,7 @@ function dtoToInput(e: EmpEmployeeDTO): EmployeeInput {
   }
 }
 
-export default function EmployeesTab() {
+export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient()
   const { data: employees, isLoading } = useQuery({
     queryKey: ['emp', 'employees'],
@@ -112,7 +112,8 @@ export default function EmployeesTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* ── Add form ── */}
+      {/* ── Add form (hidden for read-only roles) ── */}
+      {!readOnly && (
       <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.xl, boxShadow: shadow.card, padding: '20px' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: 700, color: colors.textPrimary }}>Add Employee</h2>
 
@@ -161,6 +162,7 @@ export default function EmployeesTab() {
           {error && !editing && !toDeactivate && <span style={{ fontSize: '12px', color: colors.danger }}>{error}</span>}
         </div>
       </div>
+      )}
 
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: '48px', color: colors.textSecondary }}>Loading employees…</div>
@@ -183,8 +185,8 @@ export default function EmployeesTab() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: `2px solid ${colors.border}` }}>
-                        {['Employee ID', 'Name', 'Contact', 'Start Date', 'Actions'].map((h, i) => (
-                          <th key={h} style={thStyle(i === 4 ? 'right' : 'left')}>{h}</th>
+                        {[...['Employee ID', 'Name', 'Contact', 'Start Date'], ...(readOnly ? [] : ['Actions'])].map((h, i, arr) => (
+                          <th key={h} style={thStyle(!readOnly && i === arr.length - 1 ? 'right' : 'left')}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -200,11 +202,13 @@ export default function EmployeesTab() {
                           </td>
                           <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>{emp.contactNumber || <span style={{ color: colors.textMuted }}>—</span>}</td>
                           <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fullDate(emp.startDate)}</td>
+                          {!readOnly && (
                           <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             <button onClick={() => { setEditing(emp); setError(null) }} style={actionBtn(colors.info, colors.infoLight)}>Edit</button>
                             <button onClick={() => { setToDeactivate(emp); setError(null) }} style={{ ...actionBtn('#b45309', '#fffbeb'), marginLeft: 8 }}>Set Inactive</button>
                             <button onClick={() => setToDelete(emp)} style={{ ...actionBtn(colors.danger, colors.dangerLight), marginLeft: 8 }}>Delete</button>
                           </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -227,8 +231,8 @@ export default function EmployeesTab() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: `2px solid ${colors.border}` }}>
-                      {['Employee ID', 'Name', 'Department', 'Start Date', 'Leave Date', 'Actions'].map((h, i) => (
-                        <th key={h} style={thStyle(i === 5 ? 'right' : 'left')}>{h}</th>
+                      {[...['Employee ID', 'Name', 'Department', 'Start Date', 'Leave Date'], ...(readOnly ? [] : ['Actions'])].map((h, i, arr) => (
+                        <th key={h} style={thStyle(!readOnly && i === arr.length - 1 ? 'right' : 'left')}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -251,11 +255,13 @@ export default function EmployeesTab() {
                               {emp.leaveDate ? fullDate(emp.leaveDate) : '—'}
                             </span>
                           </td>
+                          {!readOnly && (
                           <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             <button onClick={() => { setEditing(emp); setError(null) }} style={actionBtn(colors.info, colors.infoLight)}>Edit</button>
                             <button onClick={() => setToReactivate(emp)} style={{ ...actionBtn(colors.success, '#ecfdf5'), marginLeft: 8 }}>Reactivate</button>
                             <button onClick={() => setToDelete(emp)} style={{ ...actionBtn(colors.danger, colors.dangerLight), marginLeft: 8 }}>Delete</button>
                           </td>
+                          )}
                         </tr>
                       )
                     })}

@@ -23,8 +23,10 @@ import { generateScheduleReportPdf } from '../services/employeeSchedulePdfServic
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-// Employee Schedule module — Admin + Warehouse Admin only.
-const guard = () => requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)
+// Employee Schedule module. Edit = Admin + Warehouse Admin.
+// INCIDENT_REPORTER has READ-ONLY access (GET routes only; never mutations).
+const writeGuard = () => requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)
+const readGuard = () => requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)
 
 const optStr = (max: number) => z.string().trim().max(max).optional().nullable()
 const optDate = z.union([z.string().regex(DATE_RE), z.literal(''), z.null()]).optional()
@@ -65,10 +67,11 @@ function csvField(v: string | number): string {
 }
 
 export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
-  const preHandler = [fastify.authenticate, guard()]
+  const readPre = [fastify.authenticate, readGuard()]   // GET — incl. read-only INCIDENT_REPORTER
+  const preHandler = [fastify.authenticate, writeGuard()] // mutations — Admin + Warehouse Admin
 
   // ── Employees ──
-  fastify.get('/employees', { preHandler }, async (request, reply) => {
+  fastify.get('/employees', { preHandler: readPre }, async (request, reply) => {
     const { tenantId } = request.user as JWTPayload
     return reply.send(await listEmployees(tenantId))
   })
@@ -102,7 +105,7 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
   })
 
   // ── Schedule (weekly grid) ──
-  fastify.get('/schedule', { preHandler }, async (request, reply) => {
+  fastify.get('/schedule', { preHandler: readPre }, async (request, reply) => {
     const { weekStart } = request.query as { weekStart?: string }
     const { tenantId } = request.user as JWTPayload
     return reply.send(await getWeek(tenantId, weekStart))
@@ -122,7 +125,7 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
   })
 
   // ── Report ──
-  fastify.get('/report', { preHandler }, async (request, reply) => {
+  fastify.get('/report', { preHandler: readPre }, async (request, reply) => {
     const parsed = ReportQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() })
     const { tenantId } = request.user as JWTPayload
@@ -130,7 +133,7 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
   })
 
   // ── Report exports ──
-  fastify.get('/report/export.csv', { preHandler }, async (request, reply) => {
+  fastify.get('/report/export.csv', { preHandler: readPre }, async (request, reply) => {
     const parsed = ReportQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() })
     const { tenantId } = request.user as JWTPayload
@@ -157,7 +160,7 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
       .send(lines.join('\n'))
   })
 
-  fastify.get('/report/export.pdf', { preHandler }, async (request, reply) => {
+  fastify.get('/report/export.pdf', { preHandler: readPre }, async (request, reply) => {
     const parsed = ReportQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() })
     const { tenantId } = request.user as JWTPayload

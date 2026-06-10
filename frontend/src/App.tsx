@@ -309,7 +309,7 @@ export default function App() {
           <Route
             path="/employee-schedule"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
                 <AppLayout><EmployeeSchedule /></AppLayout>
               </ProtectedRoute>
             }
