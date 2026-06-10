@@ -147,6 +147,9 @@ model Tenant {
   returnCancelParcels ReturnCancelParcel[]
   dispatchParcels     DispatchParcel[]
 
+  empEmployees EmpEmployee[]
+  empSchedules EmpSchedule[]
+
   @@map("tenants")
 }
 
@@ -859,4 +862,69 @@ model AccCounter {
   value Int    @default(0)
 
   @@map("acc_counters")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EMPLOYEE SCHEDULE MODULE (v2.66.0) — independent staff attendance scheduler.
+// Own tables (emp_*), tenant-scoped, NO foreign keys into the order pipeline or
+// any existing table. Access: ADMIN + WAREHOUSE_ADMIN only. See EMPLOYEE_SCHEDULE.md.
+// ════════════════════════════════════════════════════════════════════════════
+
+enum EmpDepartment {
+  ADMINISTRATIVE
+  PICKER
+  PACKER
+  LOGISTIC
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  VACATION_LEAVE
+  SICK_LEAVE
+  HALF_DAY
+  MATERNITY_LEAVE
+}
+
+model EmpEmployee {
+  id         String        @id @default(uuid())
+  tenantId   String        @map("tenant_id")
+  empNo      Int           @map("emp_no") // displayed as #101, #102…
+  department EmpDepartment
+  firstName  String        @map("first_name")
+  lastName   String        @map("last_name")
+  startDate  DateTime      @map("start_date") @db.Date
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  schedule EmpSchedule[]
+
+  @@unique([tenantId, empNo])
+  @@index([tenantId, department])
+  @@map("emp_employees")
+}
+
+model EmpSchedule {
+  id         String           @id @default(uuid())
+  tenantId   String           @map("tenant_id")
+  employeeId String           @map("employee_id")
+  date       DateTime         @db.Date // Manila calendar day
+  status     AttendanceStatus
+  otHours    Int              @default(0) @map("ot_hours") // 0–5, only meaningful for PRESENT
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id])
+  employee EmpEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, date])
+  @@index([tenantId, date])
+  @@map("emp_schedules")
+}
+
+model EmpCounter {
+  id    String @id // "{tenantId}:employee"
+  value Int    @default(100) // first employee → #101
+
+  @@map("emp_counters")
 }

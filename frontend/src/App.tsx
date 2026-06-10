@@ -25,6 +25,7 @@ import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
 import IncidentReport from './pages/IncidentReport'
+import EmployeeSchedule from './pages/employeeSchedule/EmployeeSchedule'
 import ReturnCancel from './pages/ReturnCancel'
 import ReturnScanMobile from './pages/ReturnScanMobile'
 import Products from './pages/inventory/Products'
@@ -301,6 +302,15 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
                 <AppLayout><IncidentReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Employee Schedule module — independent of the order pipeline */}
+          <Route
+            path="/employee-schedule"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN]}>
+                <AppLayout><EmployeeSchedule /></AppLayout>
               </ProtectedRoute>
             }
           />
