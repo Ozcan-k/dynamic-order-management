@@ -32,6 +32,7 @@ export interface StockItemSummary {
 
 export * from './sales'
 export * from './accounting'
+export * from './employeeSchedule'
 
 export enum OrderStatus {
   INBOUND = 'INBOUND',

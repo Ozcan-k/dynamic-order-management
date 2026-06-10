@@ -34,6 +34,7 @@ import incidentRoutes from './routes/incidents'
 import returnRoutes from './routes/returns'
 import brandingRoutes from './routes/branding'
 import accountingRoutes from './routes/accounting'
+import employeeScheduleRoutes from './routes/employeeSchedule'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -81,6 +82,7 @@ async function start() {
   await fastify.register(returnRoutes, { prefix: '/returns' })
   await fastify.register(brandingRoutes, { prefix: '/branding' })
   await fastify.register(accountingRoutes, { prefix: '/accounting' })
+  await fastify.register(employeeScheduleRoutes, { prefix: '/employee-schedule' })
   if (process.env.NODE_ENV !== 'production') {
     await fastify.register(devTestRoutes)
   }
