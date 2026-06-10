@@ -4,12 +4,12 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
-import StatCard from '../components/shared/StatCard'
 import SectionHeader from '../components/shared/SectionHeader'
 import NumberTicker from '../components/shared/NumberTicker'
-import BorderBeam from '../components/shared/BorderBeam'
+import OrderPipelineFunnel from '../components/shared/OrderPipelineFunnel'
 import { getSocket } from '../lib/socket'
 import { getManilaDateString } from '../lib/manila'
+import { getOrderPipeline } from '../api/dispatch'
 import SlaSummaryCard from '../components/SlaSummaryCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,13 +29,6 @@ interface RangeTotals {
   endDate: string
   inboundTotal: number
   outboundTotal: number
-}
-
-interface DashboardTrends {
-  days: number
-  dates: string[]
-  inbound: number[]
-  outbound: number[]
 }
 
 type PresetKey = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
@@ -149,52 +142,54 @@ function MetricCard({
   )
 }
 
-function PipelineStage({
-  label, count, color, sublabel, isLast = false, active = false,
+// ─── Order Summary tiles ──────────────────────────────────────────────────────
+
+const PipelineGlyph = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+  </svg>
+)
+const AlertGlyph = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+)
+const CarryoverGlyph = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 2v6h6" /><path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+  </svg>
+)
+
+function SummaryTile({
+  label, value, color, subtitle, icon,
 }: {
-  label: string; count: number; color: string; sublabel?: string; isLast?: boolean; active?: boolean
+  label: string; value: number | string; color: string; subtitle?: string; icon: React.ReactNode
 }) {
-  const stageBox = (
-    <div style={{
-      flex: 1,
-      background: colors.surfaceAlt,
-      border: `1px solid ${colors.border}`,
-      borderRadius: radius.lg,
-      padding: '14px 10px',
-      textAlign: 'center',
-      borderTop: `3px solid ${color}`,
-      minWidth: 0,
-    }}>
-      <div style={{
-        fontSize: '28px', fontWeight: 800, color,
-        fontVariantNumeric: 'tabular-nums', lineHeight: 1,
-      }}>
-        <NumberTicker value={count} />
-      </div>
-      <div style={{ fontSize: font.sm, color: colors.textSecondary, marginTop: '5px', fontWeight: 600 }}>
-        {label}
-      </div>
-      {sublabel && (
-        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '2px' }}>{sublabel}</div>
-      )}
-    </div>
-  )
+  const isNumeric = typeof value === 'number'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-      {active
-        ? <BorderBeam color={color} borderRadius={radius.lg} style={{ flex: 1, minWidth: 0 }}>{stageBox}</BorderBeam>
-        : stageBox}
-      {!isLast && (
-        <div style={{
-          padding: '0 6px',
-          color: colors.borderStrong,
-          fontSize: '20px',
-          fontWeight: 300,
-          flexShrink: 0,
-          userSelect: 'none',
-        }}>
-          ›
-        </div>
+    <div style={{
+      position: 'relative', overflow: 'hidden',
+      background: `linear-gradient(180deg, ${color}0d 0%, ${colors.surface} 60%)`,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radius.xl,
+      padding: '18px 20px',
+    }}>
+      {/* accent rail */}
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{
+          width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: `${color}1a`, color,
+        }}>{icon}</span>
+        <span style={{ fontSize: font.md, color: colors.textSecondary, fontWeight: 600 }}>{label}</span>
+      </div>
+      <div style={{ fontSize: '34px', fontWeight: 800, color, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+        {isNumeric ? <NumberTicker value={value as number} /> : value}
+      </div>
+      {subtitle && (
+        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '6px' }}>{subtitle}</div>
       )}
     </div>
   )
@@ -279,11 +274,10 @@ export default function Dashboard() {
     refetchInterval: rangeEnd === todayStr ? 30_000 : false,
   })
 
-  const { data: trendData } = useQuery({
-    queryKey: ['dashboard-trends'],
-    queryFn: async () => (await api.get<DashboardTrends>('/reports/dashboard-trends?days=7')).data,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+  const { data: pipelineData, isLoading: pipelineLoading } = useQuery({
+    queryKey: ['dashboard-pipeline', todayStr],
+    queryFn: () => getOrderPipeline(todayStr, todayStr),
+    refetchInterval: 15_000,
   })
 
   useEffect(() => {
@@ -293,7 +287,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['outbound-stats-dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['range-totals'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-trends'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-pipeline'] })
     }
     socket.on('sla:escalated', handler)
     socket.on('order:stats_changed', handler)
@@ -322,15 +316,6 @@ export default function Dashboard() {
       icon={<DashboardIcon />}
       title="Dashboard"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
-      stats={
-        <>
-          <StatCard label="Total Scanned" value={dash(isLoading, stats.inboundTotal)} color={colors.primary} animate trend={trendData?.inbound} />
-          <StatCard label="Dispatched" value={dash(isLoading, stats.outboundTotal)} color={colors.success} animate trend={trendData?.outbound} />
-          <StatCard label="Remaining" value={dash(isLoading, stats.remainingCount)} color={colors.warning} animate />
-          <StatCard label="Carryover Active" value={dash(isLoading, stats.carryoverCount)} color="#d97706" subtitle="From previous days" animate />
-          <StatCard label="D4 at Risk" value={dash(isLoading, stats.slaSummary.d4)} color={colors.danger} animate />
-        </>
-      }
     >
 
       {/* ── Hero banner (clock + greeting) ──────────────────────────── */}
@@ -364,51 +349,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Order Pipeline ────────────────────────────────────────── */}
-      <Card style={{ padding: '20px 24px', marginBottom: '20px' }}>
-        <SectionHeader title="Order Pipeline" />
-        <div style={{ display: 'flex', alignItems: 'stretch', gap: '4px', overflowX: 'auto' }}>
-          <PipelineStage
-            label="Inbound Queue" count={outbound.pipeline.inboundQueue}
-            color={colors.primary} sublabel="Awaiting pick"
-            active={outbound.pipeline.inboundQueue > 0}
-          />
-          <PipelineStage
-            label="Picking" count={outbound.pipeline.pickerActive}
-            color="#8b5cf6" sublabel="In progress"
-            active={outbound.pipeline.pickerActive > 0}
-          />
-          <PipelineStage
-            label="Pick Done" count={outbound.pipeline.pickerComplete}
-            color="#06b6d4" sublabel="Awaiting packer"
-            active={outbound.pipeline.pickerComplete > 0}
-          />
-          <PipelineStage
-            label="Dispatched" count={outbound.pipeline.dispatched}
-            color={colors.success} sublabel="All time" isLast
-          />
-        </div>
-      </Card>
+      {/* ── Order Pipeline (identical to the Outbound Report funnel) ── */}
+      <OrderPipelineFunnel
+        data={pipelineData}
+        loading={pipelineLoading}
+        rangeLabel="Today"
+        caption="Inbound → Packer Complete are warehouse milestones (distinct orders that reached each stage today). Outbound counts only parcels actually scanned out today; of those, old orders were packed earlier and shipped now (backlog)."
+      />
 
-      {/* ── Outbound Summary ──────────────────────────────────────── */}
+      {/* ── Order Summary ─────────────────────────────────────────── */}
       <Card style={{ padding: '20px 24px', marginBottom: '20px' }}>
-        <SectionHeader title="Outbound Summary" />
-        <div className="stats-grid">
-          <MetricCard
-            label="Dispatched Today" value={dash(outboundLoading, outbound.dispatchedToday)}
-            color={colors.success} subtitle="Since midnight" animate
-          />
-          <MetricCard
+        <SectionHeader title="Order Summary" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+          <SummaryTile
             label="In Pipeline" value={dash(outboundLoading, outbound.missingCount)}
-            color={colors.primary} subtitle="Not yet dispatched" animate
+            color={colors.primary} subtitle="Not yet dispatched" icon={PipelineGlyph}
           />
-          <MetricCard
+          <SummaryTile
             label="D4 — Not Shipped" value={dash(outboundLoading, outbound.d4Count)}
-            color={colors.danger} subtitle="Urgent dispatch needed" animate
+            color={colors.danger} subtitle="Urgent dispatch needed" icon={AlertGlyph}
           />
-          <MetricCard
-            label="Total Dispatched" value={dash(outboundLoading, outbound.outboundTotal)}
-            color="#0891b2" subtitle="All time" animate
+          <SummaryTile
+            label="Carryover Active" value={dash(isLoading, stats.carryoverCount)}
+            color="#d97706" subtitle="From previous days" icon={CarryoverGlyph}
           />
         </div>
       </Card>
