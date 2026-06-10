@@ -15,6 +15,14 @@ export interface EmployeeInput {
   firstName: string
   lastName: string
   startDate: string // YYYY-MM-DD
+  contactNumber?: string | null
+  email?: string | null
+  address?: string | null
+  birthday?: string | null // YYYY-MM-DD
+  emergencyContactName?: string | null
+  emergencyContactNumber?: string | null
+  isActive?: boolean
+  leaveDate?: string | null // YYYY-MM-DD — required when isActive=false
 }
 
 export async function listEmployees(): Promise<EmpEmployeeDTO[]> {

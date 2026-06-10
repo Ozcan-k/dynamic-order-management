@@ -50,7 +50,13 @@ function shortDate(dateStr: string): string {
 }
 
 // ─── serialization ──────────────────────────────────────────────────────────
-function serEmployee(e: { id: string; empNo: number; department: string; firstName: string; lastName: string; startDate: Date }): EmpEmployeeDTO {
+interface EmpRow {
+  id: string; empNo: number; department: string; firstName: string; lastName: string; startDate: Date
+  contactNumber: string | null; email: string | null; address: string | null; birthday: Date | null
+  emergencyContactName: string | null; emergencyContactNumber: string | null
+  isActive: boolean; leaveDate: Date | null
+}
+function serEmployee(e: EmpRow): EmpEmployeeDTO {
   return {
     id: e.id,
     empNo: e.empNo,
@@ -58,6 +64,14 @@ function serEmployee(e: { id: string; empNo: number; department: string; firstNa
     firstName: e.firstName,
     lastName: e.lastName,
     startDate: fmt(e.startDate),
+    contactNumber: e.contactNumber,
+    email: e.email,
+    address: e.address,
+    birthday: e.birthday ? fmt(e.birthday) : null,
+    emergencyContactName: e.emergencyContactName,
+    emergencyContactNumber: e.emergencyContactNumber,
+    isActive: e.isActive,
+    leaveDate: e.leaveDate ? fmt(e.leaveDate) : null,
   }
 }
 
@@ -83,36 +97,59 @@ export async function listEmployees(tenantId: string): Promise<EmpEmployeeDTO[]>
   return sortEmployees(rows.map(serEmployee))
 }
 
-export async function createEmployee(tenantId: string, input: {
-  department: EmpDepartment; firstName: string; lastName: string; startDate: string
-}): Promise<EmpEmployeeDTO> {
+export interface EmployeeInput {
+  department: EmpDepartment
+  firstName: string
+  lastName: string
+  startDate: string
+  contactNumber?: string | null
+  email?: string | null
+  address?: string | null
+  birthday?: string | null
+  emergencyContactName?: string | null
+  emergencyContactNumber?: string | null
+  isActive?: boolean
+  leaveDate?: string | null
+}
+
+const trimOrNull = (v?: string | null) => {
+  const t = (v ?? '').trim()
+  return t === '' ? null : t
+}
+
+function buildData(input: EmployeeInput) {
+  const isActive = input.isActive ?? true
+  return {
+    department: input.department,
+    firstName: input.firstName.trim(),
+    lastName: input.lastName.trim(),
+    startDate: dateOnly(input.startDate),
+    contactNumber: trimOrNull(input.contactNumber),
+    email: trimOrNull(input.email),
+    address: trimOrNull(input.address),
+    birthday: input.birthday ? dateOnly(input.birthday) : null,
+    emergencyContactName: trimOrNull(input.emergencyContactName),
+    emergencyContactNumber: trimOrNull(input.emergencyContactNumber),
+    isActive,
+    // a leave date only makes sense for an inactive employee
+    leaveDate: !isActive && input.leaveDate ? dateOnly(input.leaveDate) : null,
+  }
+}
+
+export async function createEmployee(tenantId: string, input: EmployeeInput): Promise<EmpEmployeeDTO> {
   const empNo = await nextEmpNo(tenantId)
   const created = await prisma.empEmployee.create({
-    data: {
-      tenantId,
-      empNo,
-      department: input.department,
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      startDate: dateOnly(input.startDate),
-    },
+    data: { tenantId, empNo, ...buildData(input) },
   })
   return serEmployee(created)
 }
 
-export async function updateEmployee(tenantId: string, id: string, input: {
-  department: EmpDepartment; firstName: string; lastName: string; startDate: string
-}): Promise<EmpEmployeeDTO> {
+export async function updateEmployee(tenantId: string, id: string, input: EmployeeInput): Promise<EmpEmployeeDTO> {
   const existing = await prisma.empEmployee.findFirst({ where: { id, tenantId } })
   if (!existing) throw new EmployeeNotFoundError()
   const updated = await prisma.empEmployee.update({
     where: { id },
-    data: {
-      department: input.department,
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      startDate: dateOnly(input.startDate),
-    },
+    data: buildData(input),
   })
   return serEmployee(updated)
 }
@@ -138,7 +175,8 @@ export async function getWeek(tenantId: string, weekStartInput?: string): Promis
     : fmt(new Date()))
   const days = dayRange(weekStart, 7)
 
-  const employees = sortEmployees((await prisma.empEmployee.findMany({ where: { tenantId } })).map(serEmployee))
+  // only active employees are schedulable
+  const employees = sortEmployees((await prisma.empEmployee.findMany({ where: { tenantId, isActive: true } })).map(serEmployee))
 
   const entries = await prisma.empSchedule.findMany({
     where: { tenantId, date: { gte: dateOnly(days[0]), lte: dateOnly(days[6]) } },
@@ -220,6 +258,10 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
     where: { tenantId, date: { gte: dateOnly(from), lte: dateOnly(to) } },
   })
 
+  // employees that have at least one entry in the period (so inactive staff still
+  // appear in the historical periods they actually worked)
+  const withEntries = new Set(entries.map((e) => e.employeeId))
+
   const aggByEmp = new Map<string, EmpReportRow>()
   for (const emp of employees) aggByEmp.set(emp.id, emptyAgg(emp))
 
@@ -238,12 +280,14 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
     if (status === AttendanceStatus.PRESENT) agg.otHours += e.otHours
   }
 
-  const rows = employees.map((emp) => {
-    const agg = aggByEmp.get(emp.id)!
-    agg.workedDays = agg.present + 0.5 * agg.halfDay
-    agg.totalHours = 8 * agg.present + 4 * agg.halfDay + agg.otHours
-    return agg
-  })
+  const rows = employees
+    .filter((emp) => emp.isActive || withEntries.has(emp.id))
+    .map((emp) => {
+      const agg = aggByEmp.get(emp.id)!
+      agg.workedDays = agg.present + 0.5 * agg.halfDay
+      agg.totalHours = 8 * agg.present + 4 * agg.halfDay + agg.otHours
+      return agg
+    })
 
   const totals = rows.reduce(
     (acc, r) => {

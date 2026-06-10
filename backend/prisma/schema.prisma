@@ -894,13 +894,27 @@ model EmpEmployee {
   firstName  String        @map("first_name")
   lastName   String        @map("last_name")
   startDate  DateTime      @map("start_date") @db.Date
-  createdAt  DateTime      @default(now()) @map("created_at")
+
+  // contact / personal (all optional, additive)
+  contactNumber          String?   @map("contact_number")
+  email                  String?
+  address                String?   @db.Text
+  birthday               DateTime? @map("birthday") @db.Date
+  emergencyContactName   String?   @map("emergency_contact_name")
+  emergencyContactNumber String?   @map("emergency_contact_number")
+
+  // employment status — new employees default active; on leave we flip to inactive + record leaveDate
+  isActive  Boolean   @default(true) @map("is_active")
+  leaveDate DateTime? @map("leave_date") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id])
   schedule EmpSchedule[]
 
   @@unique([tenantId, empNo])
   @@index([tenantId, department])
+  @@index([tenantId, isActive])
   @@map("emp_employees")
 }
 
