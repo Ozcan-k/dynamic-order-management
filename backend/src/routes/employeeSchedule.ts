@@ -26,11 +26,25 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 // Employee Schedule module — Admin + Warehouse Admin only.
 const guard = () => requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN)
 
+const optStr = (max: number) => z.string().trim().max(max).optional().nullable()
+const optDate = z.union([z.string().regex(DATE_RE), z.literal(''), z.null()]).optional()
+
 const EmployeeBody = z.object({
   department: z.nativeEnum(EmpDepartment),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   startDate: z.string().regex(DATE_RE),
+  contactNumber: optStr(40),
+  email: z.union([z.string().trim().email().max(120), z.literal(''), z.null()]).optional(),
+  address: optStr(300),
+  birthday: optDate,
+  emergencyContactName: optStr(120),
+  emergencyContactNumber: optStr(40),
+  isActive: z.boolean().default(true),
+  leaveDate: optDate,
+}).refine((d) => d.isActive || (!!d.leaveDate && DATE_RE.test(d.leaveDate)), {
+  message: 'A leave date is required when the employee is inactive',
+  path: ['leaveDate'],
 })
 
 const CellBody = z.object({

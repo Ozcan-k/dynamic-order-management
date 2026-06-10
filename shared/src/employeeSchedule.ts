@@ -65,6 +65,14 @@ export interface EmpEmployeeDTO {
   firstName: string
   lastName: string
   startDate: string // YYYY-MM-DD
+  contactNumber: string | null
+  email: string | null
+  address: string | null
+  birthday: string | null // YYYY-MM-DD
+  emergencyContactName: string | null
+  emergencyContactNumber: string | null
+  isActive: boolean
+  leaveDate: string | null // YYYY-MM-DD — set when isActive=false
 }
 
 /** One schedule cell (a day's attendance for an employee). */
