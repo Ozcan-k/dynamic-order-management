@@ -229,7 +229,7 @@ export async function setCell(tenantId: string, input: {
 function emptyAgg(employee: EmpEmployeeDTO): EmpReportRow {
   return {
     employee,
-    present: 0, halfDay: 0, absent: 0, vacation: 0, sick: 0, maternity: 0,
+    present: 0, halfDay: 0, absent: 0, dayOff: 0, vacation: 0, sick: 0, maternity: 0,
     otHours: 0, workedDays: 0, totalHours: 0,
   }
 }
@@ -273,6 +273,7 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
       case AttendanceStatus.PRESENT: agg.present++; break
       case AttendanceStatus.HALF_DAY: agg.halfDay++; break
       case AttendanceStatus.ABSENT: agg.absent++; break
+      case AttendanceStatus.DAY_OFF: agg.dayOff++; break
       case AttendanceStatus.VACATION_LEAVE: agg.vacation++; break
       case AttendanceStatus.SICK_LEAVE: agg.sick++; break
       case AttendanceStatus.MATERNITY_LEAVE: agg.maternity++; break

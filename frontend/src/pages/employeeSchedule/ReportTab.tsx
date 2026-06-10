@@ -119,7 +119,7 @@ export default function ReportTab() {
           ) : (
             <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.xl, boxShadow: shadow.card, overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: 920 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: 1000 }}>
                   <thead>
                     <tr style={{ borderBottom: `2px solid ${colors.border}`, background: colors.surfaceAlt }}>
                       <th style={th('left')}>ID</th>
@@ -127,6 +127,7 @@ export default function ReportTab() {
                       <th style={th()}>Present</th>
                       <th style={th()}>Half Day</th>
                       <th style={th()}>Absent</th>
+                      <th style={th()}>Day Off</th>
                       <th style={th()}>Vacation</th>
                       <th style={th()}>Sick</th>
                       <th style={th()}>Maternity</th>
@@ -147,7 +148,7 @@ export default function ReportTab() {
                   <tfoot>
                     <tr style={{ borderTop: `2px solid ${colors.textPrimary}`, background: colors.surfaceAlt }}>
                       <td style={{ ...td('left'), fontWeight: 800 }} colSpan={2}>GRAND TOTAL</td>
-                      <td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} />
+                      <td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} /><td style={td()} />
                       <td style={{ ...td(), fontWeight: 800, color: colors.warning }}>{fmtNum(data.totals.otHours)}</td>
                       <td style={{ ...td(), fontWeight: 800, color: colors.success }}>{fmtNum(data.totals.workedDays)}</td>
                       <td style={{ ...td(), fontWeight: 800, color: colors.textPrimary }}>{fmtNum(data.totals.totalHours)}</td>
@@ -168,13 +169,13 @@ export default function ReportTab() {
 }
 
 // ─── Department section (rows + subtotal) ────────────────────────────────────
-interface Sub { present: number; halfDay: number; absent: number; vacation: number; sick: number; maternity: number; otHours: number; workedDays: number; totalHours: number }
+interface Sub { present: number; halfDay: number; absent: number; dayOff: number; vacation: number; sick: number; maternity: number; otHours: number; workedDays: number; totalHours: number }
 function subtotal(rows: EmpReportRow[]): Sub {
   return rows.reduce((a, r) => ({
-    present: a.present + r.present, halfDay: a.halfDay + r.halfDay, absent: a.absent + r.absent,
+    present: a.present + r.present, halfDay: a.halfDay + r.halfDay, absent: a.absent + r.absent, dayOff: a.dayOff + r.dayOff,
     vacation: a.vacation + r.vacation, sick: a.sick + r.sick, maternity: a.maternity + r.maternity,
     otHours: a.otHours + r.otHours, workedDays: a.workedDays + r.workedDays, totalHours: a.totalHours + r.totalHours,
-  }), { present: 0, halfDay: 0, absent: 0, vacation: 0, sick: 0, maternity: 0, otHours: 0, workedDays: 0, totalHours: 0 })
+  }), { present: 0, halfDay: 0, absent: 0, dayOff: 0, vacation: 0, sick: 0, maternity: 0, otHours: 0, workedDays: 0, totalHours: 0 })
 }
 
 function DeptSection({ label, ds, rows, sub, maxHours }: {
@@ -183,7 +184,7 @@ function DeptSection({ label, ds, rows, sub, maxHours }: {
   return (
     <>
       <tr>
-        <td colSpan={11} style={{ padding: '8px 16px', background: ds.band, color: ds.bandText, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <td colSpan={12} style={{ padding: '8px 16px', background: ds.band, color: ds.bandText, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {label}
         </td>
       </tr>
@@ -194,6 +195,7 @@ function DeptSection({ label, ds, rows, sub, maxHours }: {
           <td style={{ ...td(), color: r.present ? colors.success : colors.textMuted, fontWeight: r.present ? 700 : 400 }}>{r.present}</td>
           <td style={td()}>{r.halfDay || <span style={{ color: colors.textMuted }}>0</span>}</td>
           <td style={{ ...td(), color: r.absent ? colors.danger : colors.textMuted }}>{r.absent}</td>
+          <td style={{ ...td(), color: r.dayOff ? '#475569' : colors.textMuted, fontWeight: r.dayOff ? 600 : 400 }}>{r.dayOff}</td>
           <td style={td()}>{r.vacation || <span style={{ color: colors.textMuted }}>0</span>}</td>
           <td style={td()}>{r.sick || <span style={{ color: colors.textMuted }}>0</span>}</td>
           <td style={td()}>{r.maternity || <span style={{ color: colors.textMuted }}>0</span>}</td>
@@ -214,6 +216,7 @@ function DeptSection({ label, ds, rows, sub, maxHours }: {
         <td style={{ ...td(), fontWeight: 600 }}>{sub.present}</td>
         <td style={{ ...td(), fontWeight: 600 }}>{sub.halfDay}</td>
         <td style={{ ...td(), fontWeight: 600 }}>{sub.absent}</td>
+        <td style={{ ...td(), fontWeight: 600 }}>{sub.dayOff}</td>
         <td style={{ ...td(), fontWeight: 600 }}>{sub.vacation}</td>
         <td style={{ ...td(), fontWeight: 600 }}>{sub.sick}</td>
         <td style={{ ...td(), fontWeight: 600 }}>{sub.maternity}</td>

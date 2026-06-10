@@ -880,6 +880,7 @@ enum EmpDepartment {
 enum AttendanceStatus {
   PRESENT
   ABSENT
+  DAY_OFF
   VACATION_LEAVE
   SICK_LEAVE
   HALF_DAY
