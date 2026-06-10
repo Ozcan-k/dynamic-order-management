@@ -13,6 +13,7 @@ export enum EmpDepartment {
 export enum AttendanceStatus {
   PRESENT = 'PRESENT',
   ABSENT = 'ABSENT',
+  DAY_OFF = 'DAY_OFF',
   VACATION_LEAVE = 'VACATION_LEAVE',
   SICK_LEAVE = 'SICK_LEAVE',
   HALF_DAY = 'HALF_DAY',
@@ -39,6 +40,7 @@ export const EMP_DEPARTMENT_ORDER: EmpDepartment[] = [
 export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
   [AttendanceStatus.PRESENT]: 'Present',
   [AttendanceStatus.ABSENT]: 'Absent',
+  [AttendanceStatus.DAY_OFF]: 'Day Off',
   [AttendanceStatus.VACATION_LEAVE]: 'Vacation Leave',
   [AttendanceStatus.SICK_LEAVE]: 'Sick Leave',
   [AttendanceStatus.HALF_DAY]: 'Half Day',
@@ -50,6 +52,7 @@ export const ATTENDANCE_BASE_HOURS: Record<AttendanceStatus, number> = {
   [AttendanceStatus.PRESENT]: 8,
   [AttendanceStatus.HALF_DAY]: 4,
   [AttendanceStatus.ABSENT]: 0,
+  [AttendanceStatus.DAY_OFF]: 0,
   [AttendanceStatus.VACATION_LEAVE]: 0,
   [AttendanceStatus.SICK_LEAVE]: 0,
   [AttendanceStatus.MATERNITY_LEAVE]: 0,
@@ -101,6 +104,7 @@ export interface EmpReportRow {
   present: number
   halfDay: number
   absent: number
+  dayOff: number
   vacation: number
   sick: number
   maternity: number

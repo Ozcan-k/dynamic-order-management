@@ -139,19 +139,19 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     const report = await getReport(tenantId, parsed.data.period, parsed.data.date)
 
-    const header = ['Employee ID', 'Name', 'Department', 'Present', 'Half Day', 'Absent',
+    const header = ['Employee ID', 'Name', 'Department', 'Present', 'Half Day', 'Absent', 'Day Off',
       'Vacation', 'Sick', 'Maternity', 'OT Hours', 'Worked Days', 'Total Hours']
     const lines = [header.map(csvField).join(',')]
     const rowVals = (r: EmpReportRow) => [
       `#${r.employee.empNo}`,
       `${r.employee.firstName} ${r.employee.lastName}`,
       EMP_DEPARTMENT_LABEL[r.employee.department],
-      r.present, r.halfDay, r.absent, r.vacation, r.sick, r.maternity,
+      r.present, r.halfDay, r.absent, r.dayOff, r.vacation, r.sick, r.maternity,
       r.otHours, r.workedDays, r.totalHours,
     ]
     for (const r of report.rows) lines.push(rowVals(r).map(csvField).join(','))
     lines.push('')
-    lines.push(['', 'GRAND TOTAL', '', '', '', '', '', '', '', report.totals.otHours, report.totals.workedDays, report.totals.totalHours].map(csvField).join(','))
+    lines.push(['', 'GRAND TOTAL', '', '', '', '', '', '', '', '', report.totals.otHours, report.totals.workedDays, report.totals.totalHours].map(csvField).join(','))
 
     const filename = `employee-schedule-${report.period}-${report.from}.csv`
     return reply

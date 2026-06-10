@@ -7,6 +7,7 @@ export const STATUS_STYLE: Record<AttendanceStatus, StatusStyle> = {
   [AttendanceStatus.PRESENT]:         { bg: '#ecfdf5', text: '#047857', border: '#a7f3d0', dot: '#10b981' },
   [AttendanceStatus.HALF_DAY]:        { bg: '#f0fdfa', text: '#0f766e', border: '#99f6e4', dot: '#14b8a6' },
   [AttendanceStatus.ABSENT]:          { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca', dot: '#ef4444' },
+  [AttendanceStatus.DAY_OFF]:         { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1', dot: '#64748b' },
   [AttendanceStatus.VACATION_LEAVE]:  { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', dot: '#3b82f6' },
   [AttendanceStatus.SICK_LEAVE]:      { bg: '#fffbeb', text: '#b45309', border: '#fde68a', dot: '#f59e0b' },
   [AttendanceStatus.MATERNITY_LEAVE]: { bg: '#fdf4ff', text: '#a21caf', border: '#f5d0fe', dot: '#d946ef' },

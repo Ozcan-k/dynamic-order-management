@@ -21,6 +21,7 @@ const STATUS_OPTIONS = [
   AttendanceStatus.PRESENT,
   AttendanceStatus.HALF_DAY,
   AttendanceStatus.ABSENT,
+  AttendanceStatus.DAY_OFF,
   AttendanceStatus.VACATION_LEAVE,
   AttendanceStatus.SICK_LEAVE,
   AttendanceStatus.MATERNITY_LEAVE,

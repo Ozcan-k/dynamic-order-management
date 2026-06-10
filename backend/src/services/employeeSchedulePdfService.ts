@@ -16,15 +16,16 @@ const border = '#e2e8f0'
 const COLS = [
   { key: 'id', label: 'ID', w: 38, align: 'left' as const },
   { key: 'name', label: 'Name', w: 150, align: 'left' as const },
-  { key: 'present', label: 'Present', w: 55, align: 'right' as const },
-  { key: 'halfDay', label: 'Half Day', w: 55, align: 'right' as const },
-  { key: 'absent', label: 'Absent', w: 50, align: 'right' as const },
-  { key: 'vacation', label: 'Vacation', w: 58, align: 'right' as const },
-  { key: 'sick', label: 'Sick', w: 45, align: 'right' as const },
-  { key: 'maternity', label: 'Maternity', w: 62, align: 'right' as const },
-  { key: 'otHours', label: 'OT (h)', w: 48, align: 'right' as const },
-  { key: 'workedDays', label: 'Worked Days', w: 78, align: 'right' as const },
-  { key: 'totalHours', label: 'Total Hrs', w: 60, align: 'right' as const },
+  { key: 'present', label: 'Present', w: 50, align: 'right' as const },
+  { key: 'halfDay', label: 'Half Day', w: 52, align: 'right' as const },
+  { key: 'absent', label: 'Absent', w: 48, align: 'right' as const },
+  { key: 'dayOff', label: 'Day Off', w: 50, align: 'right' as const },
+  { key: 'vacation', label: 'Vacation', w: 55, align: 'right' as const },
+  { key: 'sick', label: 'Sick', w: 42, align: 'right' as const },
+  { key: 'maternity', label: 'Maternity', w: 60, align: 'right' as const },
+  { key: 'otHours', label: 'OT (h)', w: 46, align: 'right' as const },
+  { key: 'workedDays', label: 'Worked Days', w: 74, align: 'right' as const },
+  { key: 'totalHours', label: 'Total Hrs', w: 58, align: 'right' as const },
 ]
 
 function fmtNum(n: number): string {
@@ -92,7 +93,7 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
       const rowFor = (r: EmpReportRow): string[] => [
         `#${r.employee.empNo}`,
         `${r.employee.firstName} ${r.employee.lastName}`,
-        fmtNum(r.present), fmtNum(r.halfDay), fmtNum(r.absent),
+        fmtNum(r.present), fmtNum(r.halfDay), fmtNum(r.absent), fmtNum(r.dayOff),
         fmtNum(r.vacation), fmtNum(r.sick), fmtNum(r.maternity),
         fmtNum(r.otHours), fmtNum(r.workedDays), fmtNum(r.totalHours),
       ]
@@ -120,9 +121,9 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
         ensureSpace(rowH)
         const sub: string[] = new Array(COLS.length).fill('')
         sub[1] = 'Subtotal'
-        sub[8] = fmtNum(dOt)
-        sub[9] = fmtNum(dWorked)
-        sub[10] = fmtNum(dHours)
+        sub[9] = fmtNum(dOt)
+        sub[10] = fmtNum(dWorked)
+        sub[11] = fmtNum(dHours)
         drawRow(sub, y, { bold: true, band: '#eef2ff' })
         y += rowH + 4
       }
@@ -132,9 +133,9 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
       doc.moveTo(left, y - 3).lineTo(left + contentW, y - 3).strokeColor(navy).lineWidth(1.2).stroke()
       const gt: string[] = new Array(COLS.length).fill('')
       gt[1] = 'GRAND TOTAL'
-      gt[8] = fmtNum(report.totals.otHours)
-      gt[9] = fmtNum(report.totals.workedDays)
-      gt[10] = fmtNum(report.totals.totalHours)
+      gt[9] = fmtNum(report.totals.otHours)
+      gt[10] = fmtNum(report.totals.workedDays)
+      gt[11] = fmtNum(report.totals.totalHours)
       drawRow(gt, y + 2, { bold: true })
 
       // footer
