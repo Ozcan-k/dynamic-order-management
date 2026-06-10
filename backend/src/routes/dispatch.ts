@@ -41,6 +41,11 @@ const ListQuerySchema = z.object({
 
 export default async function dispatchRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, guard()]
+  // The order-pipeline funnel is also rendered on the Dashboard, so its GET is
+  // readable by the warehouse-admin roles that can see the Dashboard (read-only).
+  const pipelinePre = [fastify.authenticate, requireRole(
+    UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN,
+  )]
 
   // GET /dispatch/lookup?trackingNumber= — read-only in-house order lookup
   fastify.get('/lookup', { preHandler }, async (request, reply) => {
@@ -110,7 +115,7 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
   })
 
   // GET /dispatch/pipeline?from=&to= — order-pipeline funnel (Inbound→Picker→Packer→Outbound)
-  fastify.get('/pipeline', { preHandler }, async (request, reply) => {
+  fastify.get('/pipeline', { preHandler: pipelinePre }, async (request, reply) => {
     const { from, to } = request.query as { from?: string; to?: string }
     const validFrom = from && DATE_RE.test(from) ? from : undefined
     const validTo = to && DATE_RE.test(to) ? to : undefined
