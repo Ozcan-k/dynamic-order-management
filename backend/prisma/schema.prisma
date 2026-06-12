@@ -514,9 +514,9 @@ model Incident {
   createdAt          DateTime     @default(now()) @map("created_at")
   updatedAt          DateTime     @updatedAt @map("updated_at")
 
-  employee   User @relation("IncidentEmployee", fields: [employeeUserId], references: [id], onDelete: Restrict)
-  reportedBy User @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
-  createdBy  User @relation("IncidentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  employee   User               @relation("IncidentEmployee", fields: [employeeUserId], references: [id], onDelete: Restrict)
+  reportedBy User               @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  createdBy  User               @relation("IncidentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   documents  IncidentDocument[]
 
   @@index([tenantId, incidentDate(sort: Desc)])
@@ -541,17 +541,17 @@ model IncidentDocument {
 }
 
 model CompanyBranding {
-  id          String   @id @default(uuid())
-  tenantId    String   @unique @map("tenant_id")
+  id            String   @id @default(uuid())
+  tenantId      String   @unique @map("tenant_id")
   companyName   String   @map("company_name")
   address       String?  @map("address")
   email         String?  @map("email")
   contactNumber String?  @map("contact_number")
   logoPath      String?  @map("logo_path")
   logoMime      String?  @map("logo_mime")
-  updatedById String   @map("updated_by")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  updatedById   String   @map("updated_by")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   updatedBy User @relation("BrandingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
 
@@ -688,7 +688,7 @@ model AccItem {
   tenantId  String          @map("tenant_id")
   name      String
   kind      AccCatalogKind? // SALE | EXPENSE; independent Sales/Expense item catalogs (legacy rows NULL)
-  unitCost  Decimal?        @db.Decimal(14, 2) @map("unit_cost")
+  unitCost  Decimal?        @map("unit_cost") @db.Decimal(14, 2)
   createdAt DateTime        @default(now()) @map("created_at")
 
   @@index([tenantId, name])
@@ -697,14 +697,14 @@ model AccItem {
 }
 
 model AccCategory {
-  id        String           @id @default(uuid())
-  tenantId  String           @map("tenant_id")
+  id        String          @id @default(uuid())
+  tenantId  String          @map("tenant_id")
   name      String
-  kind      AccCatalogKind?  // SALE | EXPENSE; legacy rows stay NULL (hidden from dropdowns)
-  parentId  String?          @map("parent_id") // set → this row is a subcategory of parent
-  parent    AccCategory?     @relation("AccCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  AccCategory[]    @relation("AccCategoryTree")
-  createdAt DateTime         @default(now()) @map("created_at")
+  kind      AccCatalogKind? // SALE | EXPENSE; legacy rows stay NULL (hidden from dropdowns)
+  parentId  String?         @map("parent_id") // set → this row is a subcategory of parent
+  parent    AccCategory?    @relation("AccCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  AccCategory[]   @relation("AccCategoryTree")
+  createdAt DateTime        @default(now()) @map("created_at")
 
   @@index([tenantId, name])
   @@index([tenantId, kind])
@@ -735,11 +735,11 @@ model AccSale {
   customerNumber  String?         @map("customer_number")
   contactPerson   String?         @map("contact_person")
 
-  dateIssued     DateTime  @map("date_issued")
-  dueDate        DateTime? @map("due_date")
-  orderReference String?   @map("order_reference")
-  salesAgentId   String?   @map("sales_agent_id")
-  salesAgentName String?   @map("sales_agent_name")
+  dateIssued     DateTime       @map("date_issued")
+  dueDate        DateTime?      @map("due_date")
+  orderReference String?        @map("order_reference")
+  salesAgentId   String?        @map("sales_agent_id")
+  salesAgentName String?        @map("sales_agent_name")
   saleChannel    AccSaleChannel @default(OTHERS) @map("sale_channel")
   storeName      String?        @map("store_name")
 
@@ -750,16 +750,16 @@ model AccSale {
   referenceNumber String?           @map("reference_number")
   gcashNumber     String?           @map("gcash_number")
 
-  subtotal      Decimal @db.Decimal(14, 2) @default(0)
-  discountTotal Decimal @db.Decimal(14, 2) @default(0) @map("discount_total")
-  taxTotal      Decimal @db.Decimal(14, 2) @default(0) @map("tax_total")
-  total         Decimal @db.Decimal(14, 2) @default(0)
+  subtotal      Decimal @default(0) @db.Decimal(14, 2)
+  discountTotal Decimal @default(0) @map("discount_total") @db.Decimal(14, 2)
+  taxTotal      Decimal @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total         Decimal @default(0) @db.Decimal(14, 2)
 
-  note      String?  @db.Text
+  note String? @db.Text
 
   items     AccSaleItem[]
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
 
   @@index([tenantId, dateIssued(sort: Desc)])
   @@index([tenantId, status])
@@ -768,28 +768,28 @@ model AccSale {
 }
 
 model AccSaleItem {
-  id          String  @id @default(uuid())
-  saleId      String  @map("sale_id")
-  sale        AccSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  itemId      String? @map("item_id")
-  itemName    String  @map("item_name")
+  id           String  @id @default(uuid())
+  saleId       String  @map("sale_id")
+  sale         AccSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  itemId       String? @map("item_id")
+  itemName     String  @map("item_name")
   categoryId   String? @map("category_id")
   categoryName String? @map("category_name")
-  description String?
-  quantity    Decimal @db.Decimal(14, 2) @default(1)
-  unitCost    Decimal @db.Decimal(14, 2) @default(0) @map("unit_cost")
-  discountPct Decimal @db.Decimal(7, 2) @default(0) @map("discount_pct")
-  taxPct      Decimal @db.Decimal(7, 2) @default(0) @map("tax_pct")
-  lineTotal   Decimal @db.Decimal(14, 2) @default(0) @map("line_total")
+  description  String?
+  quantity     Decimal @default(1) @db.Decimal(14, 2)
+  unitCost     Decimal @default(0) @map("unit_cost") @db.Decimal(14, 2)
+  discountPct  Decimal @default(0) @map("discount_pct") @db.Decimal(7, 2)
+  taxPct       Decimal @default(0) @map("tax_pct") @db.Decimal(7, 2)
+  lineTotal    Decimal @default(0) @map("line_total") @db.Decimal(14, 2)
 
   @@index([saleId])
   @@map("acc_sale_items")
 }
 
 model AccExpense {
-  id            String @id @default(uuid())
-  tenantId      String @map("tenant_id")
-  purchaseNo    String @map("purchase_no")
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  purchaseNo    String  @map("purchase_no")
   invoiceNumber String? @map("invoice_number")
 
   country AccCountry @default(PHILIPPINES)
@@ -805,14 +805,14 @@ model AccExpense {
   paymentMethod AccPaymentMethod? @map("payment_method")
   paidBy        String?           @map("paid_by")
 
-  subtotal      Decimal @db.Decimal(14, 2) @default(0)
-  discountTotal Decimal @db.Decimal(14, 2) @default(0) @map("discount_total")
-  taxTotal      Decimal @db.Decimal(14, 2) @default(0) @map("tax_total")
-  total         Decimal @db.Decimal(14, 2) @default(0)
+  subtotal      Decimal @default(0) @db.Decimal(14, 2)
+  discountTotal Decimal @default(0) @map("discount_total") @db.Decimal(14, 2)
+  taxTotal      Decimal @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total         Decimal @default(0) @db.Decimal(14, 2)
 
   items     AccExpenseItem[]
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
 
   @@index([tenantId, dateIssued(sort: Desc)])
   @@index([tenantId, status])
@@ -822,21 +822,21 @@ model AccExpense {
 }
 
 model AccExpenseItem {
-  id           String     @id @default(uuid())
-  expenseId    String     @map("expense_id")
-  expense      AccExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  id              String     @id @default(uuid())
+  expenseId       String     @map("expense_id")
+  expense         AccExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   itemId          String?    @map("item_id")
   itemName        String     @map("item_name")
   categoryId      String?    @map("category_id")
   categoryName    String?    @map("category_name")
   subcategoryId   String?    @map("subcategory_id")
   subcategoryName String?    @map("subcategory_name")
-  description  String?
-  quantity     Decimal    @db.Decimal(14, 2) @default(1)
-  unitCost     Decimal    @db.Decimal(14, 2) @default(0) @map("unit_cost")
-  discountPct  Decimal    @db.Decimal(7, 2) @default(0) @map("discount_pct")
-  taxPct       Decimal    @db.Decimal(7, 2) @default(0) @map("tax_pct")
-  lineTotal    Decimal    @db.Decimal(14, 2) @default(0) @map("line_total")
+  description     String?
+  quantity        Decimal    @default(1) @db.Decimal(14, 2)
+  unitCost        Decimal    @default(0) @map("unit_cost") @db.Decimal(14, 2)
+  discountPct     Decimal    @default(0) @map("discount_pct") @db.Decimal(7, 2)
+  taxPct          Decimal    @default(0) @map("tax_pct") @db.Decimal(7, 2)
+  lineTotal       Decimal    @default(0) @map("line_total") @db.Decimal(14, 2)
 
   @@index([expenseId])
   @@map("acc_expense_items")
@@ -925,7 +925,7 @@ model EmpSchedule {
   employeeId String           @map("employee_id")
   date       DateTime         @db.Date // Manila calendar day
   status     AttendanceStatus
-  otHours    Int              @default(0) @map("ot_hours") // 0–5, only meaningful for PRESENT
+  otHours    Float            @default(0) @map("ot_hours") // 0–5 (decimals allowed, e.g. 1.5), only meaningful for PRESENT
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @updatedAt @map("updated_at")
 
