@@ -53,7 +53,7 @@ const CellBody = z.object({
   employeeId: z.string().uuid(),
   date: z.string().regex(DATE_RE),
   status: z.nativeEnum(AttendanceStatus).nullable(),
-  otHours: z.coerce.number().int().min(0).max(5).default(0),
+  otHours: z.coerce.number().min(0).max(5).default(0), // decimals allowed (e.g. 1.5)
 })
 
 const ReportQuery = z.object({

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   AttendanceStatus,
@@ -295,26 +295,65 @@ function DayCell({ cell, readOnly, onStatus, onOt }: {
           {isPresent && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: colors.textSecondary }}>
               OT
-              <select
-                value={cell.otHours}
-                onChange={(e) => onOt(Number(e.target.value))}
-                disabled={readOnly}
-                style={{
-                  padding: '2px 4px', borderRadius: radius.xs, border: `1px solid ${colors.border}`,
-                  background: readOnly ? 'transparent' : '#fff', color: colors.textPrimary, fontSize: '11px', fontWeight: 600,
-                  cursor: readOnly ? 'default' : 'pointer', outline: 'none', fontVariantNumeric: 'tabular-nums',
-                  appearance: readOnly ? 'none' : undefined,
-                }}
-              >
-                {Array.from({ length: MAX_OT_HOURS + 1 }, (_, i) => (
-                  <option key={i} value={i}>{i}</option>
-                ))}
-              </select>
+              <OtInput value={cell.otHours} readOnly={readOnly} onCommit={onOt} />
             </label>
           )}
         </div>
       )}
     </div>
+  )
+}
+
+// ─── OT hours input (numbers only, decimals like 1.5 allowed, 0–MAX_OT_HOURS) ──
+function OtInput({ value, readOnly, onCommit }: {
+  value: number
+  readOnly?: boolean
+  onCommit: (ot: number) => void
+}) {
+  const [text, setText] = useState(String(value))
+  const [error, setError] = useState(false)
+
+  // keep in sync when the underlying value changes (optimistic update / refetch)
+  useEffect(() => { setText(String(value)) }, [value])
+
+  // only digits with an optional single decimal point (e.g. "1", "1.5", ".5")
+  const isValid = (s: string) => s === '' || /^\d*\.?\d*$/.test(s)
+
+  const handleChange = (raw: string) => {
+    if (!isValid(raw)) { setError(true); return } // reject letters/other characters
+    setError(false)
+    setText(raw)
+  }
+
+  const commit = () => {
+    if (text === '' || text === '.') { setText(String(value)); setError(false); return }
+    let n = parseFloat(text)
+    if (Number.isNaN(n)) { setText(String(value)); setError(false); return }
+    n = Math.max(0, Math.min(MAX_OT_HOURS, Math.round(n * 100) / 100))
+    setText(String(n))
+    setError(false)
+    if (n !== value) onCommit(n)
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      readOnly={readOnly}
+      title={`Numbers only · max ${MAX_OT_HOURS}h (decimals allowed, e.g. 1.5)`}
+      onChange={(e) => handleChange(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      style={{
+        width: 38, padding: '2px 4px', borderRadius: radius.xs,
+        border: `1px solid ${error ? colors.danger : colors.border}`,
+        background: readOnly ? 'transparent' : (error ? colors.dangerLight : '#fff'),
+        color: error ? colors.danger : colors.textPrimary,
+        fontSize: '11px', fontWeight: 600, textAlign: 'center',
+        outline: 'none', fontVariantNumeric: 'tabular-nums',
+      }}
+    />
   )
 }
 
