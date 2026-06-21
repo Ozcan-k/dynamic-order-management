@@ -1,13 +1,48 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ACC_PAYMENT_STATUS_LABELS, ACC_COUNTRY_LABELS, type AccExpense } from '@dom/shared'
 import { useExpenses, useExpensesStats, useDeleteExpense, useCategories, money, type ExpenseFilters } from '../../api/accounting'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 
+const PAGE_SIZE = 25
+
+// Filters live in the URL query so they survive navigating away to the edit page
+// and back (the list remounts fresh, but re-reads the URL). PurchaseForm returns
+// here with this exact query string via location.state.listSearch.
+function parseFilters(sp: URLSearchParams): ExpenseFilters {
+  return {
+    page: Number(sp.get('page')) || 1,
+    pageSize: PAGE_SIZE,
+    status: sp.get('status') || undefined,
+    country: sp.get('country') || undefined,
+    category: sp.get('category') || undefined,
+    subcategory: sp.get('subcategory') || undefined,
+    from: sp.get('from') || undefined,
+    to: sp.get('to') || undefined,
+    search: sp.get('search') || undefined,
+  }
+}
+function toParams(f: ExpenseFilters): Record<string, string> {
+  const o: Record<string, string> = {}
+  if (f.status) o.status = f.status
+  if (f.country) o.country = f.country
+  if (f.category) o.category = f.category
+  if (f.subcategory) o.subcategory = f.subcategory
+  if (f.from) o.from = f.from
+  if (f.to) o.to = f.to
+  if (f.search) o.search = f.search
+  if (f.page && f.page > 1) o.page = String(f.page)
+  return o
+}
+
 export default function AccPurchases() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<ExpenseFilters>({ page: 1, pageSize: 25 })
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = parseFilters(searchParams)
+  const setFilters = (f: ExpenseFilters) => setSearchParams(toParams(f), { replace: true })
+  const goEdit = (path: string) => navigate(path, { state: { listSearch: location.search } })
   const { data, isLoading } = useExpenses(filters)
   const { data: stats } = useExpensesStats()
   const { data: categories = [] } = useCategories('EXPENSE')
@@ -21,7 +56,7 @@ export default function AccPurchases() {
     <div className="acc-page">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">Expenses</h1><p className="acc-sub">Manage and track all your expenses</p></div>
-        <button className="acc-btn acc-btn-success" onClick={() => navigate('/accounting/expenses/new')}>+ New Expense</button>
+        <button className="acc-btn acc-btn-success" onClick={() => goEdit('/accounting/expenses/new')}>+ New Expense</button>
       </div>
 
       <div className="acc-grid acc-grid-4" style={{ marginBottom: 20 }}>
@@ -73,7 +108,7 @@ export default function AccPurchases() {
                   <td className="acc-col-num">{money(e.total)}</td>
                   <td><span className={`acc-badge ${e.status === 'PAID' ? 'acc-badge-paid' : 'acc-badge-pending'}`}>{ACC_PAYMENT_STATUS_LABELS[e.status]}</span></td>
                   <td className="acc-col-actions"><span className="acc-row-actions">
-                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => navigate(`/accounting/expenses/${e.id}/edit`)}>Edit</button>
+                    <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => goEdit(`/accounting/expenses/${e.id}/edit`)}>Edit</button>
                     <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setToDelete(e)}>Delete</button>
                   </span></td>
                 </tr>

@@ -306,6 +306,7 @@ export interface AccSalesReport {
   trend: { label: string; amount: number }[]
   total: number
   count: number
+  byAgent: { name: string; amount: number; count: number }[]
 }
 
 export interface AccExpenseReport {

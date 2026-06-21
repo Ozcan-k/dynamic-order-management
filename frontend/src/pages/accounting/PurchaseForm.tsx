@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   ACC_COUNTRY_LABELS, ACC_PAYMENT_METHOD_LABELS, AccCountry, AccPaymentMethod, AccPaymentStatus,
   type AccExpense, type AccVendor,
@@ -36,6 +36,7 @@ export default function PurchaseForm() {
 
 function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const isEdit = !!initial
   const { data: vendors = [] } = useVendors()
   const saveVendor = useSaveVendor()
@@ -46,7 +47,9 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const { data: nextNo } = useNextPurchaseNo(!isEdit)
   const save = useSaveExpense()
 
-  const back = () => navigate('/accounting/expenses')
+  // Return to the list preserving its filters (passed in via location.state when the
+  // Edit/New button was clicked) so selected Status/Country/Category stay applied.
+  const back = () => navigate(`/accounting/expenses${(location.state as any)?.listSearch ?? ''}`)
 
   const [f, setF] = useState({
     vendorId: initial?.vendorId ?? (null as string | null),
