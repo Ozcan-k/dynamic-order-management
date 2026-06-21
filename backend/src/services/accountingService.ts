@@ -724,14 +724,27 @@ function buildBuckets(start: Date, end: Date) {
 export async function getSalesReport(tenantId: string, opts: { from?: string; to?: string }) {
   const where: any = { tenantId }
   const dw = dateWhere(opts.from, opts.to); if (dw) where.dateIssued = dw
-  const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true } })
+  const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true, salesAgentName: true } })
   const range = resolveRange(opts.from, opts.to, sales.map((s) => new Date(s.dateIssued)))
-  if (!range) return { trend: [], total: 0, count: 0 }
+  if (!range) return { trend: [], total: 0, count: 0, byAgent: [] }
   const { trend, add } = buildBuckets(range.start, range.end)
   let total = 0
-  for (const s of sales) { const amt = num(s.total); add(new Date(s.dateIssued), amt); total += amt }
+  // Sales per agent over the selected period — name + amount + invoice count.
+  const agentMap = new Map<string, { amount: number; count: number }>()
+  for (const s of sales) {
+    const amt = num(s.total)
+    add(new Date(s.dateIssued), amt)
+    total += amt
+    const name = (s.salesAgentName || '').trim() || 'Unassigned'
+    const a = agentMap.get(name) ?? { amount: 0, count: 0 }
+    a.amount += amt; a.count += 1
+    agentMap.set(name, a)
+  }
   trend.forEach((t) => { t.amount = r2(t.amount) })
-  return { trend, total: r2(total), count: sales.length }
+  const byAgent = [...agentMap.entries()]
+    .map(([name, v]) => ({ name, amount: r2(v.amount), count: v.count }))
+    .sort((a, b) => b.amount - a.amount)
+  return { trend, total: r2(total), count: sales.length, byAgent }
 }
 
 interface ExpenseReportOpts {

@@ -106,6 +106,46 @@ function BreakdownChart({
   )
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+// Ranked sales-per-agent leaderboard: rank, initials avatar, name, relative bar,
+// amount + invoice count + share of total.
+function AgentLeaderboard({ rows, total }: { rows: { name: string; amount: number; count: number }[]; total: number }) {
+  const max = Math.max(...rows.map((r) => r.amount), 1)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {rows.map((r, i) => {
+        const color = CAT_COLORS[i % CAT_COLORS.length]
+        const pct = total > 0 ? (r.amount / total) * 100 : 0
+        return (
+          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 22, textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#94a3b8' }}>{i + 1}</span>
+            <span style={{ width: 38, height: 38, borderRadius: '50%', background: color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{initials(r.name)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', whiteSpace: 'nowrap' }}>{money(r.amount)}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 6, background: '#f1f5f9', overflow: 'hidden' }}>
+                <div style={{ width: `${(r.amount / max) * 100}%`, height: '100%', borderRadius: 6, background: color, transition: 'width .3s' }} />
+              </div>
+            </div>
+            <div style={{ width: 92, textAlign: 'right', flexShrink: 0 }}>
+              <div className="acc-muted" style={{ fontSize: 12 }}>{r.count} {r.count === 1 ? 'invoice' : 'invoices'}</div>
+              <div className="acc-muted" style={{ fontSize: 11 }}>{pct.toFixed(1)}%</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function StatCards({ cards }: { cards: { label: string; value: string; cls: string }[] }) {
   return (
     <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${cards.length}, 1fr)`, gap: 14, marginBottom: 18 }}>
@@ -138,6 +178,7 @@ export default function AccReport() {
   const salesSeries = (sales.data?.trend ?? []).map((t) => ({ label: t.label, value: t.amount }))
   const salesTotal = sales.data?.total ?? 0
   const salesCount = sales.data?.count ?? 0
+  const salesByAgent = sales.data?.byAgent ?? []
 
   const expReport = exp.data
   const expTrend = (expReport?.trend ?? []).map((t) => ({ label: t.label, value: t.amount }))
@@ -184,6 +225,12 @@ export default function AccReport() {
             {sales.isLoading ? <div className="acc-empty">Loading…</div>
               : salesSeries.length === 0 ? <div className="acc-empty">No data for this period.</div>
               : <TrendChart data={salesSeries} color={C.sales} />}
+          </ChartCard>
+
+          <ChartCard title="Sales by Agent" subtitle={`${periodLabel} · ${salesByAgent.length} agent${salesByAgent.length === 1 ? '' : 's'}`}>
+            {sales.isLoading ? <div className="acc-empty">Loading…</div>
+              : salesByAgent.length === 0 ? <div className="acc-empty">No sales for this period.</div>
+              : <AgentLeaderboard rows={salesByAgent} total={salesTotal} />}
           </ChartCard>
         </>
       ) : (
