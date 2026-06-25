@@ -41,7 +41,7 @@ export function startSlaD4EmailWorker() {
 
       if (admins.length === 0) return
 
-      const from = process.env.SMTP_FROM || 'Order System <noreply@example.com>'
+      const from = process.env.SMTP_FROM || process.env.MAIL_FROM || 'DOM Warehouse System <domwarehousesystem@gmail.com>'
 
       for (const admin of admins) {
         if (!admin.email) continue

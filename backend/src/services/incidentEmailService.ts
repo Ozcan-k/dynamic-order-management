@@ -35,7 +35,7 @@ export async function sendIncidentEmail(input: SendIncidentEmailInput) {
   if (!transporter) {
     throw new Error('SMTP is not configured. Set SMTP_HOST and related env vars to enable email delivery.')
   }
-  const from = process.env.SMTP_FROM || 'DOM Warehouse <noreply@example.com>'
+  const from = process.env.SMTP_FROM || process.env.MAIL_FROM || 'DOM Warehouse System <domwarehousesystem@gmail.com>'
 
   await transporter.sendMail({
     from,
