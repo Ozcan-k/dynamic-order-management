@@ -132,7 +132,7 @@ async function sendNightlyReport(tenantId: string, tenantSlug: string) {
 
   const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Manila' })
   const timeStr = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
-  const from = process.env.SMTP_FROM || 'DOM Warehouse System <noreply@example.com>'
+  const from = process.env.SMTP_FROM || process.env.MAIL_FROM || 'DOM Warehouse System <domwarehousesystem@gmail.com>'
 
   // ── HTML builders ──────────────────────────────────────────────────────────
 
