@@ -1,17 +1,23 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ACC_PAYMENT_STATUS_LABELS, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, useDeleteSale, downloadInvoicePdf, money, type SaleFilters } from '../../api/accounting'
-import ConfirmModal from '../../components/shared/ConfirmModal'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ACC_PAYMENT_STATUS_LABELS } from '@dom/shared'
+import { useSales, useSalesStats, downloadInvoicePdf, money, type SaleFilters } from '../../api/accounting'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 
 export default function AccInvoices() {
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<SaleFilters>({ page: 1, pageSize: 25 })
+  // Seed filters from the URL query so a Restore from the Recycle Bin can deep-link
+  // straight to the restored invoice's month (?from=&to=). No params → same defaults.
+  const [sp] = useSearchParams()
+  const [filters, setFilters] = useState<SaleFilters>(() => ({
+    page: 1, pageSize: 25,
+    from: sp.get('from') || undefined,
+    to: sp.get('to') || undefined,
+    status: sp.get('status') || undefined,
+    search: sp.get('search') || undefined,
+  }))
   const { data, isLoading } = useSales(filters)
   const { data: stats } = useSalesStats()
-  const del = useDeleteSale()
-  const [toDelete, setToDelete] = useState<AccSale | null>(null)
 
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1
 
@@ -73,7 +79,6 @@ export default function AccInvoices() {
                   <td className="acc-col-actions"><span className="acc-row-actions">
                     <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => downloadInvoicePdf(s.id, s.invoiceNo)}>PDF</button>
                     <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => navigate(`/accounting/sales/${s.id}/edit`)}>Edit</button>
-                    <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setToDelete(s)}>Delete</button>
                   </span></td>
                 </tr>
               ))}
@@ -89,10 +94,6 @@ export default function AccInvoices() {
         </div>
       )}
 
-      {toDelete && (
-        <ConfirmModal title={`Delete ${toDelete.invoiceNo}?`} message="This permanently removes the invoice and its line items." confirmLabel="Delete" tone="danger"
-          busy={del.isPending} onCancel={() => setToDelete(null)} onConfirm={async () => { await del.mutateAsync(toDelete.id); setToDelete(null) }} />
-      )}
     </div>
   )
 }

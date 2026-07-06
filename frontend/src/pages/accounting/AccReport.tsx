@@ -114,16 +114,19 @@ function initials(name: string): string {
 }
 
 // Ranked sales-per-agent leaderboard: rank, initials avatar, name, relative bar,
-// amount + invoice count + share of total.
-function AgentLeaderboard({ rows, total }: { rows: { name: string; amount: number; count: number }[]; total: number }) {
+// amount + invoice count + share of total. Hovering a row reveals the invoice
+// numbers behind that agent's total (esp. useful for the "Unassigned" bucket).
+function AgentLeaderboard({ rows, total }: { rows: { name: string; amount: number; count: number; invoiceNos: string[] }[]; total: number }) {
   const max = Math.max(...rows.map((r) => r.amount), 1)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {rows.map((r, i) => {
         const color = CAT_COLORS[i % CAT_COLORS.length]
         const pct = total > 0 ? (r.amount / total) * 100 : 0
+        const invoiceList = (r.invoiceNos ?? []).join(', ')
+        const hoverTitle = invoiceList ? `${r.name} — ${r.count} ${r.count === 1 ? 'invoice' : 'invoices'}:\n${invoiceList}` : r.name
         return (
-          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div key={r.name} title={hoverTitle} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'help' }}>
             <span style={{ width: 22, textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#94a3b8' }}>{i + 1}</span>
             <span style={{ width: 38, height: 38, borderRadius: '50%', background: color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{initials(r.name)}</span>
             <div style={{ flex: 1, minWidth: 0 }}>

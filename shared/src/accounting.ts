@@ -180,6 +180,7 @@ export interface AccSale {
   taxTotal: number
   total: number
   note: string | null
+  deletedAt: string | null
   items: AccSaleItem[]
   createdAt: string
   updatedAt: string
@@ -202,6 +203,7 @@ export interface AccExpense {
   discountTotal: number
   taxTotal: number
   total: number
+  deletedAt: string | null
   items: AccExpenseItem[]
   createdAt: string
   updatedAt: string
@@ -306,7 +308,9 @@ export interface AccSalesReport {
   trend: { label: string; amount: number }[]
   total: number
   count: number
-  byAgent: { name: string; amount: number; count: number }[]
+  // invoiceNos: the invoice numbers behind each agent's total — surfaced on hover
+  // in the Sales-by-Agent leaderboard (esp. useful for the "Unassigned" bucket).
+  byAgent: { name: string; amount: number; count: number; invoiceNos: string[] }[]
 }
 
 export interface AccExpenseReport {

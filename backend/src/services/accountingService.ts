@@ -297,7 +297,7 @@ function dateWhere(from?: string, to?: string) {
 }
 
 export async function listSales(tenantId: string, f: SaleFilters) {
-  const where: any = { tenantId }
+  const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
   if (f.status) where.status = f.status
   if (f.customerId) where.customerId = f.customerId
@@ -320,17 +320,17 @@ export async function listSales(tenantId: string, f: SaleFilters) {
 export async function salesStats(tenantId: string) {
   const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
   const [all, paid, unpaid, month, count] = await Promise.all([
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, status: 'PAID' } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, status: 'UNPAID' } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, dateIssued: { gte: monthStart } } }),
-    prisma.accSale.count({ where: { tenantId } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'PAID' } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'UNPAID' } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, dateIssued: { gte: monthStart } } }),
+    prisma.accSale.count({ where: { tenantId, deletedAt: null } }),
   ])
   return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
 }
 
 export async function getSale(tenantId: string, id: string) {
-  return prisma.accSale.findFirst({ where: { id, tenantId }, include: { items: true } }).then((s) => (s ? serSale(s) : null))
+  return prisma.accSale.findFirst({ where: { id, tenantId, deletedAt: null }, include: { items: true } }).then((s) => (s ? serSale(s) : null))
 }
 
 export async function createSale(tenantId: string, d: any) {
@@ -375,7 +375,7 @@ export async function createSale(tenantId: string, d: any) {
 }
 
 export async function updateSale(tenantId: string, id: string, d: any) {
-  const existing = await prisma.accSale.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.accSale.findFirst({ where: { id, tenantId, deletedAt: null } })
   if (!existing) return null
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
@@ -417,16 +417,33 @@ export async function updateSale(tenantId: string, id: string, d: any) {
   return serSale(sale)
 }
 
+// Soft-delete: stamp deletedAt so the sale drops out of every live query but can be
+// restored from the Recycle Bin. Only stamps rows that are not already deleted.
 export async function deleteSale(tenantId: string, id: string) {
-  const res = await prisma.accSale.deleteMany({ where: { id, tenantId } })
+  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: null }, data: { deletedAt: new Date() } })
   return res.count > 0
+}
+export async function restoreSale(tenantId: string, id: string) {
+  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: { not: null } }, data: { deletedAt: null } })
+  if (!res.count) return null
+  return getSale(tenantId, id)
+}
+// Permanent removal — only ever reachable from the Recycle Bin, and only for rows
+// already soft-deleted. Line items cascade.
+export async function purgeSale(tenantId: string, id: string) {
+  const res = await prisma.accSale.deleteMany({ where: { id, tenantId, deletedAt: { not: null } } })
+  return res.count > 0
+}
+export async function listDeletedSales(tenantId: string) {
+  const rows = await prisma.accSale.findMany({ where: { tenantId, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } })
+  return rows.map(serSale)
 }
 
 // ─── Transactions ledger — flat per-line-item rows (Sales) ──────────────────
 // One row PER line item, so an invoice with N items yields N rows. Date-range
 // filtered by the invoice's dateIssued (same semantics as the list/report).
 export async function listSalesLedger(tenantId: string, from?: string, to?: string) {
-  const where: any = { tenantId }
+  const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(from, to); if (dw) where.dateIssued = dw
   const sales = await prisma.accSale.findMany({ where, orderBy: { dateIssued: 'desc' }, include: { items: true } })
   const rows = sales.flatMap((s) =>
@@ -442,7 +459,7 @@ export async function listSalesLedger(tenantId: string, from?: string, to?: stri
 
 // ─── Transactions ledger — flat per-line-item rows (Expenses) ───────────────
 export async function listExpenseLedger(tenantId: string, from?: string, to?: string) {
-  const where: any = { tenantId }
+  const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(from, to); if (dw) where.dateIssued = dw
   const expenses = await prisma.accExpense.findMany({ where, orderBy: { dateIssued: 'desc' }, include: { items: true } })
   const rows = expenses.flatMap((e) =>
@@ -466,7 +483,7 @@ export interface ExpenseFilters {
 }
 
 export async function listExpenses(tenantId: string, f: ExpenseFilters) {
-  const where: any = { tenantId }
+  const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
   if (f.status) where.status = f.status
   if (f.country) where.country = f.country
@@ -496,17 +513,17 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
 export async function expensesStats(tenantId: string) {
   const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
   const [all, paid, unpaid, month, count] = await Promise.all([
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, status: 'PAID' } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, status: 'UNPAID' } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, dateIssued: { gte: monthStart } } }),
-    prisma.accExpense.count({ where: { tenantId } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'PAID' } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'UNPAID' } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, dateIssued: { gte: monthStart } } }),
+    prisma.accExpense.count({ where: { tenantId, deletedAt: null } }),
   ])
   return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
 }
 
 export async function getExpense(tenantId: string, id: string) {
-  return prisma.accExpense.findFirst({ where: { id, tenantId }, include: { items: true } }).then((e) => (e ? serExpense(e) : null))
+  return prisma.accExpense.findFirst({ where: { id, tenantId, deletedAt: null }, include: { items: true } }).then((e) => (e ? serExpense(e) : null))
 }
 
 export async function createExpense(tenantId: string, d: any) {
@@ -543,7 +560,7 @@ export async function createExpense(tenantId: string, d: any) {
 }
 
 export async function updateExpense(tenantId: string, id: string, d: any) {
-  const existing = await prisma.accExpense.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.accExpense.findFirst({ where: { id, tenantId, deletedAt: null } })
   if (!existing) return null
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
@@ -577,9 +594,23 @@ export async function updateExpense(tenantId: string, id: string, d: any) {
   return serExpense(exp)
 }
 
+// Soft-delete (see deleteSale) — restorable from the Recycle Bin.
 export async function deleteExpense(tenantId: string, id: string) {
-  const res = await prisma.accExpense.deleteMany({ where: { id, tenantId } })
+  const res = await prisma.accExpense.updateMany({ where: { id, tenantId, deletedAt: null }, data: { deletedAt: new Date() } })
   return res.count > 0
+}
+export async function restoreExpense(tenantId: string, id: string) {
+  const res = await prisma.accExpense.updateMany({ where: { id, tenantId, deletedAt: { not: null } }, data: { deletedAt: null } })
+  if (!res.count) return null
+  return getExpense(tenantId, id)
+}
+export async function purgeExpense(tenantId: string, id: string) {
+  const res = await prisma.accExpense.deleteMany({ where: { id, tenantId, deletedAt: { not: null } } })
+  return res.count > 0
+}
+export async function listDeletedExpenses(tenantId: string) {
+  const rows = await prisma.accExpense.findMany({ where: { tenantId, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } })
+  return rows.map(serExpense)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -620,8 +651,8 @@ export async function getReport(tenantId: string, month: string) {
   const range = { gte: start, lte: end }
 
   const [sales, expenses] = await Promise.all([
-    prisma.accSale.findMany({ where: { tenantId, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
-    prisma.accExpense.findMany({ where: { tenantId, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
+    prisma.accSale.findMany({ where: { tenantId, deletedAt: null, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
+    prisma.accExpense.findMany({ where: { tenantId, deletedAt: null, dateIssued: range }, include: { items: true }, orderBy: { dateIssued: 'desc' } }),
   ])
 
   const daysInMonth = new Date(y, m, 0).getDate()
@@ -644,8 +675,8 @@ export async function getYearlyReport(tenantId: string, year: number) {
   const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
   const range = { gte: start, lte: end }
   const [sales, expenses] = await Promise.all([
-    prisma.accSale.findMany({ where: { tenantId, dateIssued: range }, select: { dateIssued: true, total: true } }),
-    prisma.accExpense.findMany({ where: { tenantId, dateIssued: range }, select: { dateIssued: true, total: true } }),
+    prisma.accSale.findMany({ where: { tenantId, deletedAt: null, dateIssued: range }, select: { dateIssued: true, total: true } }),
+    prisma.accExpense.findMany({ where: { tenantId, deletedAt: null, dateIssued: range }, select: { dateIssued: true, total: true } }),
   ])
   const byMonth = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, sales: 0, expenses: 0, net: 0 }))
   for (const s of sales) byMonth[new Date(s.dateIssued).getUTCMonth()].sales += num(s.total)
@@ -722,27 +753,28 @@ function buildBuckets(start: Date, end: Date) {
 
 // ─── Sales trend (Report → Sales tab; date-range driven) ────────────────────
 export async function getSalesReport(tenantId: string, opts: { from?: string; to?: string }) {
-  const where: any = { tenantId }
+  const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(opts.from, opts.to); if (dw) where.dateIssued = dw
-  const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true, salesAgentName: true } })
+  const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true, salesAgentName: true, invoiceNo: true } })
   const range = resolveRange(opts.from, opts.to, sales.map((s) => new Date(s.dateIssued)))
   if (!range) return { trend: [], total: 0, count: 0, byAgent: [] }
   const { trend, add } = buildBuckets(range.start, range.end)
   let total = 0
-  // Sales per agent over the selected period — name + amount + invoice count.
-  const agentMap = new Map<string, { amount: number; count: number }>()
+  // Sales per agent over the selected period — name + amount + invoice count +
+  // the invoice numbers behind it (surfaced on hover, esp. for "Unassigned").
+  const agentMap = new Map<string, { amount: number; count: number; invoiceNos: string[] }>()
   for (const s of sales) {
     const amt = num(s.total)
     add(new Date(s.dateIssued), amt)
     total += amt
     const name = (s.salesAgentName || '').trim() || 'Unassigned'
-    const a = agentMap.get(name) ?? { amount: 0, count: 0 }
-    a.amount += amt; a.count += 1
+    const a = agentMap.get(name) ?? { amount: 0, count: 0, invoiceNos: [] }
+    a.amount += amt; a.count += 1; a.invoiceNos.push(s.invoiceNo)
     agentMap.set(name, a)
   }
   trend.forEach((t) => { t.amount = r2(t.amount) })
   const byAgent = [...agentMap.entries()]
-    .map(([name, v]) => ({ name, amount: r2(v.amount), count: v.count }))
+    .map(([name, v]) => ({ name, amount: r2(v.amount), count: v.count, invoiceNos: v.invoiceNos }))
     .sort((a, b) => b.amount - a.amount)
   return { trend, total: r2(total), count: sales.length, byAgent }
 }
@@ -757,7 +789,7 @@ interface ExpenseReportOpts {
 }
 
 export async function getExpenseReport(tenantId: string, opts: ExpenseReportOpts) {
-  const expWhere: any = { tenantId }
+  const expWhere: any = { tenantId, deletedAt: null }
   const dw = dateWhere(opts.from, opts.to); if (dw) expWhere.dateIssued = dw
   if (opts.country) expWhere.country = opts.country
   if (opts.vendorId) expWhere.vendorId = opts.vendorId

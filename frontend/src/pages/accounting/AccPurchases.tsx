@@ -1,8 +1,6 @@
-import { useState } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
-import { ACC_PAYMENT_STATUS_LABELS, ACC_COUNTRY_LABELS, type AccExpense } from '@dom/shared'
-import { useExpenses, useExpensesStats, useDeleteExpense, useCategories, money, type ExpenseFilters } from '../../api/accounting'
-import ConfirmModal from '../../components/shared/ConfirmModal'
+import { ACC_PAYMENT_STATUS_LABELS, ACC_COUNTRY_LABELS } from '@dom/shared'
+import { useExpenses, useExpensesStats, useCategories, money, type ExpenseFilters } from '../../api/accounting'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 
 const PAGE_SIZE = 25
@@ -46,8 +44,6 @@ export default function AccPurchases() {
   const { data, isLoading } = useExpenses(filters)
   const { data: stats } = useExpensesStats()
   const { data: categories = [] } = useCategories('EXPENSE')
-  const del = useDeleteExpense()
-  const [toDelete, setToDelete] = useState<AccExpense | null>(null)
 
   const subOptions = categories.find((c) => c.name === filters.category)?.subcategories ?? []
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1
@@ -109,7 +105,6 @@ export default function AccPurchases() {
                   <td><span className={`acc-badge ${e.status === 'PAID' ? 'acc-badge-paid' : 'acc-badge-pending'}`}>{ACC_PAYMENT_STATUS_LABELS[e.status]}</span></td>
                   <td className="acc-col-actions"><span className="acc-row-actions">
                     <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => goEdit(`/accounting/expenses/${e.id}/edit`)}>Edit</button>
-                    <button className="acc-btn acc-btn-ghost acc-btn-sm" onClick={() => setToDelete(e)}>Delete</button>
                   </span></td>
                 </tr>
               ))}
@@ -125,10 +120,6 @@ export default function AccPurchases() {
         </div>
       )}
 
-      {toDelete && (
-        <ConfirmModal title={`Delete ${toDelete.purchaseNo}?`} message="This permanently removes the expense and its line items." confirmLabel="Delete" tone="danger"
-          busy={del.isPending} onCancel={() => setToDelete(null)} onConfirm={async () => { await del.mutateAsync(toDelete.id); setToDelete(null) }} />
-      )}
     </div>
   )
 }

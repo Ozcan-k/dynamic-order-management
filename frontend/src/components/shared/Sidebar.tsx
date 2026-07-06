@@ -310,6 +310,7 @@ const NAV_ITEMS: NavItem[] = [
       { path: '/accounting/expenses', label: 'Expenses', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
       { path: '/accounting/transactions', label: 'Transactions', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
       { path: '/accounting/contacts', label: 'Customers / Vendors', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
+      { path: '/accounting/deleted', label: 'Recycle Bin', icon: <AccountingIcon />, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
     ],
   },
   {

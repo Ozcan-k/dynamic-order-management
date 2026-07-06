@@ -221,6 +221,24 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const ok = await svc.deleteExpense(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
   })
 
+  // ─── Recycle Bin (soft-deleted Sales / Expenses) ──────────────────────────
+  // Delete on Sales/Expenses is a soft-delete (stamps deletedAt); the rows live on
+  // here until restored or permanently purged. Nothing else can see deleted rows.
+  fastify.get('/deleted/sales', g, async (req) => svc.listDeletedSales(tenantOf(req)))
+  fastify.get('/deleted/expenses', g, async (req) => svc.listDeletedExpenses(tenantOf(req)))
+  fastify.post('/sales/:id/restore', g, async (req, reply) => {
+    const s = await svc.restoreSale(tenantOf(req), (req.params as any).id); if (!s) return reply.code(404).send({ error: 'Not found' }); return s
+  })
+  fastify.post('/expenses/:id/restore', g, async (req, reply) => {
+    const e = await svc.restoreExpense(tenantOf(req), (req.params as any).id); if (!e) return reply.code(404).send({ error: 'Not found' }); return e
+  })
+  fastify.delete('/deleted/sales/:id', g, async (req, reply) => {
+    const ok = await svc.purgeSale(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+  fastify.delete('/deleted/expenses/:id', g, async (req, reply) => {
+    const ok = await svc.purgeExpense(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+
   // ─── Company profile ──────────────────────────────────────────────────────
   fastify.get('/company', g, async (req) => svc.getCompany(tenantOf(req)))
   fastify.put('/company', g, async (req, reply) => {
