@@ -757,6 +757,11 @@ model AccSale {
 
   note String? @db.Text
 
+  // Soft-delete: a deleted sale keeps its row (and line items) so it can be
+  // restored from the Recycle Bin. All live queries filter deletedAt: null, so a
+  // stamped row disappears from lists/stats/reports/ledger but is never lost.
+  deletedAt DateTime? @map("deleted_at")
+
   items     AccSaleItem[]
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
@@ -764,6 +769,7 @@ model AccSale {
   @@index([tenantId, dateIssued(sort: Desc)])
   @@index([tenantId, status])
   @@index([tenantId, customerId])
+  @@index([tenantId, deletedAt])
   @@map("acc_sales")
 }
 
@@ -810,6 +816,9 @@ model AccExpense {
   taxTotal      Decimal @default(0) @map("tax_total") @db.Decimal(14, 2)
   total         Decimal @default(0) @db.Decimal(14, 2)
 
+  // Soft-delete (see AccSale.deletedAt) — restorable from the Recycle Bin.
+  deletedAt DateTime? @map("deleted_at")
+
   items     AccExpenseItem[]
   createdAt DateTime         @default(now()) @map("created_at")
   updatedAt DateTime         @updatedAt @map("updated_at")
@@ -818,6 +827,7 @@ model AccExpense {
   @@index([tenantId, status])
   @@index([tenantId, country])
   @@index([tenantId, vendorId])
+  @@index([tenantId, deletedAt])
   @@map("acc_expenses")
 }
 

@@ -1334,6 +1334,8 @@ A self-contained accounting module under **Incident Report** in the sidebar. **N
 
 **Proxy:** `/accounting` added to `vite.config.ts proxyRoutes` + `nginx.conf` location regex (otherwise SPA fallback serves HTML to backend calls).
 
+**Soft-delete + Recycle Bin (v2.73.0):** `AccSale`/`AccExpense` carry a nullable `deletedAt`. Deleting a sale/expense is a *soft-delete* (stamps `deletedAt`); every live query filters `deletedAt: null`, so the record vanishes from lists/stats/reports/ledger but is retained. A **Recycle Bin** page (`/accounting/deleted`, sidebar under Customers/Vendors) lists soft-deleted records with their deletion timestamp and offers **Restore** (clears `deletedAt`, deep-links back to the record's month) and **Delete forever** (permanent purge, only for already-soft-deleted rows). To prevent accidental loss, the **Delete button was removed from the Sales/Expenses list rows** — deletion now happens only from inside the record's edit form ("Move to Recycle Bin"). Endpoints: `GET /deleted/sales|expenses`, `POST /sales|expenses/:id/restore`, `DELETE /deleted/sales|expenses/:id`. Schema change is additive-nullable only (non-destructive `db push`). Hard-deleted records from before v2.73.0 are not recoverable.
+
 ---
 
 ### 7.14 Employee Schedule Module ✅ Built (v2.66.0) — independent staff attendance scheduler · local `db push` PENDING (dev pg down → applies on CD deploy)

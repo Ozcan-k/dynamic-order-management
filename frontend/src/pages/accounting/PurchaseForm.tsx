@@ -6,10 +6,11 @@ import {
 } from '@dom/shared'
 import {
   useVendors, useSaveVendor, useItems, useCreateItem, useCategories, useCreateCategory,
-  useNextPurchaseNo, useSaveExpense, useExpense,
+  useNextPurchaseNo, useSaveExpense, useExpense, useDeleteExpense,
 } from '../../api/accounting'
 import type { AccCategory } from '@dom/shared'
 import ComboBox from '../../components/shared/ComboBox'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
@@ -46,6 +47,8 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const createCategory = useCreateCategory()
   const { data: nextNo } = useNextPurchaseNo(!isEdit)
   const save = useSaveExpense()
+  const del = useDeleteExpense()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Return to the list preserving its filters (passed in via location.state when the
   // Edit/New button was clicked) so selected Status/Country/Category stay applied.
@@ -100,6 +103,7 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
         <div><h1 className="acc-title">{isEdit ? `Edit ${purchaseNo}` : 'New Expense'}</h1><p className="acc-sub">Fill in the expense details and line items</p></div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="acc-btn acc-btn-outline acc-btn-sm" onClick={() => setNewVendor({ name: '', email: '', contactNumber: '' })}>+ New Vendor</button>
+          {isEdit && <button className="acc-btn acc-btn-danger" onClick={() => setConfirmDelete(true)}>Delete</button>}
           <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Expenses</button>
         </div>
       </div>
@@ -211,6 +215,15 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
             </div>
           </div>
         </div>
+      )}
+
+      {confirmDelete && isEdit && (
+        <ConfirmModal
+          title={`Delete ${purchaseNo}?`}
+          message="This moves the expense to the Recycle Bin. You can restore it any time from Accounting → Recycle Bin."
+          confirmLabel="Move to Recycle Bin" tone="danger" busy={del.isPending}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={async () => { await del.mutateAsync(initial!.id); setConfirmDelete(false); back() }} />
       )}
     </div>
   )

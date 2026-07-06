@@ -6,9 +6,10 @@ import {
 } from '@dom/shared'
 import {
   useCustomers, useSaveCustomer, useItems, useCreateItem, useCategories, useCreateCategory,
-  useStores, useCreateStore, useSalesAgents, useNextInvoiceNo, useSaveSale, useSale,
+  useStores, useCreateStore, useSalesAgents, useNextInvoiceNo, useSaveSale, useSale, useDeleteSale,
 } from '../../api/accounting'
 import ComboBox from '../../components/shared/ComboBox'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
@@ -50,6 +51,8 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
   const { data: agents = [] } = useSalesAgents()
   const { data: nextNo } = useNextInvoiceNo(!isEdit)
   const save = useSaveSale()
+  const del = useDeleteSale()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const back = () => navigate('/accounting/sales')
 
@@ -126,7 +129,10 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     <div className="acc-page">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">{isEdit ? `Edit ${invoiceNo}` : 'New Invoice'}</h1><p className="acc-sub">Fill in the invoice details and line items</p></div>
-        <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Sales</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isEdit && <button className="acc-btn acc-btn-danger" onClick={() => setConfirmDelete(true)}>Delete</button>}
+          <button className="acc-btn acc-btn-ghost" onClick={back}>← Back to Sales</button>
+        </div>
       </div>
 
       <div className="acc-card acc-card-pad">
@@ -291,6 +297,15 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
             </div>
           </div>
         </div>
+      )}
+
+      {confirmDelete && isEdit && (
+        <ConfirmModal
+          title={`Delete ${invoiceNo}?`}
+          message="This moves the invoice to the Recycle Bin. You can restore it any time from Accounting → Recycle Bin."
+          confirmLabel="Move to Recycle Bin" tone="danger" busy={del.isPending}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={async () => { await del.mutateAsync(initial!.id); setConfirmDelete(false); back() }} />
       )}
     </div>
   )

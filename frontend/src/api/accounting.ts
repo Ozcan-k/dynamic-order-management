@@ -131,7 +131,7 @@ export function useSaveSale() {
 }
 export function useDeleteSale() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/sales/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) } })
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/sales/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'deleted'] }) } })
 }
 
 // ─── Purchases (Expenses) ──────────────────────────────────────────────────────
@@ -157,7 +157,39 @@ export function useSaveExpense() {
 }
 export function useDeleteExpense() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/expenses/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) } })
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/expenses/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'deleted'] }) } })
+}
+
+// ─── Recycle Bin (soft-deleted Sales / Expenses) ────────────────────────────
+export function useDeletedSales() {
+  return useQuery({ queryKey: ['acc', 'deleted', 'sales'], queryFn: async () => (await api.get<AccSale[]>(`${BASE}/deleted/sales`)).data })
+}
+export function useDeletedExpenses() {
+  return useQuery({ queryKey: ['acc', 'deleted', 'expenses'], queryFn: async () => (await api.get<AccExpense[]>(`${BASE}/deleted/expenses`)).data })
+}
+function invalidateSalesAll(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] })
+  qc.invalidateQueries({ queryKey: ['acc', 'ledger'] }); qc.invalidateQueries({ queryKey: ['acc', 'deleted'] })
+}
+function invalidateExpensesAll(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] })
+  qc.invalidateQueries({ queryKey: ['acc', 'ledger'] }); qc.invalidateQueries({ queryKey: ['acc', 'deleted'] })
+}
+export function useRestoreSale() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.post(`${BASE}/sales/${id}/restore`)).data, onSuccess: () => invalidateSalesAll(qc) })
+}
+export function useRestoreExpense() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.post(`${BASE}/expenses/${id}/restore`)).data, onSuccess: () => invalidateExpensesAll(qc) })
+}
+export function usePurgeSale() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/deleted/sales/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'deleted'] }) })
+}
+export function usePurgeExpense() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/deleted/expenses/${id}`)).data, onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'deleted'] }) })
 }
 
 // ─── Company + Report ───────────────────────────────────────────────────────────
