@@ -113,8 +113,10 @@ export interface SaleFilters { from?: string; to?: string; status?: string; cust
 export function useSales(filters: SaleFilters) {
   return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params: clean(filters) })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
-export function useSalesStats() {
-  return useQuery({ queryKey: ['acc', 'sales', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/sales/stats`)).data, staleTime: 15_000 })
+// Stats are scoped to the same date range as the list page's picker so the summary
+// cards react to the period selection (and reconcile with the Report tab).
+export function useSalesStats(p: { from?: string; to?: string } = {}) {
+  return useQuery({ queryKey: ['acc', 'sales', 'stats', p], queryFn: async () => (await api.get<AccListStats>(`${BASE}/sales/stats`, { params: clean(p) })).data, staleTime: 15_000 })
 }
 export function useSale(id?: string) {
   return useQuery({ queryKey: ['acc', 'sale', id], enabled: !!id, queryFn: async () => (await api.get<AccSale>(`${BASE}/sales/${id}`)).data })
@@ -139,8 +141,8 @@ export interface ExpenseFilters { from?: string; to?: string; status?: string; c
 export function useExpenses(filters: ExpenseFilters) {
   return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params: clean(filters) })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
-export function useExpensesStats() {
-  return useQuery({ queryKey: ['acc', 'expenses', 'stats'], queryFn: async () => (await api.get<AccListStats>(`${BASE}/expenses/stats`)).data, staleTime: 15_000 })
+export function useExpensesStats(p: { from?: string; to?: string } = {}) {
+  return useQuery({ queryKey: ['acc', 'expenses', 'stats', p], queryFn: async () => (await api.get<AccListStats>(`${BASE}/expenses/stats`, { params: clean(p) })).data, staleTime: 15_000 })
 }
 export function useExpense(id?: string) {
   return useQuery({ queryKey: ['acc', 'expense', id], enabled: !!id, queryFn: async () => (await api.get<AccExpense>(`${BASE}/expenses/${id}`)).data })

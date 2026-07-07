@@ -232,7 +232,7 @@ export interface AccListStats {
   total: number
   paid: number
   unpaid: number
-  thisMonth: number
+  avg: number
   count: number
 }
 

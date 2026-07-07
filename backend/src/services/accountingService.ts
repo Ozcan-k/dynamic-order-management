@@ -317,16 +317,20 @@ export async function listSales(tenantId: string, f: SaleFilters) {
   return { items: items.map(serSale), total, page: f.page, pageSize: f.pageSize }
 }
 
-export async function salesStats(tenantId: string) {
-  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
-  const [all, paid, unpaid, month, count] = await Promise.all([
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'PAID' } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'UNPAID' } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, dateIssued: { gte: monthStart } } }),
-    prisma.accSale.count({ where: { tenantId, deletedAt: null } }),
+// Summary cards for the Sales list page. Scoped to the same date range as the list's
+// DateRangePicker (from/to) so the cards react to This Month / Last Month / etc. and
+// reconcile with the Report → Sales tab for the same period. `avg` = total / count.
+export async function salesStats(tenantId: string, from?: string, to?: string) {
+  const base: any = { tenantId, deletedAt: null }
+  const dw = dateWhere(from, to); if (dw) base.dateIssued = dw
+  const [all, paid, unpaid, count] = await Promise.all([
+    prisma.accSale.aggregate({ _sum: { total: true }, where: base }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { ...base, status: 'PAID' } }),
+    prisma.accSale.aggregate({ _sum: { total: true }, where: { ...base, status: 'UNPAID' } }),
+    prisma.accSale.count({ where: base }),
   ])
-  return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
+  const total = num(all._sum.total)
+  return { total, paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), avg: count > 0 ? r2(total / count) : 0, count }
 }
 
 export async function getSale(tenantId: string, id: string) {
@@ -510,16 +514,20 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
   return { items: items.map(serExpense), total, page: f.page, pageSize: f.pageSize }
 }
 
-export async function expensesStats(tenantId: string) {
-  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
-  const [all, paid, unpaid, month, count] = await Promise.all([
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'PAID' } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, status: 'UNPAID' } }),
-    prisma.accExpense.aggregate({ _sum: { total: true }, where: { tenantId, deletedAt: null, dateIssued: { gte: monthStart } } }),
-    prisma.accExpense.count({ where: { tenantId, deletedAt: null } }),
+// Summary cards for the Expenses list page. Scoped to the list's DateRangePicker
+// (from/to) so the cards react to the period selection and reconcile with the
+// Report → Expenses tab for the same range. `avg` = total / count.
+export async function expensesStats(tenantId: string, from?: string, to?: string) {
+  const base: any = { tenantId, deletedAt: null }
+  const dw = dateWhere(from, to); if (dw) base.dateIssued = dw
+  const [all, paid, unpaid, count] = await Promise.all([
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: base }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { ...base, status: 'PAID' } }),
+    prisma.accExpense.aggregate({ _sum: { total: true }, where: { ...base, status: 'UNPAID' } }),
+    prisma.accExpense.count({ where: base }),
   ])
-  return { total: num(all._sum.total), paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), thisMonth: num(month._sum.total), count }
+  const total = num(all._sum.total)
+  return { total, paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), avg: count > 0 ? r2(total / count) : 0, count }
 }
 
 export async function getExpense(tenantId: string, id: string) {
