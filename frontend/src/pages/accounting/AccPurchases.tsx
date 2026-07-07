@@ -42,7 +42,7 @@ export default function AccPurchases() {
   const setFilters = (f: ExpenseFilters) => setSearchParams(toParams(f), { replace: true })
   const goEdit = (path: string) => navigate(path, { state: { listSearch: location.search } })
   const { data, isLoading } = useExpenses(filters)
-  const { data: stats } = useExpensesStats()
+  const { data: stats } = useExpensesStats({ from: filters.from, to: filters.to })
   const { data: categories = [] } = useCategories('EXPENSE')
 
   const subOptions = categories.find((c) => c.name === filters.category)?.subcategories ?? []
@@ -59,7 +59,7 @@ export default function AccPurchases() {
         <div className="acc-stat acc-stat--blue"><div className="acc-stat-label">Total Expenses</div><div className="acc-stat-value">{money(stats?.total ?? 0)}</div><div className="acc-stat-sub">{stats?.count ?? 0} expenses</div></div>
         <div className="acc-stat acc-stat--red"><div className="acc-stat-label">Unpaid</div><div className="acc-stat-value neg">{money(stats?.unpaid ?? 0)}</div><div className="acc-stat-sub">pending</div></div>
         <div className="acc-stat acc-stat--green"><div className="acc-stat-label">Paid</div><div className="acc-stat-value pos">{money(stats?.paid ?? 0)}</div><div className="acc-stat-sub">fully paid</div></div>
-        <div className="acc-stat acc-stat--amber"><div className="acc-stat-label">This Month</div><div className="acc-stat-value warn">{money(stats?.thisMonth ?? 0)}</div><div className="acc-stat-sub">expenses</div></div>
+        <div className="acc-stat acc-stat--amber"><div className="acc-stat-label">Avg / Expense</div><div className="acc-stat-value warn">{money(stats?.avg ?? 0)}</div><div className="acc-stat-sub">per expense</div></div>
       </div>
 
       <div className="acc-filter-bar">

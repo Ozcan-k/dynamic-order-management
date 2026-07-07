@@ -17,7 +17,7 @@ export default function AccInvoices() {
     search: sp.get('search') || undefined,
   }))
   const { data, isLoading } = useSales(filters)
-  const { data: stats } = useSalesStats()
+  const { data: stats } = useSalesStats({ from: filters.from, to: filters.to })
 
   const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1
 
@@ -32,7 +32,7 @@ export default function AccInvoices() {
         <div className="acc-stat acc-stat--blue"><div className="acc-stat-label">Total Sales</div><div className="acc-stat-value">{money(stats?.total ?? 0)}</div><div className="acc-stat-sub">{stats?.count ?? 0} sales</div></div>
         <div className="acc-stat acc-stat--red"><div className="acc-stat-label">Unpaid</div><div className="acc-stat-value neg">{money(stats?.unpaid ?? 0)}</div><div className="acc-stat-sub">pending</div></div>
         <div className="acc-stat acc-stat--green"><div className="acc-stat-label">Collected</div><div className="acc-stat-value pos">{money(stats?.paid ?? 0)}</div><div className="acc-stat-sub">paid</div></div>
-        <div className="acc-stat acc-stat--amber"><div className="acc-stat-label">This Month</div><div className="acc-stat-value warn">{money(stats?.thisMonth ?? 0)}</div><div className="acc-stat-sub">issued</div></div>
+        <div className="acc-stat acc-stat--amber"><div className="acc-stat-label">Avg / Invoice</div><div className="acc-stat-value warn">{money(stats?.avg ?? 0)}</div><div className="acc-stat-sub">per invoice</div></div>
       </div>
 
       <div className="acc-filter-bar">

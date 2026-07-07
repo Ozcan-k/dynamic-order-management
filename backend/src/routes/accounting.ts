@@ -99,6 +99,10 @@ const MAX_LOGO_BYTES = 5 * 1024 * 1024
 export default async function accountingRoutes(fastify: FastifyInstance) {
   const g = { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.ACCOUNTANT)] }
 
+  // Query-param coercers (shared by stats / report / ledger endpoints).
+  const dateStr = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+
   // ─── Customers ────────────────────────────────────────────────────────────
   fastify.get('/customers', g, async (req) => svc.listCustomers(tenantOf(req), (req.query as any)?.search))
   fastify.post('/customers', g, async (req, reply) => {
@@ -163,7 +167,10 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   fastify.get('/sales-agents', g, async (req) => svc.listSalesAgents(tenantOf(req)))
 
   // ─── Invoices (Sales) ─────────────────────────────────────────────────────
-  fastify.get('/sales/stats', g, async (req) => svc.salesStats(tenantOf(req)))
+  fastify.get('/sales/stats', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.salesStats(tenantOf(req), dateStr(q.from), dateStr(q.to))
+  })
   fastify.get('/sales/next-number', g, async (req) => ({ invoiceNo: await svc.peekNextNumber(tenantOf(req), 'invoice') }))
   fastify.get('/sales', g, async (req) => {
     const q = (req.query as any) ?? {}
@@ -196,7 +203,10 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   })
 
   // ─── Purchases (Expenses) ─────────────────────────────────────────────────
-  fastify.get('/expenses/stats', g, async (req) => svc.expensesStats(tenantOf(req)))
+  fastify.get('/expenses/stats', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.expensesStats(tenantOf(req), dateStr(q.from), dateStr(q.to))
+  })
   fastify.get('/expenses/next-number', g, async (req) => ({ purchaseNo: await svc.peekNextNumber(tenantOf(req), 'purchase') }))
   fastify.get('/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}
@@ -273,9 +283,6 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const year = /^\d{4}$/.test(String(q.year || '')) ? parseInt(q.year) : new Date().getUTCFullYear()
     return svc.getYearlyReport(tenantOf(req), year)
   })
-
-  const dateStr = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
-  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
 
   // ─── Sales trend (Report → Sales tab; date-range driven) ────────────────────
   fastify.get('/report/sales', g, async (req) => {
