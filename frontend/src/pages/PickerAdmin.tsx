@@ -9,6 +9,7 @@ import DelayBadge from '../components/DelayBadge'
 import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import ManilaClock from '../components/shared/ManilaClock'
+import CarrierCountChips from '../components/shared/CarrierCountChips'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
@@ -1142,7 +1143,7 @@ export default function PickerAdmin() {
   const { data: statsData } = useQuery({
     queryKey: ['picker-admin-stats'],
     queryFn: async () => {
-      const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number; inProgressTotal: number; completedTodayTotal: number }>('/picker-admin/stats')
+      const res = await api.get<{ stats: PickerStat[]; returnedCount: number; totalCompleted: number; inProgressTotal: number; completedTodayTotal: number; carrierBreakdown: { carrierName: string | null; count: number }[] }>('/picker-admin/stats')
       return res.data
     },
     staleTime: 5_000,
@@ -1432,6 +1433,8 @@ export default function PickerAdmin() {
       stats={headerStats}
     >
       <ManilaClock />
+
+      <CarrierCountChips items={statsData?.carrierBreakdown ?? []} />
 
       {/* ── Scan & Stage ── (hidden for read-only viewers) */}
       {!readOnly && (
