@@ -294,6 +294,7 @@ export async function getPickerStats(tenantId: string) {
     returnedAssignments,
     returnedCount,
     totalCompleted,
+    carrierRows,
   ] = await Promise.all([
     prisma.pickerAssignment.findMany({
       where: {
@@ -347,7 +348,25 @@ export async function getPickerStats(tenantId: string) {
     prisma.pickerAssignment.count({
       where: { completedAt: { not: null }, order: { tenantId, archivedAt: null } },
     }),
+    // Per-carrier count of orders currently in the PICKER stage (assigned or not):
+    // INBOUND (in queue) + PICKER_ASSIGNED + PICKING. An order drops out once the
+    // picker completes it (PICKER_COMPLETE moves it to the Packer stage).
+    prisma.order.groupBy({
+      by: ['carrierName'],
+      where: {
+        tenantId,
+        archivedAt: null,
+        status: {
+          in: [OrderStatus.INBOUND, OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING],
+        },
+      },
+      _count: { _all: true },
+    }),
   ])
+
+  const carrierBreakdown = carrierRows
+    .map((r) => ({ carrierName: r.carrierName, count: r._count._all }))
+    .sort((a, b) => b.count - a.count)
 
   const completedMap = new Map<string, number>()
   for (const row of completedTotals) {
@@ -416,5 +435,5 @@ export async function getPickerStats(tenantId: string) {
   // Header "Total Completed" = pickers' completions THIS Manila day (resets at midnight).
   const completedTodayTotal = stats.reduce((sum, s) => sum + s.completedToday, 0)
 
-  return { stats, returnedCount, totalCompleted, inProgressTotal, completedTodayTotal }
+  return { stats, returnedCount, totalCompleted, inProgressTotal, completedTodayTotal, carrierBreakdown }
 }

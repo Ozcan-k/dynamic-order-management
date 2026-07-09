@@ -352,7 +352,7 @@ export async function getPackerStats(tenantId: string) {
     orderBy: { username: 'asc' },
   })
 
-  const [stats, totalCompleted, returnedCount] = await Promise.all([
+  const [stats, totalCompleted, returnedCount, carrierRows] = await Promise.all([
     Promise.all(
       packers.map(async (packer) => {
         const today = getManilaStartOfToday()
@@ -393,7 +393,25 @@ export async function getPackerStats(tenantId: string) {
         },
       },
     }),
+    // Per-carrier count of orders currently in the PACKER stage:
+    // PICKER_COMPLETE (waiting to pack) + PACKER_ASSIGNED + PACKING. An order drops out
+    // once the packer completes it (PACKER_COMPLETE → OUTBOUND leaves the packer stage).
+    prisma.order.groupBy({
+      by: ['carrierName'],
+      where: {
+        tenantId,
+        archivedAt: null,
+        status: {
+          in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING],
+        },
+      },
+      _count: { _all: true },
+    }),
   ])
+
+  const carrierBreakdown = carrierRows
+    .map((r) => ({ carrierName: r.carrierName, count: r._count._all }))
+    .sort((a, b) => b.count - a.count)
 
   // Header "In Progress" = orders currently assigned to a packer (PACKER_ASSIGNED + PACKING),
   // derived from the SAME per-packer workload so the card always equals the sum of the cards.
@@ -401,7 +419,7 @@ export async function getPackerStats(tenantId: string) {
   // Header "Total Packed" = packers' completions THIS Manila day (resets at midnight).
   const completedTodayTotal = stats.reduce((sum, s) => sum + s.completedToday, 0)
 
-  return { stats, totalCompleted, returnedCount, inProgressTotal, completedTodayTotal }
+  return { stats, totalCompleted, returnedCount, inProgressTotal, completedTodayTotal, carrierBreakdown }
 }
 
 // Returns the packer's ACTIVE workload — orders still assigned to them

@@ -9,6 +9,7 @@ import DelayBadge from '../components/DelayBadge'
 import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import ManilaClock from '../components/shared/ManilaClock'
+import CarrierCountChips from '../components/shared/CarrierCountChips'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
@@ -843,7 +844,7 @@ export default function PackerAdmin() {
   const { data: statsData } = useQuery({
     queryKey: ['packer-admin-stats'],
     queryFn: async () => {
-      const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number; inProgressTotal: number; completedTodayTotal: number }>('/packer-admin/stats')
+      const res = await api.get<{ stats: PackerStat[]; totalCompleted: number; returnedCount: number; inProgressTotal: number; completedTodayTotal: number; carrierBreakdown: { carrierName: string | null; count: number }[] }>('/packer-admin/stats')
       return res.data
     },
     staleTime: 0,
@@ -1131,6 +1132,8 @@ export default function PackerAdmin() {
       stats={headerStats}
     >
       <ManilaClock />
+
+      <CarrierCountChips items={statsData?.carrierBreakdown ?? []} />
 
       {/* Feedback banner */}
       {actionFeedback && (
