@@ -2657,6 +2657,64 @@ safety guard. Verify a guard by making it fire once, not by reading the YAML.
 
 ---
 
+## [2026-07-09] Sourcing `.env` in a Shell Script Executes It (`SLA_SWEEP_CRON=*/15 * * * *` → `command not found`)
+
+**Problem.** `scripts/backup.sh` loaded the compose env the obvious way:
+
+```bash
+set -a; . "$PROJECT_DIR/.env"; set +a
+```
+
+It died with `ARCHITECTURE.md: command not found`. `.env` line 33 is
+`SLA_SWEEP_CRON=*/15 * * * *` — unquoted. `.` runs the file **as shell**, so the
+unquoted `*` glob-expanded against the working directory and the value became a
+command. This is not a Windows quirk; it fails identically on the server.
+
+**Fix.** Parse out only the keys needed, never source:
+
+```bash
+env_val() { sed -n -E "s/^[[:space:]]*$1=[\"']?([^\"']*)[\"']?[[:space:]]*$/\1/p" "$PROJECT_DIR/.env" | tail -1; }
+DB_USER="$(env_val DB_USER)"
+```
+
+**Rule.** A `.env` is a **data file**, not a script. `. .env` from a root cron job also
+means anything that can write `.env` gets root. Parse the two or three keys you need.
+
+**Files affected:** `scripts/backup.sh`, `scripts/restore.sh`.
+
+---
+
+## [2026-07-09] `git show` Fakes CRLF — Never Hunt Line Endings Through It
+
+**Problem.** Checking whether the new shell scripts had been committed with CRLF:
+
+```bash
+git show HEAD:scripts/backup.sh | grep -c $'\r'   # → 102  (every line!)
+```
+
+Concluded the scripts were CRLF and would die on the Linux server with
+`$'\r': command not found`. **Wrong.** With `core.autocrlf=true`, git-for-windows
+applies the eol filter to `git show` output. The blob was pure LF all along —
+`git add --renormalize` changed nothing, and the blob SHA never moved (`49e18c1`),
+which was the tell.
+
+**Fix.** Measure the object, not a filtered stream:
+
+```bash
+git cat-file blob <sha> | tr -cd '\r' | wc -c    # → 0
+```
+
+**Rule.** When a tool both *reports* and *transforms*, its output is not evidence about
+the thing it transformed. If a "fix" leaves the object's hash unchanged, there was
+nothing to fix — that is the check, not the cleanup.
+
+*(The exec bit was a real finding from the same look: the scripts were committed
+`100644`. `.gitattributes` now pins `*.sh text eol=lf` as a forward guard.)*
+
+**Files affected:** `.gitattributes`, `scripts/*.sh`.
+
+---
+
 ## General Rules
 
 - Always use `createPortal(modal, document.body)` for modal/overlay components
