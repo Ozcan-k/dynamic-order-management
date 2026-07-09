@@ -11,10 +11,12 @@ export const UPLOADS_ROOT =
 
 export const BRANDING_DIR = path.join(UPLOADS_ROOT, 'branding')
 export const INCIDENTS_DIR = path.join(UPLOADS_ROOT, 'incidents')
+export const ACCOUNTING_DIR = path.join(UPLOADS_ROOT, 'accounting')
 
 export async function ensureUploadDirs() {
   await fs.mkdir(BRANDING_DIR, { recursive: true })
   await fs.mkdir(INCIDENTS_DIR, { recursive: true })
+  await fs.mkdir(ACCOUNTING_DIR, { recursive: true })
 }
 
 export function extFromMime(mime: string): string {

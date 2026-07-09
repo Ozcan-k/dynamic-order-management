@@ -1,0 +1,4 @@
+# Shell scripts run on the Linux server. Committed with CRLF, bash fails on the first
+# line with `$'\r': command not found` — and from cron that failure is only ever seen
+# in a log nobody reads. Force LF regardless of the developer's platform.
+*.sh text eol=lf
