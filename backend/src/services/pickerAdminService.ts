@@ -364,9 +364,15 @@ export async function getPickerStats(tenantId: string) {
     }),
   ])
 
+  // Busiest carrier first. Ties break on name and "No Carrier" is pinned last, otherwise
+  // the chips reshuffle on every 10s poll whenever two carriers hold the same count.
   const carrierBreakdown = carrierRows
     .map((r) => ({ carrierName: r.carrierName, count: r._count._all }))
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => {
+      if (a.carrierName === null) return 1
+      if (b.carrierName === null) return -1
+      return b.count - a.count || a.carrierName.localeCompare(b.carrierName)
+    })
 
   const completedMap = new Map<string, number>()
   for (const row of completedTotals) {
@@ -436,4 +442,48 @@ export async function getPickerStats(tenantId: string) {
   const completedTodayTotal = stats.reduce((sum, s) => sum + s.completedToday, 0)
 
   return { stats, returnedCount, totalCompleted, inProgressTotal, completedTodayTotal, carrierBreakdown }
+}
+
+// Statuses that make up the PICKER stage — the same set getPickerStats counts per carrier,
+// so the drill-down list always matches the number on the chip.
+export const PICKER_STAGE_STATUSES = [
+  OrderStatus.INBOUND,
+  OrderStatus.PICKER_ASSIGNED,
+  OrderStatus.PICKING,
+] as const
+
+// Drill-down behind a carrier chip: every order that carrier currently has in the picker
+// stage, with the picker it is assigned to (null while still in the inbound queue) and
+// the date it arrived. Read-only — never touches the pipeline.
+export async function getCarrierPickerOrders(tenantId: string, carrierName: string | null) {
+  const orders = await prisma.order.findMany({
+    where: {
+      tenantId,
+      archivedAt: null,
+      carrierName,
+      status: { in: [...PICKER_STAGE_STATUSES] },
+    },
+    select: {
+      id: true,
+      trackingNumber: true,
+      platform: true,
+      shopName: true,
+      status: true,
+      delayLevel: true,
+      createdAt: true,
+      // The open assignment — a completed one would mean the order already left this stage.
+      pickerAssignments: {
+        where: { completedAt: null },
+        orderBy: { assignedAt: 'desc' },
+        take: 1,
+        select: { picker: { select: { username: true } } },
+      },
+    },
+    orderBy: [{ delayLevel: 'desc' }, { createdAt: 'asc' }],
+  })
+
+  return orders.map(({ pickerAssignments, ...o }) => ({
+    ...o,
+    assignedTo: pickerAssignments[0]?.picker.username ?? null,
+  }))
 }

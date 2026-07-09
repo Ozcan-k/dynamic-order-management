@@ -2,8 +2,9 @@ import { Carrier, CARRIER_LABELS } from '@dom/shared'
 
 // ─── Carrier display config — dynamic palette ────────────────────────────────
 // Shared by the Outbound board / Packed Report cards and the Picker/Packer Admin
-// per-carrier live count chips. Each carrier name hashes to a stable colour, so
-// new carriers are auto-assigned a consistent style without any config.
+// per-carrier live count chips. The known carriers get an explicitly assigned
+// colour; anything else (carrierName is a free-text column) hashes to a stable
+// palette entry so new carriers are auto-styled without any config.
 
 export interface CarrierStyle {
   headerBg: string
@@ -31,6 +32,19 @@ const NO_CARRIER_STYLE: CarrierStyle = {
   headerBg: '#475569', headerText: '#fff', badgeBg: '#e2e8f0', badgeText: '#334155', border: '#cbd5e1',
 }
 
+// The seven known carriers are pinned to distinct palette entries. Hashing alone
+// collided (JT_EXPRESS/LEX both landed on 3, FLASH/OTHER both on 6), which rendered
+// those pairs in an identical colour on every board.
+const CARRIER_PALETTE_INDEX: Record<Carrier, number> = {
+  [Carrier.LEX]:        0, // blue
+  [Carrier.JT_EXPRESS]: 1, // red
+  [Carrier.LBC]:        2, // green
+  [Carrier.NINJA_VAN]:  3, // violet
+  [Carrier.SPX]:        4, // orange
+  [Carrier.OTHER]:      5, // teal
+  [Carrier.FLASH]:      8, // amber
+}
+
 export function hashCarrier(name: string): number {
   let h = 0
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
@@ -39,7 +53,8 @@ export function hashCarrier(name: string): number {
 
 export function getCarrierStyle(carrierName: string | null | undefined): CarrierStyle {
   if (!carrierName) return NO_CARRIER_STYLE
-  return COLOR_PALETTE[hashCarrier(carrierName)]
+  const pinned = CARRIER_PALETTE_INDEX[carrierName as Carrier]
+  return COLOR_PALETTE[pinned ?? hashCarrier(carrierName)]
 }
 
 export function getCarrierLabel(carrierName: string | null | undefined): string {

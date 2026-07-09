@@ -1434,7 +1434,7 @@ export default function PickerAdmin() {
     >
       <ManilaClock />
 
-      <CarrierCountChips items={statsData?.carrierBreakdown ?? []} />
+      <CarrierCountChips stage="picker" items={statsData?.carrierBreakdown ?? []} isLoading={!statsData} />
 
       {/* ── Scan & Stage ── (hidden for read-only viewers) */}
       {!readOnly && (

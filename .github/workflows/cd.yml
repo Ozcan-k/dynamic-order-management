@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -39,17 +39,17 @@ jobs:
         run: cd frontend && npx tsc --noEmit
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & push backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: backend/Dockerfile
@@ -61,7 +61,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: frontend/Dockerfile
@@ -74,17 +74,19 @@ jobs:
 
       # ── Deploy to Vultr ───────────────────────────────────────────────────
       - name: Deploy to Vultr
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VULTR_HOST }}
           username: root
           password: ${{ secrets.VULTR_PASSWORD }}
-          # script_stop: any failing command (e.g. a refused `prisma db push`) aborts the
-          # script and fails the job. Without it the trailing `docker image prune` exit code
-          # masks an earlier db-push failure and CD reports a false success (see SOLUTIONS.md
+          # `set -e`: any failing command (e.g. a refused `prisma db push`) aborts the script
+          # and fails the job. Without it the trailing `docker image prune` exit code masks an
+          # earlier db-push failure and CD reports a false success (see SOLUTIONS.md
           # [2026-06-03] — prod acc schema silently stuck → all /accounting endpoints 500).
-          script_stop: true
+          # This used to be the action's `script_stop: true`, which v1.x dropped: it became an
+          # "Unexpected input" annotation and the safety net was silently doing nothing.
           script: |
+            set -e
             cd /opt/dom
             git pull origin main
             docker compose up -d --build --remove-orphans

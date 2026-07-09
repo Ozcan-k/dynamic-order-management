@@ -14,6 +14,7 @@ import {
   bulkUnassignOrders,
   getPickerStats,
   getPickerOrders,
+  getCarrierPickerOrders,
   completeOrder,
   unassignOrder,
   lookupOrderByScan,
@@ -148,6 +149,16 @@ export default async function pickerAdminRoutes(fastify: FastifyInstance) {
     // Forward the whole result so new fields (inProgressTotal, completedTodayTotal)
     // reach the client — destructuring a subset here silently dropped them before.
     return reply.send(await getPickerStats(tenantId))
+  })
+
+  // GET /picker-admin/carrier-orders?carrier=SPX — drill-down behind a carrier chip.
+  // Omit `carrier` (or pass an empty value) for the "No Carrier" group.
+  fastify.get('/carrier-orders', { preHandler: readPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const { carrier } = request.query as { carrier?: string }
+    const carrierName = carrier?.trim() ? carrier.trim() : null
+    const orders = await getCarrierPickerOrders(tenantId, carrierName)
+    return reply.send({ orders })
   })
 
   // GET /picker-admin/picker/:pickerId/orders

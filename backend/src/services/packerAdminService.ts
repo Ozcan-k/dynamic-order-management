@@ -409,9 +409,15 @@ export async function getPackerStats(tenantId: string) {
     }),
   ])
 
+  // Busiest carrier first. Ties break on name and "No Carrier" is pinned last, otherwise
+  // the chips reshuffle on every 10s poll whenever two carriers hold the same count.
   const carrierBreakdown = carrierRows
     .map((r) => ({ carrierName: r.carrierName, count: r._count._all }))
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => {
+      if (a.carrierName === null) return 1
+      if (b.carrierName === null) return -1
+      return b.count - a.count || a.carrierName.localeCompare(b.carrierName)
+    })
 
   // Header "In Progress" = orders currently assigned to a packer (PACKER_ASSIGNED + PACKING),
   // derived from the SAME per-packer workload so the card always equals the sum of the cards.
@@ -501,4 +507,48 @@ export async function bulkUnassignPacker(
     }
   }
   return { unassigned, skipped }
+}
+
+// Statuses that make up the PACKER stage — the same set getPackerStats counts per carrier,
+// so the drill-down list always matches the number on the chip.
+export const PACKER_STAGE_STATUSES = [
+  OrderStatus.PICKER_COMPLETE,
+  OrderStatus.PACKER_ASSIGNED,
+  OrderStatus.PACKING,
+] as const
+
+// Drill-down behind a carrier chip: every order that carrier currently has in the packer
+// stage, with the packer it is assigned to (null while still waiting to pack) and the date
+// it arrived. Read-only — never touches the pipeline.
+export async function getCarrierPackerOrders(tenantId: string, carrierName: string | null) {
+  const orders = await prisma.order.findMany({
+    where: {
+      tenantId,
+      archivedAt: null,
+      carrierName,
+      status: { in: [...PACKER_STAGE_STATUSES] },
+    },
+    select: {
+      id: true,
+      trackingNumber: true,
+      platform: true,
+      shopName: true,
+      status: true,
+      delayLevel: true,
+      createdAt: true,
+      // The open assignment — a completed one would mean the order already left this stage.
+      packerAssignments: {
+        where: { completedAt: null },
+        orderBy: { assignedAt: 'desc' },
+        take: 1,
+        select: { packer: { select: { username: true } } },
+      },
+    },
+    orderBy: [{ delayLevel: 'desc' }, { createdAt: 'asc' }],
+  })
+
+  return orders.map(({ packerAssignments, ...o }) => ({
+    ...o,
+    assignedTo: packerAssignments[0]?.packer.username ?? null,
+  }))
 }

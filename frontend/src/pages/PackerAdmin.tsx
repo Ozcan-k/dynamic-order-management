@@ -1133,7 +1133,7 @@ export default function PackerAdmin() {
     >
       <ManilaClock />
 
-      <CarrierCountChips items={statsData?.carrierBreakdown ?? []} />
+      <CarrierCountChips stage="packer" items={statsData?.carrierBreakdown ?? []} isLoading={!statsData} />
 
       {/* Feedback banner */}
       {actionFeedback && (
