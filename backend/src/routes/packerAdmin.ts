@@ -15,6 +15,7 @@ import {
   removeOrder,
   getPackerStats,
   getPackerOrders,
+  getCarrierPackerOrders,
   bulkCompletePacker,
   bulkUnassignPacker,
 } from '../services/packerAdminService'
@@ -186,6 +187,16 @@ export default async function packerAdminRoutes(fastify: FastifyInstance) {
     // Forward the whole result so new fields (inProgressTotal, completedTodayTotal)
     // reach the client — destructuring a subset here silently dropped them before.
     return reply.send(await getPackerStats(tenantId))
+  })
+
+  // GET /packer-admin/carrier-orders?carrier=SPX — drill-down behind a carrier chip.
+  // Omit `carrier` (or pass an empty value) for the "No Carrier" group.
+  fastify.get('/carrier-orders', { preHandler: readPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const { carrier } = request.query as { carrier?: string }
+    const carrierName = carrier?.trim() ? carrier.trim() : null
+    const orders = await getCarrierPackerOrders(tenantId, carrierName)
+    return reply.send({ orders })
   })
 
   // GET /packer-admin/packer/:packerId/orders — specific packer's completed orders
