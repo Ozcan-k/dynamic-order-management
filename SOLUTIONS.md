@@ -2619,6 +2619,44 @@ In bulk mode, each scan immediately calls `/picker-admin/scan`:
 
 ---
 
+## [2026-07-09] CD — `script_stop: true` Was a Silent No-Op (db-push Safety Net Never Armed)
+
+### Problem
+After the [2026-06-03] incident (a refused `prisma db push` masked by the trailing
+`docker image prune` exit 0 → CD false-green → all `/accounting` endpoints 500 in prod),
+v2.53.1 added `script_stop: true` to the `appleboy/ssh-action` deploy step.
+
+That input does not exist in `appleboy/ssh-action@v1`. It surfaced only as a yellow
+`Unexpected input(s) 'script_stop'` annotation, which is easy to scroll past — so for
+~23 versions the safety net was **armed in the YAML and doing nothing at runtime**.
+A failing `db push` would still have produced a green CD run.
+
+### Fix
+Drop the unsupported input and put the guard in the remote script itself, where no action
+version can silently ignore it:
+
+```yaml
+uses: appleboy/ssh-action@v1.2.5   # pinned, not @v1
+with:
+  script: |
+    set -e
+    cd /opt/dom
+    ...
+```
+
+`set -e` is exactly what `script_stop` used to do (prepend it to the remote script), so
+behaviour is identical — except it cannot be dropped by an action upgrade.
+
+### Rule
+An `Unexpected input(s) 'x'` annotation means the feature `x` is **off**, not "deprecated
+but working". Never treat a workflow annotation as cosmetic when the input it names is a
+safety guard. Verify a guard by making it fire once, not by reading the YAML.
+
+### Files Affected
+- `.github/workflows/cd.yml` — `script_stop: true` → `set -e`; action pinned `@v1` → `@v1.2.5`
+
+---
+
 ## General Rules
 
 - Always use `createPortal(modal, document.body)` for modal/overlay components
