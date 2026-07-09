@@ -45,6 +45,20 @@ Check it the next morning: `tail -20 /var/log/dom-backup.log`.
 
 ## Offsite — do not skip this
 
+> **Status (2026-07-09): NOT DONE.** The nightly cron is live and `rclone` is installed on the
+> server, but no `BACKUP_REMOTE` has been chosen, so every backup still lives only on the
+> production disk. Deferred by decision, not forgotten.
+>
+> Candidates priced at the time: **Cloudflare R2** (10 GB + egress free, S3-compatible — best
+> value, needs a new account), **Backblaze B2** (first 10 GB free, small egress on restore),
+> **Vultr Object Storage** (same panel, no new account, but the cheapest tier is $6/mo Archival
+> for 250 GB we do not need). Production sizes: 55 MB dump + 17 MB uploads ≈ 72 MB/night.
+>
+> **When you turn this on, add remote retention too.** The script deliberately never deletes
+> anything on the remote, so at ~72 MB/night a 10 GB free tier fills in about 4½ months and
+> uploads then start failing. Wire up a `BACKUP_REMOTE_KEEP_DAYS` (`rclone delete --min-age`)
+> at the same time.
+
 Left as installed above, the backups sit on **the same disk they are meant to protect you from losing**. The script says so loudly on every run and keeps going; it is your decision, not an oversight.
 
 To fix it, point `BACKUP_REMOTE` at an [rclone](https://rclone.org) target and the script copies both artifacts up after verifying them:
