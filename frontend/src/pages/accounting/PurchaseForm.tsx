@@ -6,12 +6,13 @@ import {
 } from '@dom/shared'
 import {
   useVendors, useSaveVendor, useItems, useCreateItem, useCategories, useCreateCategory,
-  useNextPurchaseNo, useSaveExpense, useExpense, useDeleteExpense,
+  useNextPurchaseNo, useSaveExpense, useExpense, useDeleteExpense, uploadExpenseAttachment,
 } from '../../api/accounting'
 import type { AccCategory } from '@dom/shared'
 import ComboBox from '../../components/shared/ComboBox'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
+import ExpenseAttachments from '../../components/accounting/ExpenseAttachments'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function initRows(e?: AccExpense | null): LineRow[] {
@@ -66,6 +67,9 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
     paidBy: initial?.paidBy ?? '',
   })
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
+  // New-expense mode: invoice files wait here until the save gives us an expense id.
+  const [staged, setStaged] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [newVendor, setNewVendor] = useState<null | { name: string; email: string; contactNumber: string }>(null)
   const [newCat, setNewCat] = useState('')
@@ -77,12 +81,17 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   const purchaseNo = isEdit ? initial!.purchaseNo : (nextNo?.purchaseNo ?? '…')
   const validRows = useMemo(() => rows.filter((r) => r.itemName.trim() && Number(r.unitCost) >= 0 && Number(r.quantity) > 0), [rows])
 
+  // Set once a brand-new expense has been persisted. It turns a retry into a PUT rather
+  // than a second POST, so re-submitting after a failed upload cannot duplicate the record.
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const expenseId = initial?.id ?? savedId ?? undefined
+
   const submit = async () => {
     setError('')
     if (!f.vendorName.trim()) return setError('Vendor is required.')
     if (validRows.length === 0) return setError('Add at least one line item (item + qty + unit cost).')
     const payload: any = {
-      id: initial?.id,
+      id: expenseId,
       vendorId: f.vendorId || null, vendorName: f.vendorName, invoiceNumber: f.invoiceNumber || null,
       country: f.country, dateIssued: f.dateIssued, dueDate: f.dueDate || null,
       status: f.status, paymentMethod: f.status === 'PAID' ? f.paymentMethod : null, paidBy: f.status === 'PAID' ? (f.paidBy || null) : null,
@@ -93,8 +102,29 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
         discountPct: Number(r.discountPct) || 0, taxPct: Number(r.taxPct) || 0,
       })),
     }
-    try { await save.mutateAsync(payload); back() }
-    catch (e: any) { setError(e?.response?.data?.error || 'Save failed') }
+
+    let saved: AccExpense
+    try { saved = (await save.mutateAsync(payload)) as AccExpense }
+    catch (e: any) { return setError(e?.response?.data?.error || 'Save failed') }
+
+    // The expense now has an id, so the queued invoice files finally have somewhere to go.
+    if (staged.length) {
+      setUploading(true)
+      const failed: File[] = []
+      for (const file of staged) {
+        try { await uploadExpenseAttachment(saved.id, file) } catch { failed.push(file) }
+      }
+      setUploading(false)
+      setStaged(failed)
+      if (failed.length) {
+        // The expense itself is saved. Stay on the page rather than navigate away and
+        // silently drop the files; savedId makes the retry an update, not a duplicate.
+        setSavedId(saved.id)
+        setError(`Expense saved, but ${failed.length} file(s) could not be uploaded: ${failed.map((x) => x.name).join(', ')}. Press Save again to retry.`)
+        return
+      }
+    }
+    back()
   }
 
   return (
@@ -149,10 +179,14 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
         <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="expense" categories={categories}
           onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'EXPENSE' })} />
 
+        <ExpenseAttachments expenseId={expenseId} staged={staged} onStagedChange={setStaged} uploading={uploading} />
+
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
-          <button className="acc-btn acc-btn-outline" onClick={back}>Cancel</button>
-          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Expense' : 'Save Expense'}</button>
+          <button className="acc-btn acc-btn-outline" onClick={back} disabled={uploading}>Cancel</button>
+          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending || uploading}>
+            {uploading ? 'Uploading files…' : save.isPending ? 'Saving…' : (isEdit || savedId) ? 'Update Expense' : 'Save Expense'}
+          </button>
         </div>
       </div>
 

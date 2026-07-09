@@ -186,6 +186,15 @@ export interface AccSale {
   updatedAt: string
 }
 
+/** A supplier invoice (photo or PDF) filed against an expense. */
+export interface AccExpenseAttachment {
+  id: string
+  mime: string
+  originalName: string | null
+  sizeBytes: number
+  uploadedAt: string
+}
+
 // ─── Purchase (Expense) ─────────────────────────────────────────────────────
 export interface AccExpense {
   id: string
