@@ -371,15 +371,23 @@ export default function Sidebar() {
 
   return (
     <nav className={['sidebar', isOpen ? 'sidebar--mobile-open' : ''].filter(Boolean).join(' ')}>
-      {/* Logo + mobile close button */}
+      {/* Logo (click → home/dashboard) + mobile close button */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
-          <DomLogo />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="sidebar-logo-title">DOM</div>
-          <div className="sidebar-logo-sub">Warehouse System</div>
-        </div>
+        <button
+          type="button"
+          className="sidebar-logo-home"
+          onClick={() => { navigate('/'); close() }}
+          aria-label="Go to home"
+          title="Go to home"
+        >
+          <div className="sidebar-logo-icon">
+            <DomLogo />
+          </div>
+          <div style={{ flex: 1, textAlign: 'left' }}>
+            <div className="sidebar-logo-title">DOM</div>
+            <div className="sidebar-logo-sub">Warehouse System</div>
+          </div>
+        </button>
         {/* Close button — mobile only */}
         <button
           className="sidebar-close-btn"
