@@ -1,4 +1,5 @@
 import { OrderStatus, UserRole } from '@dom/shared'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { getManilaStartOfToday } from '../lib/manila'
 
@@ -348,17 +349,15 @@ export async function getPickerStats(tenantId: string) {
     prisma.pickerAssignment.count({
       where: { completedAt: { not: null }, order: { tenantId, archivedAt: null } },
     }),
-    // Per-carrier count of orders currently in the PICKER stage (assigned or not):
-    // INBOUND (in queue) + PICKER_ASSIGNED + PICKING. An order drops out once the
-    // picker completes it (PICKER_COMPLETE moves it to the Packer stage).
+    // Per-carrier count of orders currently in the PICKER stage — see pickerStageCarrierWhere:
+    // the inbound queue plus orders assigned to a picker who is STILL active. Orders left stuck
+    // on a deactivated picker are excluded so the chips match the workload cards below.
     prisma.order.groupBy({
       by: ['carrierName'],
       where: {
         tenantId,
         archivedAt: null,
-        status: {
-          in: [OrderStatus.INBOUND, OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING],
-        },
+        ...pickerStageCarrierWhere,
       },
       _count: { _all: true },
     }),
@@ -444,13 +443,21 @@ export async function getPickerStats(tenantId: string) {
   return { stats, returnedCount, totalCompleted, inProgressTotal, completedTodayTotal, carrierBreakdown }
 }
 
-// Statuses that make up the PICKER stage — the same set getPickerStats counts per carrier,
-// so the drill-down list always matches the number on the chip.
-export const PICKER_STAGE_STATUSES = [
-  OrderStatus.INBOUND,
-  OrderStatus.PICKER_ASSIGNED,
-  OrderStatus.PICKING,
-] as const
+// The PICKER stage as counted under the "By Carrier" chips and their drill-down: orders
+// waiting in the inbound queue (no assignee yet) PLUS orders actively assigned to a picker
+// who is STILL active. An order left stuck on a deactivated picker (someone who no longer
+// works here) is intentionally excluded — it never appears in the workload cards either, so
+// counting it under a carrier chip would overstate what the team is actually holding.
+// getPickerStats' groupBy and the drill-down below share this so their numbers always agree.
+export const pickerStageCarrierWhere: Prisma.OrderWhereInput = {
+  OR: [
+    { status: OrderStatus.INBOUND },
+    {
+      status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] },
+      pickerAssignments: { some: { completedAt: null, picker: { isActive: true } } },
+    },
+  ],
+}
 
 // Drill-down behind a carrier chip: every order that carrier currently has in the picker
 // stage, with the picker it is assigned to (null while still in the inbound queue) and
@@ -461,7 +468,7 @@ export async function getCarrierPickerOrders(tenantId: string, carrierName: stri
       tenantId,
       archivedAt: null,
       carrierName,
-      status: { in: [...PICKER_STAGE_STATUSES] },
+      ...pickerStageCarrierWhere,
     },
     select: {
       id: true,
@@ -471,9 +478,11 @@ export async function getCarrierPickerOrders(tenantId: string, carrierName: stri
       status: true,
       delayLevel: true,
       createdAt: true,
-      // The open assignment — a completed one would mean the order already left this stage.
+      // The open assignment to a STILL-active picker — a completed one would mean the order
+      // already left this stage, and an inactive picker's stale assignment is filtered out
+      // above, so the name shown here is always someone still on the team.
       pickerAssignments: {
-        where: { completedAt: null },
+        where: { completedAt: null, picker: { isActive: true } },
         orderBy: { assignedAt: 'desc' },
         take: 1,
         select: { picker: { select: { username: true } } },

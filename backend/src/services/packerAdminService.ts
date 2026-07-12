@@ -1,4 +1,5 @@
 import { OrderStatus, UserRole } from '@dom/shared'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { getManilaStartOfToday } from '../lib/manila'
 
@@ -393,17 +394,15 @@ export async function getPackerStats(tenantId: string) {
         },
       },
     }),
-    // Per-carrier count of orders currently in the PACKER stage:
-    // PICKER_COMPLETE (waiting to pack) + PACKER_ASSIGNED + PACKING. An order drops out
-    // once the packer completes it (PACKER_COMPLETE → OUTBOUND leaves the packer stage).
+    // Per-carrier count of orders currently in the PACKER stage — see packerStageCarrierWhere:
+    // the waiting-to-pack queue plus orders assigned to a packer who is STILL active. Orders left
+    // stuck on a deactivated packer are excluded so the chips match the workload cards below.
     prisma.order.groupBy({
       by: ['carrierName'],
       where: {
         tenantId,
         archivedAt: null,
-        status: {
-          in: [OrderStatus.PICKER_COMPLETE, OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING],
-        },
+        ...packerStageCarrierWhere,
       },
       _count: { _all: true },
     }),
@@ -509,13 +508,21 @@ export async function bulkUnassignPacker(
   return { unassigned, skipped }
 }
 
-// Statuses that make up the PACKER stage — the same set getPackerStats counts per carrier,
-// so the drill-down list always matches the number on the chip.
-export const PACKER_STAGE_STATUSES = [
-  OrderStatus.PICKER_COMPLETE,
-  OrderStatus.PACKER_ASSIGNED,
-  OrderStatus.PACKING,
-] as const
+// The PACKER stage as counted under the "By Carrier" chips and their drill-down: orders
+// waiting to pack (no packer yet) PLUS orders actively assigned to a packer who is STILL
+// active. An order left stuck on a deactivated packer (someone who no longer works here) is
+// intentionally excluded — it never appears in the workload cards either, so counting it under
+// a carrier chip would overstate what the team is actually holding.
+// getPackerStats' groupBy and the drill-down below share this so their numbers always agree.
+export const packerStageCarrierWhere: Prisma.OrderWhereInput = {
+  OR: [
+    { status: OrderStatus.PICKER_COMPLETE },
+    {
+      status: { in: [OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING] },
+      packerAssignments: { some: { completedAt: null, packer: { isActive: true } } },
+    },
+  ],
+}
 
 // Drill-down behind a carrier chip: every order that carrier currently has in the packer
 // stage, with the packer it is assigned to (null while still waiting to pack) and the date
@@ -526,7 +533,7 @@ export async function getCarrierPackerOrders(tenantId: string, carrierName: stri
       tenantId,
       archivedAt: null,
       carrierName,
-      status: { in: [...PACKER_STAGE_STATUSES] },
+      ...packerStageCarrierWhere,
     },
     select: {
       id: true,
@@ -536,9 +543,11 @@ export async function getCarrierPackerOrders(tenantId: string, carrierName: stri
       status: true,
       delayLevel: true,
       createdAt: true,
-      // The open assignment — a completed one would mean the order already left this stage.
+      // The open assignment to a STILL-active packer — a completed one would mean the order
+      // already left this stage, and an inactive packer's stale assignment is filtered out
+      // above, so the name shown here is always someone still on the team.
       packerAssignments: {
-        where: { completedAt: null },
+        where: { completedAt: null, packer: { isActive: true } },
         orderBy: { assignedAt: 'desc' },
         take: 1,
         select: { packer: { select: { username: true } } },
