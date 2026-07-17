@@ -113,20 +113,18 @@ export async function lookupStockItem(id: string): Promise<StockLookupItem> {
 
 export interface ScanResult {
   item: ScanResultItem
-  type: MovementType
+  type: 'IN' | 'USED'
   fromWarehouse?: string
-  toWarehouse?: string
   message: string
   noChange?: boolean
 }
 
-export type ScanOperation = 'IN' | 'OUT' | 'TRANSFER'
+export type ScanOperation = 'IN' | 'OUT'
 
 export interface ScanPayload {
   id: string
   operation: ScanOperation
   warehouseId: string
-  toWarehouseId?: string
 }
 
 export interface GenerateLabelsInput {

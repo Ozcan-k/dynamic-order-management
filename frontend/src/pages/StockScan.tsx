@@ -105,15 +105,14 @@ interface BulkResultEntry {
   productName?: string
   qty?: number
   unit?: 'KG' | 'PCS'
-  type?: 'IN' | 'USED' | 'TRANSFER' | 'ADJUSTMENT_OUT'
+  type?: 'IN' | 'USED'
   noChange?: boolean
   error?: string
 }
 
 const OPERATIONS: { value: ScanOperation; label: string; subtitle: string; color: string }[] = [
-  { value: 'IN',       label: 'Stock In',       subtitle: 'Receive into warehouse', color: '#22c55e' },
-  { value: 'OUT',      label: 'Stock Out',      subtitle: 'Mark as used / shipped',  color: '#ef4444' },
-  { value: 'TRANSFER', label: 'Stock Transfer', subtitle: 'Move between warehouses', color: '#3b82f6' },
+  { value: 'IN',  label: 'Stock In',  subtitle: 'Receive into warehouse', color: '#22c55e' },
+  { value: 'OUT', label: 'Stock Out', subtitle: 'Mark as used / shipped',  color: '#ef4444' },
 ]
 
 export default function StockScan() {
@@ -136,7 +135,7 @@ export default function StockScan() {
 
   const [operation, setOperation] = useState<ScanOperation>(() => {
     const stored = localStorage.getItem(OP_KEY) as ScanOperation | null
-    return stored && ['IN', 'OUT', 'TRANSFER'].includes(stored) ? stored : 'IN'
+    return stored && ['IN', 'OUT'].includes(stored) ? stored : 'IN'
   })
   // Whether the operator has explicitly confirmed an Operation choice in
   // this device. We persist a separate flag (not just the operation value)
@@ -144,9 +143,8 @@ export default function StockScan() {
   // still forces the operator through the picker before the camera opens.
   const [opPicked, setOpPicked] = useState<boolean>(() => localStorage.getItem(OP_PICKED_KEY) === '1')
   const [warehouseId, setWarehouseId] = useState<string>(() => localStorage.getItem(WH_KEY) ?? '')
-  const [toWarehouseId, setToWarehouseId] = useState<string>('')
   const [showOpPicker, setShowOpPicker] = useState(false)
-  const [showWhPicker, setShowWhPicker] = useState<null | 'from' | 'to'>(null)
+  const [showWhPicker, setShowWhPicker] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<ScanResult | null>(null)
@@ -217,11 +215,9 @@ export default function StockScan() {
   }, [warehouses, warehouseId])
 
   const selectedWarehouse = warehouses.find((w) => w.id === warehouseId)
-  const destinationWarehouse = warehouses.find((w) => w.id === toWarehouseId)
   const opMeta = OPERATIONS.find((o) => o.value === operation)!
-  const needsToWarehouse = operation === 'TRANSFER'
 
-  const ready = !!warehouseId && (!needsToWarehouse || !!toWarehouseId) && warehouseId !== toWarehouseId
+  const ready = !!warehouseId
 
   const stopCamera = useCallback(() => {
     controlsRef.current?.stop()
@@ -235,12 +231,7 @@ export default function StockScan() {
   const startCamera = useCallback(async () => {
     setCameraError(null); setErrorMessage(null)
     if (!opPicked) { setShowOpPicker(true); return }
-    if (!warehouseId) { setShowWhPicker('from'); return }
-    if (needsToWarehouse && !toWarehouseId) { setShowWhPicker('to'); return }
-    if (needsToWarehouse && warehouseId === toWarehouseId) {
-      setErrorMessage('Source and destination warehouses must differ.')
-      return
-    }
+    if (!warehouseId) { setShowWhPicker(true); return }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -255,7 +246,7 @@ export default function StockScan() {
         'Could not open camera.',
       )
     }
-  }, [warehouseId, toWarehouseId, needsToWarehouse, opPicked])
+  }, [warehouseId, opPicked])
 
   useEffect(() => {
     if (!cameraOn || !videoRef.current || !streamRef.current) return
@@ -332,7 +323,7 @@ export default function StockScan() {
       try { (reader as unknown as { stopAsyncDecode?: () => void }).stopAsyncDecode?.() } catch { /* noop */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, warehouseId, toWarehouseId, operation, needsToWarehouse, ready])
+  }, [cameraOn, warehouseId, operation, ready])
 
   useEffect(() => () => stopCamera(), [stopCamera])
 
@@ -351,7 +342,6 @@ export default function StockScan() {
       id: scannedId,
       operation,
       warehouseId,
-      ...(needsToWarehouse ? { toWarehouseId } : {}),
     }
     scanMutation.mutate(payload, {
       onSuccess: (data) => {
@@ -386,7 +376,6 @@ export default function StockScan() {
     for (const item of ordered) {
       const payload: ScanPayload = {
         id: item.id, operation, warehouseId,
-        ...(needsToWarehouse ? { toWarehouseId } : {}),
       }
       try {
         const data = await scanMutation.mutateAsync(payload)
@@ -481,14 +470,9 @@ export default function StockScan() {
                   <button onClick={() => setShowOpPicker(true)} style={chipBtnStyle(opPicked, `${opMeta.color}38`, `${opMeta.color}88`)}>
                     {opPicked ? opMeta.label : 'Pick op'}
                   </button>
-                  <button onClick={() => setShowWhPicker('from')} style={chipBtnStyle(!!selectedWarehouse, 'rgba(59,130,246,0.22)', 'rgba(59,130,246,0.5)')}>
+                  <button onClick={() => setShowWhPicker(true)} style={chipBtnStyle(!!selectedWarehouse, 'rgba(59,130,246,0.22)', 'rgba(59,130,246,0.5)')}>
                     {selectedWarehouse?.name ?? 'WH?'}
                   </button>
-                  {needsToWarehouse && (
-                    <button onClick={() => setShowWhPicker('to')} style={chipBtnStyle(!!destinationWarehouse, 'rgba(59,130,246,0.22)', 'rgba(59,130,246,0.5)')}>
-                      → {destinationWarehouse?.name ?? 'Dest'}
-                    </button>
-                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', background: 'rgba(15,23,42,0.85)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 3 }}>
@@ -637,10 +621,7 @@ export default function StockScan() {
             <div style={{ fontSize: 17, fontWeight: 700, textAlign: 'center' }}>{opPicked ? opMeta.label : 'Pick an operation first'}</div>
             <div style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', maxWidth: 280 }}>
               {opPicked && opMeta.subtitle}
-              {opPicked && selectedWarehouse && !needsToWarehouse && <> at <strong style={{ color: '#fff' }}>{selectedWarehouse.name}</strong></>}
-              {opPicked && selectedWarehouse && needsToWarehouse && destinationWarehouse && (
-                <> · <strong style={{ color: '#fff' }}>{selectedWarehouse.name}</strong> → <strong style={{ color: '#fff' }}>{destinationWarehouse.name}</strong></>
-              )}
+              {opPicked && selectedWarehouse && <> at <strong style={{ color: '#fff' }}>{selectedWarehouse.name}</strong></>}
             </div>
             {cameraError && (
               <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', color: '#fecaca', padding: '10px 14px', borderRadius: 8, fontSize: 13, maxWidth: 320, textAlign: 'center' }}>
@@ -723,9 +704,9 @@ export default function StockScan() {
               <span style={{ fontSize: 11, opacity: 0.8 }}>{opPicked ? 'change ›' : 'pick ›'}</span>
             </button>
 
-            {/* Warehouse selector (source/current) */}
+            {/* Warehouse selector */}
             <button
-              onClick={() => setShowWhPicker('from')}
+              onClick={() => setShowWhPicker(true)}
               style={{
                 padding: '10px 14px', borderRadius: 10,
                 background: selectedWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
@@ -735,37 +716,13 @@ export default function StockScan() {
               }}
             >
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>
-                  {needsToWarehouse ? 'FROM WAREHOUSE' : 'WAREHOUSE'}
-                </span>
+                <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>WAREHOUSE</span>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>
                   {selectedWarehouse ? selectedWarehouse.name : 'Select warehouse'}
                 </span>
               </span>
               <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
             </button>
-
-            {/* Destination warehouse (only for Transfer) */}
-            {needsToWarehouse && (
-              <button
-                onClick={() => setShowWhPicker('to')}
-                style={{
-                  padding: '10px 14px', borderRadius: 10,
-                  background: destinationWarehouse ? 'rgba(59,130,246,0.16)' : 'rgba(239,68,68,0.18)',
-                  border: `1px solid ${destinationWarehouse ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.5)'}`,
-                  color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                }}
-              >
-                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 10, opacity: 0.8, fontWeight: 500 }}>TO WAREHOUSE</span>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>
-                    {destinationWarehouse ? destinationWarehouse.name : 'Select destination'}
-                  </span>
-                </span>
-                <span style={{ fontSize: 11, opacity: 0.8 }}>change ›</span>
-              </button>
-            )}
           </div>
         </>
       )}
@@ -782,7 +739,7 @@ export default function StockScan() {
               {OPERATIONS.map((o) => (
                 <button
                   key={o.value}
-                  onClick={() => { setOperation(o.value); setOpPicked(true); setShowOpPicker(false); if (o.value !== 'TRANSFER') setToWarehouseId('') }}
+                  onClick={() => { setOperation(o.value); setOpPicked(true); setShowOpPicker(false) }}
                   style={{
                     padding: '12px 14px', textAlign: 'left', borderRadius: 10,
                     background: operation === o.value ? `${o.color}33` : 'rgba(255,255,255,0.05)',
@@ -802,26 +759,25 @@ export default function StockScan() {
       {/* Warehouse picker bottom sheet */}
       {showWhPicker && (
         <div
-          onClick={() => setShowWhPicker(null)}
+          onClick={() => setShowWhPicker(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 50, display: 'flex', alignItems: 'flex-end' }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', background: '#0f172a', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, maxHeight: '70vh', overflow: 'auto' }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-              {showWhPicker === 'to' ? 'Pick destination warehouse' : 'Pick warehouse'}
+              Pick warehouse
             </div>
             {warehouses.length === 0 ? (
               <div style={{ color: '#94a3b8', fontSize: 13 }}>No warehouses configured. Ask an admin to create one.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {warehouses.map((w) => {
-                  const selectedId = showWhPicker === 'to' ? toWarehouseId : warehouseId
+                  const selectedId = warehouseId
                   return (
                     <button
                       key={w.id}
                       onClick={() => {
-                        if (showWhPicker === 'to') setToWarehouseId(w.id)
-                        else setWarehouseId(w.id)
-                        setShowWhPicker(null)
+                        setWarehouseId(w.id)
+                        setShowWhPicker(false)
                       }}
                       style={{
                         padding: '12px 14px', textAlign: 'left', borderRadius: 10,
@@ -859,14 +815,7 @@ export default function StockScan() {
 
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Row label="Operation" value={opMeta.label} valueColor={opMeta.color} />
-              {needsToWarehouse ? (
-                <>
-                  <Row label="From" value={selectedWarehouse?.name ?? '—'} />
-                  <Row label="To" value={destinationWarehouse?.name ?? '—'} />
-                </>
-              ) : (
-                <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
-              )}
+              <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
               <Row label="QR" value={pendingScan.id.slice(0, 8) + '…'} mono />
             </div>
 
@@ -915,14 +864,7 @@ export default function StockScan() {
 
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Row label="Operation" value={opMeta.label} valueColor={opMeta.color} />
-              {needsToWarehouse ? (
-                <>
-                  <Row label="From" value={selectedWarehouse?.name ?? '—'} />
-                  <Row label="To" value={destinationWarehouse?.name ?? '—'} />
-                </>
-              ) : (
-                <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
-              )}
+              <Row label="Warehouse" value={selectedWarehouse?.name ?? '—'} />
               <Row label="Boxes" value={`${bulkBoxCount} ${bulkBoxCount === 1 ? 'box' : 'boxes'}`} />
               {bulkKgTotal > 0 && <Row label="Total weight" value={`${formatQty(bulkKgTotal)} kg`} />}
               {bulkPcsTotal > 0 && <Row label="Total count" value={`${formatQty(bulkPcsTotal)} pcs`} />}
@@ -983,9 +925,6 @@ function resultToneStyle(result: ScanResult | null) {
   }
   if (result?.type === 'USED') {
     return { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.45)', text: '#fecaca', title: '↑ Used / Out' }
-  }
-  if (result?.type === 'TRANSFER') {
-    return { bg: 'rgba(59,130,246,0.18)', border: 'rgba(59,130,246,0.5)', text: '#bfdbfe', title: '⇄ Transferred' }
   }
   // IN
   return { bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.45)', text: '#bbf7d0', title: '↓ Stocked' }

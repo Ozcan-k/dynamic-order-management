@@ -13,16 +13,15 @@ export interface GenerateLabelsInput {
   count: number
 }
 
-export type ScanOperation = 'IN' | 'OUT' | 'TRANSFER'
+export type ScanOperation = 'IN' | 'OUT'
 
 export interface ScanInput {
   id: string
   operation: ScanOperation
   warehouseId: string
-  toWarehouseId?: string
 }
 
-export type ScanResultType = 'IN' | 'USED' | 'TRANSFER'
+export type ScanResultType = 'IN' | 'USED'
 
 export interface ScanResult {
   item: {
@@ -382,11 +381,11 @@ export async function scanItem(
   // ─── Stock In ─────────────────────────────────────────────────────────────
   // Strict rule (v2.34.1): a label can only be stocked-in once. Once it has
   // become IN_STOCK or OUT_OF_STOCK, re-running Stock In is rejected — the
-  // operator should use Transfer or Stock Out, or generate a fresh label.
+  // operator should use Stock Out, or generate a fresh label.
   if (input.operation === 'IN') {
     if (existing.status === 'IN_STOCK') {
       throw new Error(
-        `Already stocked at ${existing.warehouse.name}. Use Transfer to move it or Stock Out to remove.`,
+        `Already stocked at ${existing.warehouse.name}. Use Stock Out to remove it.`,
       )
     }
     if (existing.status === 'OUT_OF_STOCK') {
@@ -450,53 +449,6 @@ export async function scanItem(
       type: 'USED',
       fromWarehouse: existing.warehouse.name,
       message: `Used / out — ${updated.product.name}`,
-    }
-  }
-
-  // ─── Stock Transfer ──────────────────────────────────────────────────────
-  if (input.operation === 'TRANSFER') {
-    if (!input.toWarehouseId) throw new Error('Destination warehouse is required for transfer')
-    if (existing.status !== 'IN_STOCK') {
-      throw new Error('Only in-stock items can be transferred')
-    }
-    const target = await prisma.warehouse.findFirst({
-      where: { id: input.toWarehouseId, tenantId },
-      select: { id: true, name: true },
-    })
-    if (!target) throw new Error('Destination warehouse not found')
-    if (existing.warehouseId === target.id) {
-      return {
-        item: shapeItem(existing),
-        type: 'TRANSFER',
-        fromWarehouse: existing.warehouse.name,
-        toWarehouse: target.name,
-        message: `Already at ${target.name} — no change`,
-        noChange: true,
-      }
-    }
-    const fromName = existing.warehouse.name
-    const [updated] = await prisma.$transaction([
-      prisma.stockItem.update({
-        where: { id: existing.id },
-        data: { warehouseId: target.id },
-        include: includeBlock,
-      }),
-      prisma.stockMovement.create({
-        data: {
-          stockItemId: existing.id,
-          type: 'TRANSFER',
-          fromWarehouseId: existing.warehouseId,
-          toWarehouseId: target.id,
-          scannedById,
-        },
-      }),
-    ])
-    return {
-      item: shapeItem(updated),
-      type: 'TRANSFER',
-      fromWarehouse: fromName,
-      toWarehouse: target.name,
-      message: `Transferred ${fromName} → ${target.name}`,
     }
   }
 

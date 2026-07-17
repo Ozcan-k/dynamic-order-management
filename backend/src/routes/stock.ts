@@ -33,9 +33,8 @@ const ListItemsQuerySchema = z.object({
 
 const ScanSchema = z.object({
   id: z.string().uuid(),
-  operation: z.enum(['IN', 'OUT', 'TRANSFER']),
+  operation: z.enum(['IN', 'OUT']),
   warehouseId: z.string().uuid(),
-  toWarehouseId: z.string().uuid().optional(),
 })
 
 const AdjustSchema = z.object({
@@ -129,9 +128,8 @@ export default async function stockRoutes(fastify: FastifyInstance) {
   )
 
   // POST /stock/scan — ADMIN + STOCK_KEEPER. Operation-driven:
-  // IN flips PENDING/OUT_OF_STOCK → IN_STOCK at warehouseId.
+  // IN flips PENDING → IN_STOCK at warehouseId.
   // OUT flips IN_STOCK → OUT_OF_STOCK.
-  // TRANSFER moves IN_STOCK from current warehouse to toWarehouseId.
   fastify.post(
     '/scan',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.STOCK_KEEPER, UserRole.WAREHOUSE_ADMIN)] },
