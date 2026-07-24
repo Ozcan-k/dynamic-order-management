@@ -15,7 +15,7 @@ import {
   type Incident,
 } from '../api/incidents'
 import { useBranding, brandingLogoUrl } from '../api/branding'
-import { money } from '../api/accounting'
+import { money, PESO } from '../api/accounting'
 import DateRangePicker, { type DateRange } from '../components/accounting/DateRangePicker'
 import CreateIncidentModal     from './incident/CreateIncidentModal'
 import ViewIncidentModal       from './incident/ViewIncidentModal'
@@ -23,6 +23,14 @@ import CompanySettingsModal    from './incident/CompanySettingsModal'
 import ConfirmModal            from '../components/shared/ConfirmModal'
 
 const TYPE_COLORS = ['#dc2626', '#d97706', '#2563eb', '#7c3aed', '#0891b2', '#16a34a', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#9333ea']
+const EMP_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#9333ea']
+
+function compactPeso(n: number): string {
+  const a = Math.abs(n)
+  if (a >= 1_000_000) return PESO + (n / 1_000_000).toFixed(1) + 'M'
+  if (a >= 1_000) return PESO + (n / 1_000).toFixed(1) + 'k'
+  return PESO + Math.round(n)
+}
 
 export default function IncidentReport() {
   const navigate = useNavigate()
@@ -68,6 +76,7 @@ export default function IncidentReport() {
 
   const trendData = (report.data?.trend ?? []).map((t) => ({ label: t.label, count: t.count }))
   const byTypeRows = (report.data?.byType ?? []).map((t) => ({ type: t.type, name: t.label, count: t.count }))
+  const byEmployeeCostRows = (report.data?.byEmployeeCost ?? []).map((e) => ({ employeeUserId: e.employeeUserId, name: e.employeeFullName, cost: e.cost }))
   const topType = report.data?.byType[0] ?? null
 
   function goToEmployeeReport() {
@@ -127,8 +136,8 @@ export default function IncidentReport() {
             stringValue
           />
           <Stat
-            label="Estimated Cost"
-            value={money(report.data?.totalEstimatedCost ?? 0)}
+            label="Total Cost"
+            value={money(report.data?.totalCost ?? 0)}
             tint="danger"
             stringValue
           />
@@ -181,6 +190,25 @@ export default function IncidentReport() {
                   </div>
                 )}
               </>
+            )}
+        </ChartCard>
+
+        {/* ── Cost by employee ─────────────────────────────────────────────── */}
+        <ChartCard title="Cost by Employee" subtitle={`${periodLabel} · Total ${money(report.data?.totalCost ?? 0)}`}>
+          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
+            : byEmployeeCostRows.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No cost-incurring incidents for this period.</p></div>
+            : (
+              <ResponsiveContainer width="100%" height={Math.max(180, byEmployeeCostRows.length * 34 + 30)}>
+                <BarChart data={byEmployeeCostRows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
+                  <XAxis type="number" tickFormatter={compactPeso} tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#334155' }} width={160} tickFormatter={shortLabel} />
+                  <Tooltip formatter={(v: any) => money(Number(v))} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
+                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} maxBarSize={26}>
+                    {byEmployeeCostRows.map((r, i) => <Cell key={r.employeeUserId} fill={EMP_COLORS[i % EMP_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             )}
         </ChartCard>
 

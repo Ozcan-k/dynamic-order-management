@@ -146,6 +146,8 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
               ['Created',      new Date(incident.createdAt).toLocaleString()],
               ...(incident.trackingNumber ? [['Tracking #', `${incident.trackingNumber} · ${incident.platform ?? '—'} · ${incident.shopName ?? '—'}`] as [string, string]] : []),
               ...(incident.costAmount != null ? [['Estimated Cost', `${money(incident.costAmount)} (qty ${incident.costQuantity ?? '—'})`] as [string, string]] : []),
+              ...(incident.shippingCost != null ? [['Shipping Cost', money(incident.shippingCost)] as [string, string]] : []),
+              ...(incident.costAmount != null && incident.shippingCost != null ? [['Total Cost', money(incident.costAmount + incident.shippingCost)] as [string, string]] : []),
               ['Email Sent',   incident.emailSentAt ? `${new Date(incident.emailSentAt).toLocaleString()} → ${incident.emailSentTo ?? ''}` : 'Not yet'],
               ['Documents',    documents.length ? `${documents.length} uploaded` : 'None yet'],
             ]}

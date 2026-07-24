@@ -507,6 +507,7 @@ model Incident {
   witnessPosition    String?      @map("witness_position")
   costAmount         Decimal?     @map("cost_amount") @db.Decimal(12, 2)
   costQuantity       Int?         @map("cost_quantity")
+  shippingCost       Decimal?     @map("shipping_cost") @db.Decimal(12, 2)
   signedFilePath     String?      @map("signed_file_path")
   signedFileMime     String?      @map("signed_file_mime")
   signedUploadedAt   DateTime?    @map("signed_uploaded_at")

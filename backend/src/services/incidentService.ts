@@ -32,6 +32,7 @@ export interface CreateIncidentInput {
   witnessPosition?: string
   costAmount?: number
   costQuantity?: number
+  shippingCost?: number
 }
 
 export async function createIncident(input: CreateIncidentInput) {
@@ -61,6 +62,7 @@ export async function createIncident(input: CreateIncidentInput) {
   if (requiresCostContext(input.incidentType as IncidentTypeEnum)) {
     data.costAmount = input.costAmount ?? null
     data.costQuantity = input.costQuantity ?? null
+    data.shippingCost = input.shippingCost ?? null
   }
 
   return prisma.incident.create({ data })
@@ -84,6 +86,7 @@ export interface UpdateIncidentInput {
   witnessPosition?: string
   costAmount?: number
   costQuantity?: number
+  shippingCost?: number
 }
 
 export async function updateIncident(tenantId: string, id: string, input: UpdateIncidentInput) {
@@ -122,9 +125,11 @@ export async function updateIncident(tenantId: string, id: string, input: Update
   if (requiresCostContext(input.incidentType as IncidentTypeEnum)) {
     data.costAmount = input.costAmount ?? null
     data.costQuantity = input.costQuantity ?? null
+    data.shippingCost = input.shippingCost ?? null
   } else {
     data.costAmount = null
     data.costQuantity = null
+    data.shippingCost = null
   }
 
   return prisma.incident.update({ where: { id }, data })
@@ -332,21 +337,28 @@ export async function getIncidentReport(tenantId: string, opts: { from?: string;
 
   const incidents = await prisma.incident.findMany({
     where,
-    select: { incidentDate: true, incidentType: true, costAmount: true },
+    select: { incidentDate: true, incidentType: true, costAmount: true, shippingCost: true, employeeUserId: true, employeeFullName: true },
   })
 
   const range = resolveIncidentRange(opts.from, opts.to, incidents.map((i) => i.incidentDate))
-  const totalEstimatedCost = r2(incidents.reduce((sum, i) => sum + num(i.costAmount), 0))
+  const totalCost = r2(incidents.reduce((sum, i) => sum + num(i.costAmount) + num(i.shippingCost), 0))
 
   if (!range) {
-    return { trend: [], byType: [], total: 0, totalEstimatedCost: 0 }
+    return { trend: [], byType: [], byEmployeeCost: [], total: 0, totalCost: 0 }
   }
 
   const { trend, add } = buildIncidentBuckets(range.start, range.end)
   const byTypeMap = new Map<string, number>()
+  const empCostMap = new Map<string, { fullName: string; cost: number }>()
   for (const inc of incidents) {
-    add(inc.incidentDate, num(inc.costAmount))
+    const cost = num(inc.costAmount) + num(inc.shippingCost)
+    add(inc.incidentDate, cost)
     byTypeMap.set(inc.incidentType, (byTypeMap.get(inc.incidentType) ?? 0) + 1)
+    if (cost > 0) {
+      const e = empCostMap.get(inc.employeeUserId) ?? { fullName: inc.employeeFullName, cost: 0 }
+      e.cost += cost
+      empCostMap.set(inc.employeeUserId, e)
+    }
   }
   trend.forEach((t) => { t.cost = r2(t.cost) })
 
@@ -354,7 +366,13 @@ export async function getIncidentReport(tenantId: string, opts: { from?: string;
     .map(([type, count]) => ({ type, label: INCIDENT_TYPE_LABELS[type as IncidentTypeEnum] ?? type, count }))
     .sort((a, b) => b.count - a.count)
 
-  return { trend, byType, total: incidents.length, totalEstimatedCost }
+  // Only employees who actually incurred cost in this range appear — no
+  // full-roster join, so someone with zero cost incidents just isn't listed.
+  const byEmployeeCost = [...empCostMap.entries()]
+    .map(([employeeUserId, v]) => ({ employeeUserId, employeeFullName: v.fullName, cost: r2(v.cost) }))
+    .sort((a, b) => b.cost - a.cost)
+
+  return { trend, byType, byEmployeeCost, total: incidents.length, totalCost }
 }
 
 export async function lookupOrderByTrackingNumber(tenantId: string, trackingNumber: string) {

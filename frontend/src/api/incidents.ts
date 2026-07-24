@@ -29,6 +29,7 @@ export interface Incident {
   witnessPosition: string | null
   costAmount: number | null
   costQuantity: number | null
+  shippingCost: number | null
   signedFilePath: string | null
   signedFileMime: string | null
   signedUploadedAt: string | null
@@ -72,11 +73,18 @@ export interface IncidentReportByType {
   count: number
 }
 
+export interface IncidentReportByEmployeeCost {
+  employeeUserId: string
+  employeeFullName: string
+  cost: number
+}
+
 export interface IncidentReport {
   trend: IncidentReportTrendPoint[]
   byType: IncidentReportByType[]
+  byEmployeeCost: IncidentReportByEmployeeCost[]
   total: number
-  totalEstimatedCost: number
+  totalCost: number
 }
 
 export interface CreateIncidentInput {
@@ -97,6 +105,7 @@ export interface CreateIncidentInput {
   witnessPosition?: string
   costAmount?: number
   costQuantity?: number
+  shippingCost?: number
 }
 
 // ─── Lookups ────────────────────────────────────────────────────────────────

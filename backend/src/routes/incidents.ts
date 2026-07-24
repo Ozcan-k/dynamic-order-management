@@ -74,6 +74,7 @@ const CreateBodySchema = z.object({
   witnessPosition:    z.string().max(80).optional(),
   costAmount:         z.number().nonnegative().optional(),
   costQuantity:       z.number().int().nonnegative().optional(),
+  shippingCost:       z.number().nonnegative().optional(),
 })
 
 const LookupTnSchema = z.object({
@@ -200,11 +201,11 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // For cost-context incident types, an estimated cost + quantity are mandatory.
+      // For cost-context incident types, an estimated cost + quantity + shipping cost are mandatory.
       if (requiresCostContext(body.incidentType)) {
-        if (body.costAmount === undefined || body.costQuantity === undefined) {
+        if (body.costAmount === undefined || body.costQuantity === undefined || body.shippingCost === undefined) {
           return reply.code(400).send({
-            error: 'Estimated cost and quantity are required for this incident type.',
+            error: 'Estimated cost, quantity and shipping cost are required for this incident type.',
           })
         }
       }
@@ -230,6 +231,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         witnessPosition:    body.witnessPosition?.trim(),
         costAmount:         body.costAmount,
         costQuantity:       body.costQuantity,
+        shippingCost:       body.shippingCost,
       })
       return reply.code(201).send(created)
     },
@@ -255,9 +257,9 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
       }
 
       if (requiresCostContext(body.incidentType)) {
-        if (body.costAmount === undefined || body.costQuantity === undefined) {
+        if (body.costAmount === undefined || body.costQuantity === undefined || body.shippingCost === undefined) {
           return reply.code(400).send({
-            error: 'Estimated cost and quantity are required for this incident type.',
+            error: 'Estimated cost, quantity and shipping cost are required for this incident type.',
           })
         }
       }
@@ -281,6 +283,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         witnessPosition:    body.witnessPosition?.trim(),
         costAmount:         body.costAmount,
         costQuantity:       body.costQuantity,
+        shippingCost:       body.shippingCost,
       })
       if (!updated) return reply.code(404).send({ error: 'Incident not found' })
       return reply.send(updated)

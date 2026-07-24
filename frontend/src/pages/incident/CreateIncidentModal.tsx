@@ -50,6 +50,7 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
   const [witnessPosition,    setWitnessPosition]    = useState<string>(editing?.witnessPosition ?? '')
   const [costAmount,         setCostAmount]         = useState<string>(editing?.costAmount != null ? String(editing.costAmount) : '')
   const [costQuantity,       setCostQuantity]       = useState<string>(editing?.costQuantity != null ? String(editing.costQuantity) : '')
+  const [shippingCost,       setShippingCost]       = useState<string>(editing?.shippingCost != null ? String(editing.shippingCost) : '')
   const [error,              setError]              = useState<string | null>(null)
 
   const typeMeta = useMemo(() => types.data?.find((t) => t.value === incidentType), [types.data, incidentType])
@@ -103,8 +104,8 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
       setError('Tracking number, platform and shop are required for this incident type.')
       return
     }
-    if (needsCost && (costAmount === '' || costQuantity === '' || Number(costAmount) < 0 || Number(costQuantity) <= 0)) {
-      setError('Estimated cost and quantity are required for this incident type.')
+    if (needsCost && (costAmount === '' || costQuantity === '' || shippingCost === '' || Number(costAmount) < 0 || Number(costQuantity) <= 0 || Number(shippingCost) < 0)) {
+      setError('Estimated cost, quantity and shipping cost are required for this incident type.')
       return
     }
 
@@ -130,6 +131,7 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
     if (needsCost) {
       input.costAmount   = Number(costAmount)
       input.costQuantity = Number(costQuantity)
+      input.shippingCost = Number(shippingCost)
     }
 
     try {
@@ -344,6 +346,17 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
                       style={inputStyle}
                     />
                   </Field>
+                </Row>
+                <Row>
+                  <Field label={`Shipping Cost (${PESO}) *`}>
+                    <input
+                      type="number" required min="0" step="0.01" value={shippingCost}
+                      onChange={(e) => setShippingCost(e.target.value)}
+                      placeholder="0.00"
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <div />
                 </Row>
               </>
             )}
