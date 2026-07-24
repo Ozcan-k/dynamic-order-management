@@ -10,6 +10,7 @@ import {
   useDeleteIncidentDocument,
   useSendIncidentEmail,
 } from '../../api/incidents'
+import { money } from '../../api/accounting'
 
 // Keep in sync with the backend's MAX_SIGNED_MB (routes/incidents.ts).
 const MAX_SIGNED_MB = 10
@@ -144,6 +145,7 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
               ['Recipient',    incident.recipientEmail],
               ['Created',      new Date(incident.createdAt).toLocaleString()],
               ...(incident.trackingNumber ? [['Tracking #', `${incident.trackingNumber} · ${incident.platform ?? '—'} · ${incident.shopName ?? '—'}`] as [string, string]] : []),
+              ...(incident.costAmount != null ? [['Estimated Cost', `${money(incident.costAmount)} (qty ${incident.costQuantity ?? '—'})`] as [string, string]] : []),
               ['Email Sent',   incident.emailSentAt ? `${new Date(incident.emailSentAt).toLocaleString()} → ${incident.emailSentTo ?? ''}` : 'Not yet'],
               ['Documents',    documents.length ? `${documents.length} uploaded` : 'None yet'],
             ]}

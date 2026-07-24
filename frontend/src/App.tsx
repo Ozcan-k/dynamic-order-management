@@ -25,6 +25,7 @@ import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
 import IncidentReport from './pages/IncidentReport'
+import IncidentEmployeeReport from './pages/IncidentEmployeeReport'
 import EmployeeSchedule from './pages/employeeSchedule/EmployeeSchedule'
 import ReturnCancel from './pages/ReturnCancel'
 import ReturnScanMobile from './pages/ReturnScanMobile'
@@ -303,6 +304,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
                 <AppLayout><IncidentReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/incident-report/employees"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER]}>
+                <AppLayout><IncidentEmployeeReport /></AppLayout>
               </ProtectedRoute>
             }
           />

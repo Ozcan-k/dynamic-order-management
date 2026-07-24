@@ -54,7 +54,7 @@ const PRESET_RANGES = [
   { id: '90', label: 'Last 90 days', days: 90 },
 ] as const
 
-type SortKey = 'username' | 'posts' | 'liveHours' | 'directSales' | 'inquiries' | 'ordersCount' | 'score'
+type SortKey = 'username' | 'posts' | 'liveHours' | 'directSales' | 'inquiries' | 'ordersCount' | 'liveSellingOrders' | 'score'
 
 function computeScore(r: LeaderboardRow): number {
   return r.posts * 1.0 + r.liveHours * 2.0 + r.directSales / 1000 + r.inquiries * 1.5
@@ -391,7 +391,8 @@ function Leaderboard({ rows, loading, onSelect }: {
               {header('Posts', 'posts')}
               {header('Live Hours', 'liveHours')}
               {header('Direct Sales', 'directSales')}
-              {header('Orders', 'ordersCount')}
+              {header('Direct Orders', 'ordersCount')}
+              {header('Live Orders', 'liveSellingOrders')}
               {header('Inquiries', 'inquiries')}
               {header('Score', 'score')}
               <th style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }} />
@@ -399,7 +400,7 @@ function Leaderboard({ rows, loading, onSelect }: {
           </thead>
           <tbody>
             {sorted.length === 0 && !loading && (
-              <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No agents in this tenant.</td></tr>
+              <tr><td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No agents in this tenant.</td></tr>
             )}
             {sorted.map((r, idx) => (
               <tr key={r.agentId} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
@@ -408,6 +409,7 @@ function Leaderboard({ rows, loading, onSelect }: {
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatHours(r.liveHours)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d', fontWeight: 700 }}>{formatPHP(r.directSales)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.ordersCount}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.liveSellingOrders}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.inquiries}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{computeScore(r).toFixed(1)}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>

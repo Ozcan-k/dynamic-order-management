@@ -6,6 +6,7 @@ export interface IncidentTypeOption {
   value: IncidentType
   label: string
   requiresParcel: boolean
+  requiresCost: boolean
 }
 
 export interface Incident {
@@ -26,6 +27,8 @@ export interface Incident {
   shopName: string | null
   witnessName: string | null
   witnessPosition: string | null
+  costAmount: number | null
+  costQuantity: number | null
   signedFilePath: string | null
   signedFileMime: string | null
   signedUploadedAt: string | null
@@ -53,7 +56,27 @@ export interface IncidentPivotRow {
   userId: string
   fullName: string
   total: number
+  totalCost: number
   counts: Record<string, number>
+}
+
+export interface IncidentReportTrendPoint {
+  label: string
+  count: number
+  cost: number
+}
+
+export interface IncidentReportByType {
+  type: IncidentType
+  label: string
+  count: number
+}
+
+export interface IncidentReport {
+  trend: IncidentReportTrendPoint[]
+  byType: IncidentReportByType[]
+  total: number
+  totalEstimatedCost: number
 }
 
 export interface CreateIncidentInput {
@@ -72,6 +95,8 @@ export interface CreateIncidentInput {
   shopName?: string
   witnessName?: string
   witnessPosition?: string
+  costAmount?: number
+  costQuantity?: number
 }
 
 // ─── Lookups ────────────────────────────────────────────────────────────────
@@ -136,10 +161,18 @@ export function useIncidentStats() {
   })
 }
 
-export function useIncidentPivot() {
+export function useIncidentPivot(range?: { from?: string; to?: string }) {
   return useQuery({
-    queryKey: ['incidents', 'pivot'],
-    queryFn: async () => (await api.get<{ rows: IncidentPivotRow[] }>('/incidents/pivot')).data,
+    queryKey: ['incidents', 'pivot', range ?? {}],
+    queryFn: async () => (await api.get<{ rows: IncidentPivotRow[] }>('/incidents/pivot', { params: range })).data,
+    staleTime: 15_000,
+  })
+}
+
+export function useIncidentReport(range: { from?: string; to?: string }) {
+  return useQuery({
+    queryKey: ['incidents', 'report', range],
+    queryFn: async () => (await api.get<IncidentReport>('/incidents/report', { params: range })).data,
     staleTime: 15_000,
   })
 }

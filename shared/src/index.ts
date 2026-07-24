@@ -200,6 +200,20 @@ export function requiresParcelContext(type: IncidentType): boolean {
   return PARCEL_INCIDENT_TYPES.includes(type)
 }
 
+/** Incident types that require a mandatory cost (₱) + quantity — the six loss-related types */
+export const COST_INCIDENT_TYPES: ReadonlyArray<IncidentType> = [
+  IncidentType.WRONG_ITEM_PICKED,
+  IncidentType.WRONG_ITEM_PACKED,
+  IncidentType.MISSING_ITEM,
+  IncidentType.WRONG_QUANTITY,
+  IncidentType.PARCEL_DAMAGE,
+  IncidentType.LOST_PARCEL,
+] as const
+
+export function requiresCostContext(type: IncidentType): boolean {
+  return COST_INCIDENT_TYPES.includes(type)
+}
+
 // ─── Return & Cancel Parcel Module ───────────────────────────────────────────
 
 export enum ReturnCancelType {

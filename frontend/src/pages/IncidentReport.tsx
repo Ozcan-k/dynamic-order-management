@@ -1,62 +1,49 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  ResponsiveContainer, BarChart, Bar, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
 import { INCIDENT_TYPE_LABELS, IncidentType, UserRole } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import {
   useIncidents,
   useIncidentStats,
-  useIncidentPivot,
+  useIncidentReport,
   useIncidentTypes,
   useDeleteIncident,
   type Incident,
 } from '../api/incidents'
 import { useBranding, brandingLogoUrl } from '../api/branding'
+import { money } from '../api/accounting'
+import DateRangePicker, { type DateRange } from '../components/accounting/DateRangePicker'
 import CreateIncidentModal     from './incident/CreateIncidentModal'
 import ViewIncidentModal       from './incident/ViewIncidentModal'
 import CompanySettingsModal    from './incident/CompanySettingsModal'
 import ConfirmModal            from '../components/shared/ConfirmModal'
 
-const PRESET_RANGES = [
-  { id: 'all', label: 'All time', days: 0 },
-  { id: '7',   label: 'Last 7 days',  days: 7 },
-  { id: '30',  label: 'Last 30 days', days: 30 },
-  { id: '90',  label: 'Last 90 days', days: 90 },
-] as const
-
-function todayManila(): string {
-  const ms = Date.now() + 8 * 60 * 60 * 1000
-  return new Date(ms).toISOString().slice(0, 10)
-}
-
-function shiftDate(dateStr: string, days: number): string {
-  const ms = new Date(`${dateStr}T00:00:00.000Z`).getTime() + days * 24 * 60 * 60 * 1000
-  return new Date(ms).toISOString().slice(0, 10)
-}
+const TYPE_COLORS = ['#dc2626', '#d97706', '#2563eb', '#7c3aed', '#0891b2', '#16a34a', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#9333ea']
 
 export default function IncidentReport() {
+  const navigate = useNavigate()
+
   const [page,        setPage]        = useState(1)
   const [search,      setSearch]      = useState('')
   const [typeFilter,  setTypeFilter]  = useState<IncidentType | ''>('')
+  const [range,       setRange]       = useState<DateRange>({ from: '', to: '' })
 
-  const today = todayManila()
-  const [presetId,   setPresetId]   = useState<string>('all')
-  const [customFrom, setCustomFrom] = useState<string>(shiftDate(today, -29))
-  const [customTo,   setCustomTo]   = useState<string>(today)
-
-  const { from, to } = useMemo(() => {
-    if (presetId === 'all') return { from: undefined, to: undefined }
-    if (presetId === 'custom') return { from: customFrom, to: customTo }
-    const days = PRESET_RANGES.find((p) => p.id === presetId)?.days ?? 30
-    return { from: shiftDate(today, -(days - 1)), to: today }
-  }, [presetId, customFrom, customTo, today])
+  const periodLabel = !range.from && !range.to
+    ? 'All time'
+    : range.from === range.to ? range.from : `${range.from || '…'} → ${range.to || '…'}`
 
   const stats    = useIncidentStats()
+  const report   = useIncidentReport({ from: range.from || undefined, to: range.to || undefined })
   const incidents = useIncidents({
     page, pageSize: 25,
     search: search.trim() || undefined,
     type:   typeFilter || undefined,
-    from, to,
+    from: range.from || undefined, to: range.to || undefined,
   })
-  const pivot     = useIncidentPivot()
   const branding  = useBranding()
   const types     = useIncidentTypes()
 
@@ -78,6 +65,17 @@ export default function IncidentReport() {
     () => (types.data ?? []).slice().sort((a, b) => a.label.localeCompare(b.label)),
     [types.data],
   )
+
+  const trendData = (report.data?.trend ?? []).map((t) => ({ label: t.label, count: t.count }))
+  const byTypeRows = (report.data?.byType ?? []).map((t) => ({ type: t.type, name: t.label, count: t.count }))
+  const topType = report.data?.byType[0] ?? null
+
+  function goToEmployeeReport() {
+    const params = new URLSearchParams()
+    if (range.from) params.set('from', range.from)
+    if (range.to)   params.set('to', range.to)
+    navigate(`/incident-report/employees${params.toString() ? `?${params}` : ''}`)
+  }
 
   return (
     <div className="panel-root">
@@ -109,14 +107,29 @@ export default function IncidentReport() {
           </div>
         </section>
 
+        {/* ── Date range control (drives stat cards, charts and the table) ───── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overview</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{periodLabel}</div>
+          </div>
+          <DateRangePicker value={range} onChange={(r) => { setRange(r); setPage(1) }} />
+        </div>
+
         {/* ── Stat cards ────────────────────────────────────────────────────── */}
         <div className="stats-grid">
-          <Stat label="Total Incidents"    value={stats.data?.total ?? 0}      tint="primary" />
+          <Stat label="Total Incidents"    value={report.data?.total ?? 0}      tint="primary" />
           <Stat label="This Month"          value={stats.data?.thisMonth ?? 0} tint="info" />
           <Stat
             label="Top Incident Type"
-            value={stats.data?.topType ? `${INCIDENT_TYPE_LABELS[stats.data.topType.type]} (${stats.data.topType.count})` : '—'}
+            value={topType ? `${topType.label} (${topType.count})` : '—'}
             tint="warn"
+            stringValue
+          />
+          <Stat
+            label="Estimated Cost"
+            value={money(report.data?.totalEstimatedCost ?? 0)}
+            tint="danger"
             stringValue
           />
           <Stat
@@ -126,6 +139,68 @@ export default function IncidentReport() {
             stringValue
           />
         </div>
+
+        {/* ── Trend chart ───────────────────────────────────────────────────── */}
+        <ChartCard title="Incidents Over Time" subtitle={periodLabel}>
+          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
+            : trendData.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No incidents for this period.</p></div>
+            : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={trendData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} interval="preserveStartEnd" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} width={40} />
+                  <Tooltip formatter={(v: any) => [`${v} incident${Number(v) === 1 ? '' : 's'}`, 'Incidents']} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
+                  <Bar dataKey="count" fill="#dc2626" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+        </ChartCard>
+
+        {/* ── Breakdown by type ────────────────────────────────────────────── */}
+        <ChartCard title="Incidents by Type" subtitle={`${periodLabel} · ${report.data?.total ?? 0} total`}>
+          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
+            : byTypeRows.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No incidents for this period.</p></div>
+            : (
+              <>
+                <ResponsiveContainer width="100%" height={Math.max(180, byTypeRows.length * 34 + 30)}>
+                  <BarChart data={byTypeRows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#334155' }} width={160} tickFormatter={shortLabel} />
+                    <Tooltip formatter={(v: any) => [`${v} incident${Number(v) === 1 ? '' : 's'}`, 'Incidents']} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={26} cursor="pointer" onClick={(d: any) => { const t = d?.payload?.type ?? d?.type; setTypeFilter((cur) => (cur === t ? '' : t)); setPage(1) }}>
+                      {byTypeRows.map((r, i) => <Cell key={r.type} fill={typeFilter && typeFilter !== r.type ? '#cbd5e1' : TYPE_COLORS[i % TYPE_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                {typeFilter && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)' }}>
+                    Filtered to <b>{INCIDENT_TYPE_LABELS[typeFilter as IncidentType]}</b> —{' '}
+                    <button type="button" className="btn btn-sm btn-outline" onClick={() => setTypeFilter('')}>Clear</button>
+                  </div>
+                )}
+              </>
+            )}
+        </ChartCard>
+
+        {/* ── CTA → employee breakdown (page 2) ───────────────────────────────── */}
+        <button
+          type="button"
+          onClick={goToEmployeeReport}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+            background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)', border: '1px solid #c7d2fe',
+            borderRadius: 12, padding: '18px 20px', cursor: 'pointer', textAlign: 'left',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', textTransform: 'uppercase', letterSpacing: 0.5 }}>Employee Breakdown</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>View Incident Count by Employee</div>
+            <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>Ranked leaderboard + full type breakdown per employee, for {periodLabel.toLowerCase()}</div>
+          </div>
+          <div style={{ fontSize: 22, color: '#4338ca' }}>→</div>
+        </button>
 
         {/* ── Filter bar ────────────────────────────────────────────────────── */}
         <div className="filter-card">
@@ -151,45 +226,7 @@ export default function IncidentReport() {
           </div>
         </div>
 
-        {/* ── Date range strip (filters the Recent Incidents table) ──────────── */}
-        <div className="page-hero">
-          <div className="page-hero-content">
-            <div className="page-hero-label">Date Range</div>
-            <div className="page-hero-title">
-              {presetId === 'all' ? 'All time' : `${from} → ${to}`}
-            </div>
-          </div>
-          <div className="page-hero-actions">
-            <div className="preset-btn-group">
-              {PRESET_RANGES.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => { setPresetId(p.id); setPage(1) }}
-                  className={`preset-btn${presetId === p.id ? ' preset-btn--active' : ''}`}
-                >{p.label}</button>
-              ))}
-              <button
-                type="button"
-                onClick={() => { setPresetId('custom'); setPage(1) }}
-                className={`preset-btn${presetId === 'custom' ? ' preset-btn--active' : ''}`}
-              >Custom</button>
-            </div>
-            {presetId === 'custom' && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="date" value={customFrom} max={customTo}
-                  onChange={(e) => { setCustomFrom(e.target.value); setPage(1) }}
-                  style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }} />
-                <span>→</span>
-                <input type="date" value={customTo} min={customFrom} max={today}
-                  onChange={(e) => { setCustomTo(e.target.value); setPage(1) }}
-                  style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }} />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Table A: Recent Incidents ─────────────────────────────────────── */}
+        {/* ── Recent Incidents ─────────────────────────────────────────────── */}
         <SectionCard title="Recent Incidents" count={incidents.data?.total ?? 0}>
           <div className="data-table-wrap">
             <table style={{ width: '100%' }}>
@@ -262,54 +299,19 @@ export default function IncidentReport() {
           )}
         </SectionCard>
 
-        {/* ── Table B: Pivot — employee × incident type ──────────────────────── */}
-        <SectionCard title="Incident Count by Employee" count={pivot.data?.rows.length ?? 0}>
-          {(pivot.data?.rows.length ?? 0) === 0
-            ? <div className="empty-state" style={{ padding: 24 }}>
-                <p className="empty-state-desc">No incident records yet.</p>
-              </div>
-            : <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
-                      <th style={pivotHeadSticky}>Employee</th>
-                      {sortedTypes.map((t) => (
-                        <th key={t.value} style={pivotHead} title={t.label}>{shortLabel(t.label)}</th>
-                      ))}
-                      <th style={{ ...pivotHead, background: '#f1f5f9' }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pivot.data!.rows.map((row) => (
-                      <tr key={row.userId}>
-                        <td style={pivotCellSticky}>{row.fullName}</td>
-                        {sortedTypes.map((t) => {
-                          const c = row.counts[t.value] ?? 0
-                          return (
-                            <td key={t.value} style={{ ...pivotCell, color: c ? 'var(--color-text-primary)' : 'var(--color-text-muted)', fontWeight: c ? 700 : 400 }}>{c || ''}</td>
-                          )
-                        })}
-                        <td style={{ ...pivotCell, fontWeight: 700, background: '#f8fafc' }}>{row.total}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>}
-        </SectionCard>
-
       </main>
 
       {createOpen && (
         <CreateIncidentModal
           onClose={() => setCreateOpen(false)}
-          onCreated={() => { stats.refetch(); incidents.refetch(); pivot.refetch() }}
+          onCreated={() => { stats.refetch(); incidents.refetch(); report.refetch() }}
         />
       )}
       {editing && (
         <CreateIncidentModal
           editing={editing}
           onClose={() => setEditing(null)}
-          onCreated={() => { stats.refetch(); incidents.refetch(); pivot.refetch() }}
+          onCreated={() => { stats.refetch(); incidents.refetch(); report.refetch() }}
         />
       )}
       {settingsOpen && (
@@ -365,6 +367,18 @@ function Stat({ label, value, tint, stringValue }: { label: string; value: numbe
   )
 }
 
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <section style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, padding: 16 }}>
+      <div style={{ marginBottom: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{title}</h2>
+        {subtitle && <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-muted)' }}>{subtitle}</p>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 function SectionCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     <section style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -381,22 +395,6 @@ function SectionCard({ title, count, children }: { title: string; count: number;
   )
 }
 
-const pivotHead: React.CSSProperties = {
-  padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-  color: '#475569', letterSpacing: 0.5, textAlign: 'center',
-  borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
-}
-const pivotHeadSticky: React.CSSProperties = {
-  ...pivotHead, position: 'sticky', left: 0, background: '#f8fafc', textAlign: 'left', minWidth: 180,
-}
-const pivotCell: React.CSSProperties = {
-  padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f1f5f9',
-  fontVariantNumeric: 'tabular-nums',
-}
-const pivotCellSticky: React.CSSProperties = {
-  ...pivotCell, position: 'sticky', left: 0, background: '#fff', textAlign: 'left', fontWeight: 600,
-}
-
 function Th({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'left', ...style }}>{children}</th>
 }
@@ -405,7 +403,7 @@ function Td({ children, style }: { children: React.ReactNode; style?: React.CSSP
 }
 
 function shortLabel(label: string): string {
-  // Strip parenthetical descriptions and trailing detail for a tighter pivot header.
-  const cleaned = label.replace(/\s*\/.*$/, '').trim()
-  return cleaned.length > 16 ? cleaned.slice(0, 16) + '…' : cleaned
+  // Strip parenthetical descriptions and trailing detail for a tighter chart axis label.
+  const cleaned = String(label).replace(/\s*\/.*$/, '').trim()
+  return cleaned.length > 20 ? cleaned.slice(0, 20) + '…' : cleaned
 }

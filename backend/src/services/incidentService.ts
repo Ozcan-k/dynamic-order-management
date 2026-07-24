@@ -4,7 +4,13 @@ import { randomUUID } from 'crypto'
 import { Prisma, IncidentType, Platform } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { INCIDENTS_DIR, extFromMime, ensureUploadDirs } from '../lib/uploads'
-import { requiresParcelContext, IncidentType as IncidentTypeEnum } from '@dom/shared'
+import { requiresParcelContext, requiresCostContext, IncidentType as IncidentTypeEnum, INCIDENT_TYPE_LABELS } from '@dom/shared'
+
+function num(v: unknown): number {
+  if (v === null || v === undefined) return 0
+  return v instanceof Prisma.Decimal ? v.toNumber() : Number(v)
+}
+const r2 = (n: number) => Math.round(n * 100) / 100
 
 export interface CreateIncidentInput {
   tenantId: string
@@ -24,6 +30,8 @@ export interface CreateIncidentInput {
   shopName?: string
   witnessName?: string
   witnessPosition?: string
+  costAmount?: number
+  costQuantity?: number
 }
 
 export async function createIncident(input: CreateIncidentInput) {
@@ -50,6 +58,11 @@ export async function createIncident(input: CreateIncidentInput) {
     data.shopName = input.shopName ?? null
   }
 
+  if (requiresCostContext(input.incidentType as IncidentTypeEnum)) {
+    data.costAmount = input.costAmount ?? null
+    data.costQuantity = input.costQuantity ?? null
+  }
+
   return prisma.incident.create({ data })
 }
 
@@ -69,6 +82,8 @@ export interface UpdateIncidentInput {
   shopName?: string
   witnessName?: string
   witnessPosition?: string
+  costAmount?: number
+  costQuantity?: number
 }
 
 export async function updateIncident(tenantId: string, id: string, input: UpdateIncidentInput) {
@@ -100,6 +115,16 @@ export async function updateIncident(tenantId: string, id: string, input: Update
     data.trackingNumber = null
     data.platform = null
     data.shopName = null
+  }
+
+  // Cost/quantity are only kept for cost-context incident types; otherwise cleared
+  // so a type change away from a cost type doesn't leave a stale figure behind.
+  if (requiresCostContext(input.incidentType as IncidentTypeEnum)) {
+    data.costAmount = input.costAmount ?? null
+    data.costQuantity = input.costQuantity ?? null
+  } else {
+    data.costAmount = null
+    data.costQuantity = null
   }
 
   return prisma.incident.update({ where: { id }, data })
@@ -196,35 +221,140 @@ export async function getIncidentStats(tenantId: string) {
 
 /**
  * Pivot matrix: rows = employees that have at least one incident,
- * cols = incident types, cells = count.
+ * cols = incident types, cells = count. Optional [from,to] (YYYY-MM-DD,
+ * inclusive) narrows to a date range — omitted means all-time (unchanged
+ * default behavior for existing callers).
  */
-export async function getIncidentPivot(tenantId: string) {
+export async function getIncidentPivot(tenantId: string, range?: { from?: string; to?: string }) {
+  const where: Prisma.IncidentWhereInput = { tenantId }
+  if (range?.from || range?.to) {
+    where.incidentDate = {}
+    if (range.from) where.incidentDate.gte = new Date(`${range.from}T00:00:00.000Z`)
+    if (range.to)   where.incidentDate.lte = new Date(`${range.to}T23:59:59.999Z`)
+  }
+
   const grouped = await prisma.incident.groupBy({
     by: ['employeeUserId', 'employeeFullName', 'incidentType'],
-    where: { tenantId },
+    where,
     _count: { _all: true },
+    _sum: { costAmount: true },
   })
 
   // employees: aggregate by userId, keep most-recent fullName
-  const employees = new Map<string, { userId: string; fullName: string; total: number; counts: Record<string, number> }>()
+  const employees = new Map<string, { userId: string; fullName: string; total: number; totalCost: number; counts: Record<string, number> }>()
   for (const row of grouped) {
     const key = row.employeeUserId
+    const cost = num(row._sum.costAmount)
     const existing = employees.get(key)
     if (!existing) {
       employees.set(key, {
         userId: row.employeeUserId,
         fullName: row.employeeFullName,
         total: row._count._all,
+        totalCost: r2(cost),
         counts: { [row.incidentType]: row._count._all },
       })
     } else {
       existing.total += row._count._all
+      existing.totalCost = r2(existing.totalCost + cost)
       existing.counts[row.incidentType] = (existing.counts[row.incidentType] ?? 0) + row._count._all
     }
   }
 
   const rows = Array.from(employees.values()).sort((a, b) => b.total - a.total)
   return { rows }
+}
+
+// ─── Report dashboard (page 1: trend + type breakdown over a date range) ────
+// Mirrors accountingService.getSalesReport's resolveRange/buildBuckets pattern
+// (daily buckets ≤92 day span, else monthly; year suffix if range crosses a
+// year boundary) — replicated locally rather than cross-imported so the
+// Incident module doesn't reach into the Accounting module's internals.
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function resolveIncidentRange(from: string | undefined, to: string | undefined, dates: Date[]): { start: Date; end: Date } | null {
+  let start = from ? new Date(from + 'T00:00:00.000Z') : undefined
+  let end = to ? new Date(to + 'T23:59:59.999Z') : undefined
+  if (!start || !end) {
+    if (dates.length === 0) {
+      if (start) return { start, end: start }
+      if (end) return { start: end, end }
+      return null
+    }
+    const times = dates.map((d) => d.getTime())
+    if (!start) start = new Date(Math.min(...times))
+    if (!end) end = new Date(Math.max(...times))
+  }
+  return { start, end }
+}
+
+function buildIncidentBuckets(start: Date, end: Date) {
+  const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())
+  const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate())
+  const spanDays = Math.floor((endDay - startDay) / DAY_MS) + 1
+  const daily = spanDays <= 92
+  const multiYear = start.getUTCFullYear() !== end.getUTCFullYear()
+  const labels: string[] = []
+  const index = new Map<string, number>()
+  if (daily) {
+    for (let cur = startDay; cur <= endDay; cur += DAY_MS) {
+      const d = new Date(cur)
+      index.set(`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, labels.length)
+      labels.push(multiYear ? `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}` : `${d.getUTCMonth() + 1}/${d.getUTCDate()}`)
+    }
+  } else {
+    let y = start.getUTCFullYear(), m = start.getUTCMonth()
+    const ey = end.getUTCFullYear(), em = end.getUTCMonth()
+    while (y < ey || (y === ey && m <= em)) {
+      index.set(`${y}-${m}`, labels.length)
+      labels.push(multiYear ? `${MONTH_ABBR[m]} '${String(y).slice(2)}` : MONTH_ABBR[m])
+      m++; if (m > 11) { m = 0; y++ }
+    }
+  }
+  const keyOf = (d: Date) => daily
+    ? `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+    : `${d.getUTCFullYear()}-${d.getUTCMonth()}`
+  const trend = labels.map((label) => ({ label, count: 0, cost: 0 }))
+  const add = (d: Date, cost: number) => {
+    const i = index.get(keyOf(d))
+    if (i !== undefined) { trend[i].count += 1; trend[i].cost += cost }
+  }
+  return { trend, add }
+}
+
+export async function getIncidentReport(tenantId: string, opts: { from?: string; to?: string }) {
+  const where: Prisma.IncidentWhereInput = { tenantId }
+  const dw: Prisma.DateTimeFilter = {}
+  if (opts.from) dw.gte = new Date(`${opts.from}T00:00:00.000Z`)
+  if (opts.to)   dw.lte = new Date(`${opts.to}T23:59:59.999Z`)
+  if (opts.from || opts.to) where.incidentDate = dw
+
+  const incidents = await prisma.incident.findMany({
+    where,
+    select: { incidentDate: true, incidentType: true, costAmount: true },
+  })
+
+  const range = resolveIncidentRange(opts.from, opts.to, incidents.map((i) => i.incidentDate))
+  const totalEstimatedCost = r2(incidents.reduce((sum, i) => sum + num(i.costAmount), 0))
+
+  if (!range) {
+    return { trend: [], byType: [], total: 0, totalEstimatedCost: 0 }
+  }
+
+  const { trend, add } = buildIncidentBuckets(range.start, range.end)
+  const byTypeMap = new Map<string, number>()
+  for (const inc of incidents) {
+    add(inc.incidentDate, num(inc.costAmount))
+    byTypeMap.set(inc.incidentType, (byTypeMap.get(inc.incidentType) ?? 0) + 1)
+  }
+  trend.forEach((t) => { t.cost = r2(t.cost) })
+
+  const byType = [...byTypeMap.entries()]
+    .map(([type, count]) => ({ type, label: INCIDENT_TYPE_LABELS[type as IncidentTypeEnum] ?? type, count }))
+    .sort((a, b) => b.count - a.count)
+
+  return { trend, byType, total: incidents.length, totalEstimatedCost }
 }
 
 export async function lookupOrderByTrackingNumber(tenantId: string, trackingNumber: string) {

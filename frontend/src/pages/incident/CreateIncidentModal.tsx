@@ -13,6 +13,7 @@ import {
   type SelectableUser,
 } from '../../api/incidents'
 import { useAuthStore } from '../../stores/authStore'
+import { PESO } from '../../api/accounting'
 
 interface Props {
   onClose: () => void
@@ -47,10 +48,13 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
   const [shopName,           setShopName]           = useState<string>(editing?.shopName ?? '')
   const [witnessName,        setWitnessName]        = useState<string>(editing?.witnessName ?? '')
   const [witnessPosition,    setWitnessPosition]    = useState<string>(editing?.witnessPosition ?? '')
+  const [costAmount,         setCostAmount]         = useState<string>(editing?.costAmount != null ? String(editing.costAmount) : '')
+  const [costQuantity,       setCostQuantity]       = useState<string>(editing?.costQuantity != null ? String(editing.costQuantity) : '')
   const [error,              setError]              = useState<string | null>(null)
 
   const typeMeta = useMemo(() => types.data?.find((t) => t.value === incidentType), [types.data, incidentType])
   const needsParcel = !!typeMeta?.requiresParcel
+  const needsCost = !!typeMeta?.requiresCost
 
   // Pre-fill the "Reported By" block with the logged-in admin once the user list arrives.
   // Skipped in edit mode — we keep the original reporter.
@@ -99,6 +103,10 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
       setError('Tracking number, platform and shop are required for this incident type.')
       return
     }
+    if (needsCost && (costAmount === '' || costQuantity === '' || Number(costAmount) < 0 || Number(costQuantity) <= 0)) {
+      setError('Estimated cost and quantity are required for this incident type.')
+      return
+    }
 
     const input: CreateIncidentInput = {
       incidentType,
@@ -118,6 +126,10 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
       input.trackingNumber = trackingNumber.trim()
       input.platform       = platform as Platform
       input.shopName       = shopName.trim()
+    }
+    if (needsCost) {
+      input.costAmount   = Number(costAmount)
+      input.costQuantity = Number(costQuantity)
     }
 
     try {
@@ -308,6 +320,30 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
                     />
                   </Field>
                   <div />
+                </Row>
+              </>
+            )}
+
+            {needsCost && (
+              <>
+                <SectionLabel>Estimated Loss (required for this incident type)</SectionLabel>
+                <Row>
+                  <Field label={`Estimated Cost (${PESO}) *`}>
+                    <input
+                      type="number" required min="0" step="0.01" value={costAmount}
+                      onChange={(e) => setCostAmount(e.target.value)}
+                      placeholder="0.00"
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="Quantity Affected *">
+                    <input
+                      type="number" required min="1" step="1" value={costQuantity}
+                      onChange={(e) => setCostQuantity(e.target.value)}
+                      placeholder="e.g. 1"
+                      style={inputStyle}
+                    />
+                  </Field>
                 </Row>
               </>
             )}

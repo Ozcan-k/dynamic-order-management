@@ -7,6 +7,7 @@ import {
   INCIDENT_TYPE_LABELS,
   Platform,
   requiresParcelContext,
+  requiresCostContext,
 } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import {
@@ -17,6 +18,7 @@ import {
   getIncidentById,
   getIncidentStats,
   getIncidentPivot,
+  getIncidentReport,
   lookupOrderByTrackingNumber,
   saveSignedFile,
   readSignedFile,
@@ -49,6 +51,11 @@ const ListQuerySchema = z.object({
   to:             z.string().regex(DATE_RE).optional(),
 })
 
+const RangeQuerySchema = z.object({
+  from: z.string().regex(DATE_RE).optional(),
+  to:   z.string().regex(DATE_RE).optional(),
+})
+
 const CreateBodySchema = z.object({
   incidentType:       z.nativeEnum(IncidentType),
   incidentDate:       z.string(),
@@ -65,6 +72,8 @@ const CreateBodySchema = z.object({
   shopName:           z.string().max(120).optional(),
   witnessName:        z.string().max(120).optional(),
   witnessPosition:    z.string().max(80).optional(),
+  costAmount:         z.number().nonnegative().optional(),
+  costQuantity:       z.number().int().nonnegative().optional(),
 })
 
 const LookupTnSchema = z.object({
@@ -104,8 +113,22 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
     '/pivot',
     { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)] },
     async (request, reply) => {
+      const parsed = RangeQuerySchema.safeParse(request.query)
+      if (!parsed.success) return reply.code(400).send({ error: 'Invalid query' })
       const { tenantId } = request.user as JWTPayload
-      const data = await getIncidentPivot(tenantId)
+      const data = await getIncidentPivot(tenantId, parsed.data)
+      return reply.send(data)
+    },
+  )
+
+  fastify.get(
+    '/report',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)] },
+    async (request, reply) => {
+      const parsed = RangeQuerySchema.safeParse(request.query)
+      if (!parsed.success) return reply.code(400).send({ error: 'Invalid query' })
+      const { tenantId } = request.user as JWTPayload
+      const data = await getIncidentReport(tenantId, parsed.data)
       return reply.send(data)
     },
   )
@@ -118,6 +141,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         value,
         label,
         requiresParcel: requiresParcelContext(value as IncidentType),
+        requiresCost: requiresCostContext(value as IncidentType),
       }))
       return reply.send(list)
     },
@@ -176,6 +200,15 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // For cost-context incident types, an estimated cost + quantity are mandatory.
+      if (requiresCostContext(body.incidentType)) {
+        if (body.costAmount === undefined || body.costQuantity === undefined) {
+          return reply.code(400).send({
+            error: 'Estimated cost and quantity are required for this incident type.',
+          })
+        }
+      }
+
       const { tenantId, userId } = request.user as JWTPayload
       const created = await createIncident({
         tenantId,
@@ -195,6 +228,8 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         shopName:           body.shopName?.trim(),
         witnessName:        body.witnessName?.trim(),
         witnessPosition:    body.witnessPosition?.trim(),
+        costAmount:         body.costAmount,
+        costQuantity:       body.costQuantity,
       })
       return reply.code(201).send(created)
     },
@@ -219,6 +254,14 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         }
       }
 
+      if (requiresCostContext(body.incidentType)) {
+        if (body.costAmount === undefined || body.costQuantity === undefined) {
+          return reply.code(400).send({
+            error: 'Estimated cost and quantity are required for this incident type.',
+          })
+        }
+      }
+
       const { tenantId } = request.user as JWTPayload
       const updated = await updateIncident(tenantId, id, {
         incidentType:       body.incidentType,
@@ -236,6 +279,8 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         shopName:           body.shopName?.trim(),
         witnessName:        body.witnessName?.trim(),
         witnessPosition:    body.witnessPosition?.trim(),
+        costAmount:         body.costAmount,
+        costQuantity:       body.costQuantity,
       })
       if (!updated) return reply.code(404).send({ error: 'Incident not found' })
       return reply.send(updated)
