@@ -6,13 +6,13 @@ import {
 } from '@dom/shared'
 import {
   useVendors, useSaveVendor, useItems, useCreateItem, useCategories, useCreateCategory,
-  useNextPurchaseNo, useSaveExpense, useExpense, useDeleteExpense, uploadExpenseAttachment,
+  useNextPurchaseNo, useSaveExpense, useExpense, useDeleteExpense, uploadAttachment,
 } from '../../api/accounting'
 import type { AccCategory } from '@dom/shared'
 import ComboBox from '../../components/shared/ComboBox'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
-import ExpenseAttachments from '../../components/accounting/ExpenseAttachments'
+import InvoiceAttachments from '../../components/accounting/InvoiceAttachments'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function initRows(e?: AccExpense | null): LineRow[] {
@@ -112,7 +112,7 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
       setUploading(true)
       const failed: File[] = []
       for (const file of staged) {
-        try { await uploadExpenseAttachment(saved.id, file) } catch { failed.push(file) }
+        try { await uploadAttachment('expenses', saved.id, file) } catch { failed.push(file) }
       }
       setUploading(false)
       setStaged(failed)
@@ -179,7 +179,7 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
         <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="expense" categories={categories}
           onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'EXPENSE' })} />
 
-        <ExpenseAttachments expenseId={expenseId} staged={staged} onStagedChange={setStaged} uploading={uploading} />
+        <InvoiceAttachments resource="expenses" recordId={expenseId} staged={staged} onStagedChange={setStaged} uploading={uploading} />
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">

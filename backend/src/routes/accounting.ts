@@ -231,27 +231,23 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const ok = await svc.deleteExpense(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
   })
 
-  // ─── Expense attachments (the supplier invoice: photo or PDF) ─────────────
+  // ─── Invoice attachments (Sales + Expenses) — photo or PDF of the invoice ──
   // SVG is deliberately absent from the whitelist: it is a script-bearing document,
   // and these files are served back inline.
   const ALLOWED_ATTACHMENT_MIMES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp']
   const MAX_ATTACHMENT_MB = 10
   const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024
   const TOO_LARGE_MSG = `File is too large. The maximum allowed size is ${MAX_ATTACHMENT_MB} MB.`
+  const NOUN: Record<svc.AttachmentKind, string> = { sale: 'invoice', expense: 'expense' }
 
-  fastify.get('/expenses/:id/attachments', g, async (req, reply) => {
-    const list = await svc.listExpenseAttachments(tenantOf(req), (req.params as any).id)
-    if (list === null) return reply.code(404).send({ error: 'Not found' })
-    return { attachments: list }
-  })
-
-  fastify.post('/expenses/:id/attachments', g, async (req, reply) => {
+  /** Shared multipart intake for both add and replace — validates type/size, returns a buffer or sends the error itself. */
+  async function readUploadedFile(req: any, reply: any): Promise<{ buffer: Buffer; mimetype: string; filename: string | undefined } | null> {
     const file = await req.file({ limits: { fileSize: MAX_ATTACHMENT_BYTES } })
-    if (!file) return reply.code(400).send({ error: 'No file uploaded' })
+    if (!file) { reply.code(400).send({ error: 'No file uploaded' }); return null }
     if (!ALLOWED_ATTACHMENT_MIMES.includes(file.mimetype)) {
-      return reply.code(400).send({ error: `Unsupported file type: ${file.mimetype}. Allowed: PDF, PNG, JPG, WEBP.` })
+      reply.code(400).send({ error: `Unsupported file type: ${file.mimetype}. Allowed: PDF, PNG, JPG, WEBP.` })
+      return null
     }
-
     // @fastify/multipart throws (throwFileSizeLimit defaults to true) once the stream
     // passes limits.fileSize, so `truncated` below never fires on its own — it stays as
     // a fallback. See SOLUTIONS.md [2026-06-21] / incidents.ts.
@@ -259,42 +255,76 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     try {
       buffer = await file.toBuffer()
     } catch (err: any) {
-      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') return reply.code(413).send({ error: TOO_LARGE_MSG })
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') { reply.code(413).send({ error: TOO_LARGE_MSG }); return null }
       throw err
     }
-    if (file.file.truncated) return reply.code(413).send({ error: TOO_LARGE_MSG })
+    if (file.file.truncated) { reply.code(413).send({ error: TOO_LARGE_MSG }); return null }
+    return { buffer, mimetype: file.mimetype, filename: file.filename }
+  }
 
-    try {
-      const att = await svc.addExpenseAttachment(tenantOf(req), (req.params as any).id, buffer, file.mimetype, file.filename ?? null)
-      if (!att) return reply.code(404).send({ error: 'Not found' })
-      return reply.code(201).send(att)
-    } catch (err) {
-      if (err instanceof svc.DuplicateAttachmentError) {
-        return reply.code(409).send({ error: `"${file.filename}" is already attached to this expense. Rename the file or delete the existing one first.` })
+  function registerAttachmentRoutes(kind: svc.AttachmentKind) {
+    const prefix = kind === 'sale' ? '/sales' : '/expenses'
+
+    fastify.get(`${prefix}/:id/attachments`, g, async (req, reply) => {
+      const list = await svc.listAttachments(tenantOf(req), kind, (req.params as any).id)
+      if (list === null) return reply.code(404).send({ error: 'Not found' })
+      return { attachments: list }
+    })
+
+    fastify.post(`${prefix}/:id/attachments`, g, async (req, reply) => {
+      const uploaded = await readUploadedFile(req, reply)
+      if (!uploaded) return
+      try {
+        const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null)
+        if (!att) return reply.code(404).send({ error: 'Not found' })
+        return reply.code(201).send(att)
+      } catch (err) {
+        if (err instanceof svc.DuplicateAttachmentError) {
+          return reply.code(409).send({ error: `"${uploaded.filename}" is already attached to this ${NOUN[kind]}. Rename the file or delete the existing one first.` })
+        }
+        throw err
       }
-      throw err
-    }
-  })
+    })
 
-  fastify.get('/expenses/:id/attachments/:attId', g, async (req, reply) => {
-    const { id, attId } = req.params as { id: string; attId: string }
-    const att = await svc.readExpenseAttachment(tenantOf(req), id, attId)
-    if (!att) return reply.code(404).send({ error: 'Not found' })
-    const fallback = `expense-${id.slice(0, 8)}-invoice`
-    return reply
-      .header('Content-Type', att.mime)
-      // Never let a browser sniff a served upload into something executable.
-      .header('X-Content-Type-Options', 'nosniff')
-      .header('Content-Disposition', `inline; filename="${(att.originalName || fallback).replace(/"/g, '')}"`)
-      .send(att.buffer)
-  })
+    fastify.put(`${prefix}/:id/attachments/:attId`, g, async (req, reply) => {
+      const uploaded = await readUploadedFile(req, reply)
+      if (!uploaded) return
+      const { id, attId } = req.params as { id: string; attId: string }
+      try {
+        const att = await svc.replaceAttachment(tenantOf(req), kind, id, attId, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null)
+        if (!att) return reply.code(404).send({ error: 'Not found' })
+        return att
+      } catch (err) {
+        if (err instanceof svc.DuplicateAttachmentError) {
+          return reply.code(409).send({ error: `"${uploaded.filename}" is already attached to this ${NOUN[kind]}. Rename the file or delete the existing one first.` })
+        }
+        throw err
+      }
+    })
 
-  fastify.delete('/expenses/:id/attachments/:attId', g, async (req, reply) => {
-    const { id, attId } = req.params as { id: string; attId: string }
-    const ok = await svc.deleteExpenseAttachment(tenantOf(req), id, attId)
-    if (!ok) return reply.code(404).send({ error: 'Not found' })
-    return { ok: true }
-  })
+    fastify.get(`${prefix}/:id/attachments/:attId`, g, async (req, reply) => {
+      const { id, attId } = req.params as { id: string; attId: string }
+      const att = await svc.readAttachment(tenantOf(req), kind, id, attId)
+      if (!att) return reply.code(404).send({ error: 'Not found' })
+      const fallback = `${NOUN[kind]}-${id.slice(0, 8)}-invoice`
+      return reply
+        .header('Content-Type', att.mime)
+        // Never let a browser sniff a served upload into something executable.
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Content-Disposition', `inline; filename="${(att.originalName || fallback).replace(/"/g, '')}"`)
+        .send(att.buffer)
+    })
+
+    fastify.delete(`${prefix}/:id/attachments/:attId`, g, async (req, reply) => {
+      const { id, attId } = req.params as { id: string; attId: string }
+      const ok = await svc.deleteAttachment(tenantOf(req), kind, id, attId)
+      if (!ok) return reply.code(404).send({ error: 'Not found' })
+      return { ok: true }
+    })
+  }
+
+  registerAttachmentRoutes('sale')
+  registerAttachmentRoutes('expense')
 
   // ─── Recycle Bin (soft-deleted Sales / Expenses) ──────────────────────────
   // Delete on Sales/Expenses is a soft-delete (stamps deletedAt); the rows live on

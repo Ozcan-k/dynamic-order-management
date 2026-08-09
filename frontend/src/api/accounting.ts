@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccStore, AccSale, AccExpense,
-  AccExpenseAttachment,
+  AccInvoiceAttachment,
   AccCompanyProfile, AccPaginated, AccListStats, AccSalesAgent,
   AccSalesReport, AccExpenseReport, AccCatalogKind,
   AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
 } from '@dom/shared'
+
+/** 'sales' or 'expenses' — the URL segment the attachment lives under. */
+export type AttachmentResource = 'sales' | 'expenses'
 import { api } from './client'
 
 const BASE = '/accounting'
@@ -163,49 +166,65 @@ export function useDeleteExpense() {
   return useMutation({ mutationFn: async (id: string) => (await api.delete(`${BASE}/expenses/${id}`)).data, onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'deleted'] }) } })
 }
 
-// ─── Expense attachments (supplier invoice: photo or PDF) ───────────────────
+// ─── Invoice attachments (Sales + Expenses — photo or PDF) ──────────────────
 // Every read goes through the api client so the auth header rides along. A bare
 // <img src="/accounting/..."> or window.open() sends no credentials and gets nginx's
 // SPA fallback (→ login screen) instead of the file. See downloadInvoicePdf above.
-export function useExpenseAttachments(expenseId?: string) {
+export function useAttachments(resource: AttachmentResource, recordId?: string) {
   return useQuery({
-    queryKey: ['acc', 'expense', expenseId, 'attachments'],
-    enabled: !!expenseId,
-    queryFn: async () => (await api.get<{ attachments: AccExpenseAttachment[] }>(`${BASE}/expenses/${expenseId}/attachments`)).data.attachments,
+    queryKey: ['acc', resource, recordId, 'attachments'],
+    enabled: !!recordId,
+    queryFn: async () => (await api.get<{ attachments: AccInvoiceAttachment[] }>(`${BASE}/${resource}/${recordId}/attachments`)).data.attachments,
   })
 }
 
-export async function uploadExpenseAttachment(expenseId: string, file: File): Promise<AccExpenseAttachment> {
+export async function uploadAttachment(resource: AttachmentResource, recordId: string, file: File): Promise<AccInvoiceAttachment> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const res = await api.post<AccExpenseAttachment>(`${BASE}/expenses/${expenseId}/attachments`, form)
+  const res = await api.post<AccInvoiceAttachment>(`${BASE}/${resource}/${recordId}/attachments`, form)
   return res.data
 }
 
-export function useUploadExpenseAttachment(expenseId?: string) {
+export function useUploadAttachment(resource: AttachmentResource, recordId?: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (file: File) => uploadExpenseAttachment(expenseId!, file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'expense', expenseId, 'attachments'] }),
+    mutationFn: (file: File) => uploadAttachment(resource, recordId!, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', resource, recordId, 'attachments'] }),
   })
 }
 
-export function useDeleteExpenseAttachment(expenseId?: string) {
+/** Replaces the file behind an existing attachment in place — same id, new content. */
+export async function replaceAttachment(resource: AttachmentResource, recordId: string, attId: string, file: File): Promise<AccInvoiceAttachment> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const res = await api.put<AccInvoiceAttachment>(`${BASE}/${resource}/${recordId}/attachments/${attId}`, form)
+  return res.data
+}
+
+export function useReplaceAttachment(resource: AttachmentResource, recordId?: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (attId: string) => (await api.delete(`${BASE}/expenses/${expenseId}/attachments/${attId}`)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', 'expense', expenseId, 'attachments'] }),
+    mutationFn: ({ attId, file }: { attId: string; file: File }) => replaceAttachment(resource, recordId!, attId, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', resource, recordId, 'attachments'] }),
+  })
+}
+
+export function useDeleteAttachment(resource: AttachmentResource, recordId?: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (attId: string) => (await api.delete(`${BASE}/${resource}/${recordId}/attachments/${attId}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['acc', resource, recordId, 'attachments'] }),
   })
 }
 
 /** Caller owns the returned object URL and must revokeObjectURL it. */
-export async function fetchAttachmentBlobUrl(expenseId: string, attId: string): Promise<string> {
-  const res = await api.get(`${BASE}/expenses/${expenseId}/attachments/${attId}`, { responseType: 'blob' })
+export async function fetchAttachmentBlobUrl(resource: AttachmentResource, recordId: string, attId: string): Promise<string> {
+  const res = await api.get(`${BASE}/${resource}/${recordId}/attachments/${attId}`, { responseType: 'blob' })
   return window.URL.createObjectURL(res.data as Blob)
 }
 
-export async function downloadExpenseAttachment(expenseId: string, att: AccExpenseAttachment) {
-  const url = await fetchAttachmentBlobUrl(expenseId, att.id)
+export async function downloadAttachment(resource: AttachmentResource, recordId: string, att: AccInvoiceAttachment) {
+  const url = await fetchAttachmentBlobUrl(resource, recordId, att.id)
   const a = document.createElement('a')
   a.href = url
   a.download = att.originalName || `invoice-${att.id.slice(0, 8)}`

@@ -439,8 +439,17 @@ export async function restoreSale(tenantId: string, id: string) {
 // Permanent removal — only ever reachable from the Recycle Bin, and only for rows
 // already soft-deleted. Line items cascade.
 export async function purgeSale(tenantId: string, id: string) {
+  // Unlink the invoice files BEFORE the row goes: the cascade drops the attachment
+  // rows, and with them the only record of which files on disk belonged here.
+  const owned = await prisma.accSale.findFirst({ where: { id, tenantId, deletedAt: { not: null } }, select: { id: true } })
+  if (!owned) return false
+  const files = await prisma.accSaleAttachment.findMany({ where: { saleId: id }, select: { fileName: true } })
   const res = await prisma.accSale.deleteMany({ where: { id, tenantId, deletedAt: { not: null } } })
-  return res.count > 0
+  if (res.count === 0) return false
+  for (const f of files) {
+    try { await fs.unlink(path.join(ACCOUNTING_DIR, f.fileName)) } catch { /* already gone */ }
+  }
+  return true
 }
 export async function listDeletedSales(tenantId: string) {
   const rows = await prisma.accSale.findMany({ where: { tenantId, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } })
@@ -635,8 +644,13 @@ export async function listDeletedExpenses(tenantId: string) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Expense attachments — the supplier invoice backing an expense (photo or PDF)
+// Invoice attachments — the supporting document behind a Sale or Expense
+// (photo or PDF). Kind-scoped like categories/items: same shape, two backing
+// tables (AccSaleAttachment / AccExpenseAttachment) since they FK to different
+// parents, so the DB call itself branches per kind rather than casting to `any`.
 // ════════════════════════════════════════════════════════════════════════════
+
+export type AttachmentKind = 'sale' | 'expense'
 
 /** Thrown when an identical invoice (same name + same type) is re-uploaded. */
 export class DuplicateAttachmentError extends Error {
@@ -652,54 +666,93 @@ const serAttachment = (a: AttachmentRow) => ({
 })
 const ATTACHMENT_SELECT = { id: true, mime: true, originalName: true, sizeBytes: true, uploadedAt: true } as const
 
-/** Soft-deleted expenses still own their files — the Recycle Bin must be able to restore them. */
-async function ownedExpense(tenantId: string, expenseId: string) {
-  return prisma.accExpense.findFirst({ where: { id: expenseId, tenantId }, select: { id: true } })
+/** Soft-deleted sales/expenses still own their files — the Recycle Bin must be able to restore them. */
+async function ownedRecord(tenantId: string, kind: AttachmentKind, recordId: string) {
+  if (kind === 'sale') return prisma.accSale.findFirst({ where: { id: recordId, tenantId }, select: { id: true } })
+  return prisma.accExpense.findFirst({ where: { id: recordId, tenantId }, select: { id: true } })
 }
 
-export async function listExpenseAttachments(tenantId: string, expenseId: string) {
-  if (!(await ownedExpense(tenantId, expenseId))) return null
-  const rows = await prisma.accExpenseAttachment.findMany({
-    where: { expenseId }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT,
-  })
+function findAttachment(kind: AttachmentKind, recordId: string, attachmentId: string) {
+  return kind === 'sale'
+    ? prisma.accSaleAttachment.findFirst({ where: { id: attachmentId, saleId: recordId }, select: { id: true, fileName: true } })
+    : prisma.accExpenseAttachment.findFirst({ where: { id: attachmentId, expenseId: recordId }, select: { id: true, fileName: true } })
+}
+
+function findDuplicate(kind: AttachmentKind, recordId: string, mime: string, name: string, excludeId?: string) {
+  const notSelf = excludeId ? { id: { not: excludeId } } : {}
+  return kind === 'sale'
+    ? prisma.accSaleAttachment.findFirst({ where: { saleId: recordId, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
+    : prisma.accExpenseAttachment.findFirst({ where: { expenseId: recordId, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
+}
+
+export async function listAttachments(tenantId: string, kind: AttachmentKind, recordId: string) {
+  if (!(await ownedRecord(tenantId, kind, recordId))) return null
+  const rows = kind === 'sale'
+    ? await prisma.accSaleAttachment.findMany({ where: { saleId: recordId }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
+    : await prisma.accExpenseAttachment.findMany({ where: { expenseId: recordId }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
   return rows.map(serAttachment)
 }
 
-export async function addExpenseAttachment(
+export async function addAttachment(
   tenantId: string,
-  expenseId: string,
+  kind: AttachmentKind,
+  recordId: string,
   buffer: Buffer,
   mime: string,
   originalName: string | null,
 ) {
-  if (!(await ownedExpense(tenantId, expenseId))) return null
+  if (!(await ownedRecord(tenantId, kind, recordId))) return null
 
   const name = (originalName ?? '').trim()
-  if (name) {
-    const dup = await prisma.accExpenseAttachment.findFirst({
-      where: { expenseId, mime, originalName: { equals: name, mode: 'insensitive' } },
-      select: { id: true },
-    })
-    if (dup) throw new DuplicateAttachmentError()
-  }
+  if (name && (await findDuplicate(kind, recordId, mime, name))) throw new DuplicateAttachmentError()
 
   await ensureUploadDirs()
-  const fileName = `${expenseId}-${randomUUID()}${extFromMime(mime) || '.bin'}`
+  const fileName = `${recordId}-${randomUUID()}${extFromMime(mime) || '.bin'}`
   await fs.writeFile(path.join(ACCOUNTING_DIR, fileName), buffer)
 
-  const row = await prisma.accExpenseAttachment.create({
-    data: { expenseId, fileName, mime, originalName: name || null, sizeBytes: buffer.length },
-    select: ATTACHMENT_SELECT,
-  })
+  const data = { fileName, mime, originalName: name || null, sizeBytes: buffer.length }
+  const row = kind === 'sale'
+    ? await prisma.accSaleAttachment.create({ data: { saleId: recordId, ...data }, select: ATTACHMENT_SELECT })
+    : await prisma.accExpenseAttachment.create({ data: { expenseId: recordId, ...data }, select: ATTACHMENT_SELECT })
   return serAttachment(row)
 }
 
-export async function readExpenseAttachment(tenantId: string, expenseId: string, attachmentId: string) {
-  if (!(await ownedExpense(tenantId, expenseId))) return null
-  const row = await prisma.accExpenseAttachment.findFirst({
-    where: { id: attachmentId, expenseId },
-    select: { fileName: true, mime: true, originalName: true },
-  })
+/** Swaps the file behind an existing attachment row in place — same id, new content, position preserved. */
+export async function replaceAttachment(
+  tenantId: string,
+  kind: AttachmentKind,
+  recordId: string,
+  attachmentId: string,
+  buffer: Buffer,
+  mime: string,
+  originalName: string | null,
+) {
+  if (!(await ownedRecord(tenantId, kind, recordId))) return null
+  const existing = await findAttachment(kind, recordId, attachmentId)
+  if (!existing) return null
+
+  const name = (originalName ?? '').trim()
+  if (name && (await findDuplicate(kind, recordId, mime, name, attachmentId))) throw new DuplicateAttachmentError()
+
+  await ensureUploadDirs()
+  const fileName = `${recordId}-${randomUUID()}${extFromMime(mime) || '.bin'}`
+  await fs.writeFile(path.join(ACCOUNTING_DIR, fileName), buffer)
+
+  const data = { fileName, mime, originalName: name || null, sizeBytes: buffer.length, uploadedAt: new Date() }
+  const row = kind === 'sale'
+    ? await prisma.accSaleAttachment.update({ where: { id: attachmentId }, data, select: ATTACHMENT_SELECT })
+    : await prisma.accExpenseAttachment.update({ where: { id: attachmentId }, data, select: ATTACHMENT_SELECT })
+
+  // Old file is only unlinked once the new one is safely written and the row repointed.
+  try { await fs.unlink(path.join(ACCOUNTING_DIR, existing.fileName)) } catch { /* already gone */ }
+  return serAttachment(row)
+}
+
+export async function readAttachment(tenantId: string, kind: AttachmentKind, recordId: string, attachmentId: string) {
+  if (!(await ownedRecord(tenantId, kind, recordId))) return null
+  const row = kind === 'sale'
+    ? await prisma.accSaleAttachment.findFirst({ where: { id: attachmentId, saleId: recordId }, select: { fileName: true, mime: true, originalName: true } })
+    : await prisma.accExpenseAttachment.findFirst({ where: { id: attachmentId, expenseId: recordId }, select: { fileName: true, mime: true, originalName: true } })
   if (!row) return null
   try {
     const buffer = await fs.readFile(path.join(ACCOUNTING_DIR, row.fileName))
@@ -709,11 +762,12 @@ export async function readExpenseAttachment(tenantId: string, expenseId: string,
   }
 }
 
-export async function deleteExpenseAttachment(tenantId: string, expenseId: string, attachmentId: string) {
-  if (!(await ownedExpense(tenantId, expenseId))) return false
-  const row = await prisma.accExpenseAttachment.findFirst({ where: { id: attachmentId, expenseId }, select: { id: true, fileName: true } })
+export async function deleteAttachment(tenantId: string, kind: AttachmentKind, recordId: string, attachmentId: string) {
+  if (!(await ownedRecord(tenantId, kind, recordId))) return false
+  const row = await findAttachment(kind, recordId, attachmentId)
   if (!row) return false
-  await prisma.accExpenseAttachment.delete({ where: { id: row.id } })
+  if (kind === 'sale') await prisma.accSaleAttachment.delete({ where: { id: row.id } })
+  else await prisma.accExpenseAttachment.delete({ where: { id: row.id } })
   try { await fs.unlink(path.join(ACCOUNTING_DIR, row.fileName)) } catch { /* already gone */ }
   return true
 }

@@ -187,13 +187,17 @@ export interface AccSale {
 }
 
 /** A supplier invoice (photo or PDF) filed against an expense. */
-export interface AccExpenseAttachment {
+// Same shape for a Sale's or an Expense's invoice attachment — two DB tables (each FKs
+// to its own parent), one wire shape. `kind` distinguishes them at the API boundary.
+export interface AccInvoiceAttachment {
   id: string
   mime: string
   originalName: string | null
   sizeBytes: number
   uploadedAt: string
 }
+export type AccExpenseAttachment = AccInvoiceAttachment
+export type AccSaleAttachment = AccInvoiceAttachment
 
 // ─── Purchase (Expense) ─────────────────────────────────────────────────────
 export interface AccExpense {

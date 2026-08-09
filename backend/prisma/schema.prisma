@@ -765,15 +765,30 @@ model AccSale {
   // stamped row disappears from lists/stats/reports/ledger but is never lost.
   deletedAt DateTime? @map("deleted_at")
 
-  items     AccSaleItem[]
-  createdAt DateTime      @default(now()) @map("created_at")
-  updatedAt DateTime      @updatedAt @map("updated_at")
+  items       AccSaleItem[]
+  attachments AccSaleAttachment[]
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
 
   @@index([tenantId, dateIssued(sort: Desc)])
   @@index([tenantId, status])
   @@index([tenantId, customerId])
   @@index([tenantId, deletedAt])
   @@map("acc_sales")
+}
+
+model AccSaleAttachment {
+  id           String   @id @default(uuid())
+  saleId       String   @map("sale_id")
+  sale         AccSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  fileName     String   @map("file_name")
+  mime         String
+  originalName String?  @map("original_name")
+  sizeBytes    Int      @map("size_bytes")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@index([saleId])
+  @@map("acc_sale_attachments")
 }
 
 model AccSaleItem {

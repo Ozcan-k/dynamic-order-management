@@ -7,10 +7,12 @@ import {
 import {
   useCustomers, useSaveCustomer, useItems, useCreateItem, useCategories, useCreateCategory,
   useStores, useCreateStore, useSalesAgents, useNextInvoiceNo, useSaveSale, useSale, useDeleteSale,
+  uploadAttachment,
 } from '../../api/accounting'
 import ComboBox from '../../components/shared/ComboBox'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import LineItemsEditor, { type LineRow, emptyLine } from '../../components/accounting/LineItemsEditor'
+import InvoiceAttachments from '../../components/accounting/InvoiceAttachments'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 
@@ -78,6 +80,9 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     note: initial?.note ?? '',
   })
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
+  // New-invoice mode: invoice files wait here until the save gives us a sale id.
+  const [staged, setStaged] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [newCust, setNewCust] = useState<null | typeof emptyNewCust>(null)
   const [newCat, setNewCat] = useState('')
@@ -85,6 +90,11 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
   const [newStore, setNewStore] = useState('')
   const [showNewStore, setShowNewStore] = useState(false)
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }))
+
+  // Set once a brand-new invoice has been persisted. It turns a retry into a PUT rather
+  // than a second POST, so re-submitting after a failed upload cannot duplicate the record.
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const saleId = initial?.id ?? savedId ?? undefined
 
   const pickCustomer = (c: AccCustomer | null) => {
     if (!c) { set({ customerId: null }); return }
@@ -105,7 +115,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
     }
     const agentName = f.salesAgentId ? (agents.find((a) => a.id === f.salesAgentId)?.username ?? f.salesAgentName) : f.salesAgentName
     const payload: any = {
-      id: initial?.id,
+      id: saleId,
       customerType: f.customerType, customerId: f.customerId || null, customerName: f.customerName,
       customerAddress: f.customerAddress || null, customerEmail: f.customerEmail || null, customerNumber: f.customerNumber || null,
       contactPerson: f.contactPerson || null,
@@ -121,8 +131,28 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
         quantity: Number(r.quantity), unitCost: Number(r.unitCost), discountPct: Number(r.discountPct) || 0, taxPct: Number(r.taxPct) || 0,
       })),
     }
-    try { await save.mutateAsync(payload); back() }
-    catch (e: any) { setError(e?.response?.data?.error || 'Save failed') }
+    let saved: AccSale
+    try { saved = (await save.mutateAsync(payload)) as AccSale }
+    catch (e: any) { return setError(e?.response?.data?.error || 'Save failed') }
+
+    // The invoice now has an id, so the queued invoice files finally have somewhere to go.
+    if (staged.length) {
+      setUploading(true)
+      const failed: File[] = []
+      for (const file of staged) {
+        try { await uploadAttachment('sales', saved.id, file) } catch { failed.push(file) }
+      }
+      setUploading(false)
+      setStaged(failed)
+      if (failed.length) {
+        // The invoice itself is saved. Stay on the page rather than navigate away and
+        // silently drop the files; savedId makes the retry an update, not a duplicate.
+        setSavedId(saved.id)
+        setError(`Invoice saved, but ${failed.length} file(s) could not be uploaded: ${failed.map((x) => x.name).join(', ')}. Press Save again to retry.`)
+        return
+      }
+    }
+    back()
   }
 
   return (
@@ -232,10 +262,14 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
             style={{ width: '100%', resize: 'vertical', minHeight: 64 }} />
         </div>
 
+        <InvoiceAttachments resource="sales" recordId={saleId} staged={staged} onStagedChange={setStaged} uploading={uploading} />
+
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">
-          <button className="acc-btn acc-btn-outline" onClick={back}>Cancel</button>
-          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving…' : isEdit ? 'Update Invoice' : 'Save Invoice'}</button>
+          <button className="acc-btn acc-btn-outline" onClick={back} disabled={uploading}>Cancel</button>
+          <button className="acc-btn acc-btn-primary" onClick={submit} disabled={save.isPending || uploading}>
+            {uploading ? 'Uploading files…' : save.isPending ? 'Saving…' : (isEdit || savedId) ? 'Update Invoice' : 'Save Invoice'}
+          </button>
         </div>
       </div>
 
