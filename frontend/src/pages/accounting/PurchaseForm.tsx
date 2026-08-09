@@ -67,8 +67,10 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
     paidBy: initial?.paidBy ?? '',
   })
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
-  // New-expense mode: invoice files wait here until the save gives us an expense id.
-  const [staged, setStaged] = useState<File[]>([])
+  // New-expense mode: files wait here until the save gives us an expense id. Two
+  // independent queues — invoices and payment proofs are unrelated documents.
+  const [stagedInvoice, setStagedInvoice] = useState<File[]>([])
+  const [stagedPayment, setStagedPayment] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [newVendor, setNewVendor] = useState<null | { name: string; email: string; contactNumber: string }>(null)
@@ -107,20 +109,27 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
     try { saved = (await save.mutateAsync(payload)) as AccExpense }
     catch (e: any) { return setError(e?.response?.data?.error || 'Save failed') }
 
-    // The expense now has an id, so the queued invoice files finally have somewhere to go.
-    if (staged.length) {
+    // The expense now has an id, so the queued files finally have somewhere to go.
+    if (stagedInvoice.length || stagedPayment.length) {
       setUploading(true)
-      const failed: File[] = []
-      for (const file of staged) {
-        try { await uploadAttachment('expenses', saved.id, file) } catch { failed.push(file) }
+      const flush = async (category: 'INVOICE' | 'PAYMENT_PROOF', files: File[]) => {
+        const failed: File[] = []
+        for (const file of files) {
+          try { await uploadAttachment('expenses', saved.id, category, file) } catch { failed.push(file) }
+        }
+        return failed
       }
+      const [failedInvoice, failedPayment] = await Promise.all([flush('INVOICE', stagedInvoice), flush('PAYMENT_PROOF', stagedPayment)])
       setUploading(false)
-      setStaged(failed)
-      if (failed.length) {
+      setStagedInvoice(failedInvoice)
+      setStagedPayment(failedPayment)
+      const failedCount = failedInvoice.length + failedPayment.length
+      if (failedCount) {
         // The expense itself is saved. Stay on the page rather than navigate away and
         // silently drop the files; savedId makes the retry an update, not a duplicate.
         setSavedId(saved.id)
-        setError(`Expense saved, but ${failed.length} file(s) could not be uploaded: ${failed.map((x) => x.name).join(', ')}. Press Save again to retry.`)
+        const names = [...failedInvoice, ...failedPayment].map((x) => x.name).join(', ')
+        setError(`Expense saved, but ${failedCount} file(s) could not be uploaded: ${names}. Press Save again to retry.`)
         return
       }
     }
@@ -179,7 +188,8 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
         <LineItemsEditor rows={rows} onChange={setRows} items={items} categoryMode="expense" categories={categories}
           onCreateItem={async (name) => createItem.mutateAsync({ name, kind: 'EXPENSE' })} />
 
-        <InvoiceAttachments resource="expenses" recordId={expenseId} staged={staged} onStagedChange={setStaged} uploading={uploading} />
+        <InvoiceAttachments resource="expenses" category="INVOICE" recordId={expenseId} staged={stagedInvoice} onStagedChange={setStagedInvoice} uploading={uploading} />
+        <InvoiceAttachments resource="expenses" category="PAYMENT_PROOF" recordId={expenseId} staged={stagedPayment} onStagedChange={setStagedPayment} uploading={uploading} />
 
         {error && <p className="acc-error" style={{ marginTop: 12 }}>{error}</p>}
         <div className="acc-modal-foot">

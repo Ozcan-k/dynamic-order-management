@@ -651,6 +651,7 @@ export async function listDeletedExpenses(tenantId: string) {
 // ════════════════════════════════════════════════════════════════════════════
 
 export type AttachmentKind = 'sale' | 'expense'
+export type AttachmentCategory = 'INVOICE' | 'PAYMENT_PROOF'
 
 /** Thrown when an identical invoice (same name + same type) is re-uploaded. */
 export class DuplicateAttachmentError extends Error {
@@ -660,11 +661,11 @@ export class DuplicateAttachmentError extends Error {
   }
 }
 
-interface AttachmentRow { id: string; mime: string; originalName: string | null; sizeBytes: number; uploadedAt: Date }
+interface AttachmentRow { id: string; category: AttachmentCategory; mime: string; originalName: string | null; sizeBytes: number; uploadedAt: Date }
 const serAttachment = (a: AttachmentRow) => ({
-  id: a.id, mime: a.mime, originalName: a.originalName, sizeBytes: a.sizeBytes, uploadedAt: a.uploadedAt.toISOString(),
+  id: a.id, category: a.category, mime: a.mime, originalName: a.originalName, sizeBytes: a.sizeBytes, uploadedAt: a.uploadedAt.toISOString(),
 })
-const ATTACHMENT_SELECT = { id: true, mime: true, originalName: true, sizeBytes: true, uploadedAt: true } as const
+const ATTACHMENT_SELECT = { id: true, category: true, mime: true, originalName: true, sizeBytes: true, uploadedAt: true } as const
 
 /** Soft-deleted sales/expenses still own their files — the Recycle Bin must be able to restore them. */
 async function ownedRecord(tenantId: string, kind: AttachmentKind, recordId: string) {
@@ -674,22 +675,24 @@ async function ownedRecord(tenantId: string, kind: AttachmentKind, recordId: str
 
 function findAttachment(kind: AttachmentKind, recordId: string, attachmentId: string) {
   return kind === 'sale'
-    ? prisma.accSaleAttachment.findFirst({ where: { id: attachmentId, saleId: recordId }, select: { id: true, fileName: true } })
-    : prisma.accExpenseAttachment.findFirst({ where: { id: attachmentId, expenseId: recordId }, select: { id: true, fileName: true } })
+    ? prisma.accSaleAttachment.findFirst({ where: { id: attachmentId, saleId: recordId }, select: { id: true, fileName: true, category: true } })
+    : prisma.accExpenseAttachment.findFirst({ where: { id: attachmentId, expenseId: recordId }, select: { id: true, fileName: true, category: true } })
 }
 
-function findDuplicate(kind: AttachmentKind, recordId: string, mime: string, name: string, excludeId?: string) {
+// Duplicate-name check is scoped per category — a "receipt.jpg" invoice and a "receipt.jpg"
+// payment proof on the same record are different documents, not a re-upload of the same one.
+function findDuplicate(kind: AttachmentKind, recordId: string, category: AttachmentCategory, mime: string, name: string, excludeId?: string) {
   const notSelf = excludeId ? { id: { not: excludeId } } : {}
   return kind === 'sale'
-    ? prisma.accSaleAttachment.findFirst({ where: { saleId: recordId, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
-    : prisma.accExpenseAttachment.findFirst({ where: { expenseId: recordId, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
+    ? prisma.accSaleAttachment.findFirst({ where: { saleId: recordId, category, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
+    : prisma.accExpenseAttachment.findFirst({ where: { expenseId: recordId, category, mime, originalName: { equals: name, mode: 'insensitive' }, ...notSelf }, select: { id: true } })
 }
 
-export async function listAttachments(tenantId: string, kind: AttachmentKind, recordId: string) {
+export async function listAttachments(tenantId: string, kind: AttachmentKind, recordId: string, category: AttachmentCategory) {
   if (!(await ownedRecord(tenantId, kind, recordId))) return null
   const rows = kind === 'sale'
-    ? await prisma.accSaleAttachment.findMany({ where: { saleId: recordId }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
-    : await prisma.accExpenseAttachment.findMany({ where: { expenseId: recordId }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
+    ? await prisma.accSaleAttachment.findMany({ where: { saleId: recordId, category }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
+    : await prisma.accExpenseAttachment.findMany({ where: { expenseId: recordId, category }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
   return rows.map(serAttachment)
 }
 
@@ -697,6 +700,7 @@ export async function addAttachment(
   tenantId: string,
   kind: AttachmentKind,
   recordId: string,
+  category: AttachmentCategory,
   buffer: Buffer,
   mime: string,
   originalName: string | null,
@@ -704,13 +708,13 @@ export async function addAttachment(
   if (!(await ownedRecord(tenantId, kind, recordId))) return null
 
   const name = (originalName ?? '').trim()
-  if (name && (await findDuplicate(kind, recordId, mime, name))) throw new DuplicateAttachmentError()
+  if (name && (await findDuplicate(kind, recordId, category, mime, name))) throw new DuplicateAttachmentError()
 
   await ensureUploadDirs()
   const fileName = `${recordId}-${randomUUID()}${extFromMime(mime) || '.bin'}`
   await fs.writeFile(path.join(ACCOUNTING_DIR, fileName), buffer)
 
-  const data = { fileName, mime, originalName: name || null, sizeBytes: buffer.length }
+  const data = { category, fileName, mime, originalName: name || null, sizeBytes: buffer.length }
   const row = kind === 'sale'
     ? await prisma.accSaleAttachment.create({ data: { saleId: recordId, ...data }, select: ATTACHMENT_SELECT })
     : await prisma.accExpenseAttachment.create({ data: { expenseId: recordId, ...data }, select: ATTACHMENT_SELECT })
@@ -732,7 +736,7 @@ export async function replaceAttachment(
   if (!existing) return null
 
   const name = (originalName ?? '').trim()
-  if (name && (await findDuplicate(kind, recordId, mime, name, attachmentId))) throw new DuplicateAttachmentError()
+  if (name && (await findDuplicate(kind, recordId, existing.category as AttachmentCategory, mime, name, attachmentId))) throw new DuplicateAttachmentError()
 
   await ensureUploadDirs()
   const fileName = `${recordId}-${randomUUID()}${extFromMime(mime) || '.bin'}`

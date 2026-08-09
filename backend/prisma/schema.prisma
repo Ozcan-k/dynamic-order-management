@@ -651,6 +651,11 @@ enum AccCatalogKind {
   EXPENSE
 }
 
+enum AccAttachmentCategory {
+  INVOICE
+  PAYMENT_PROOF
+}
+
 model AccCustomer {
   id             String          @id @default(uuid())
   tenantId       String          @map("tenant_id")
@@ -778,16 +783,17 @@ model AccSale {
 }
 
 model AccSaleAttachment {
-  id           String   @id @default(uuid())
-  saleId       String   @map("sale_id")
-  sale         AccSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  fileName     String   @map("file_name")
+  id           String                 @id @default(uuid())
+  saleId       String                 @map("sale_id")
+  sale         AccSale                @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  category     AccAttachmentCategory  @default(INVOICE)
+  fileName     String                 @map("file_name")
   mime         String
-  originalName String?  @map("original_name")
-  sizeBytes    Int      @map("size_bytes")
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  originalName String?                @map("original_name")
+  sizeBytes    Int                    @map("size_bytes")
+  uploadedAt   DateTime               @default(now()) @map("uploaded_at")
 
-  @@index([saleId])
+  @@index([saleId, category])
   @@map("acc_sale_attachments")
 }
 
@@ -877,16 +883,17 @@ model AccExpenseItem {
 /// BIR requires these for ~10 years: they are exempt from every retention/purge job.
 /// A permanent purge from the Recycle Bin is the only thing that unlinks the file.
 model AccExpenseAttachment {
-  id           String     @id @default(uuid())
-  expenseId    String     @map("expense_id")
-  expense      AccExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
-  fileName     String     @map("file_name")
+  id           String                @id @default(uuid())
+  expenseId    String                @map("expense_id")
+  expense      AccExpense            @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  category     AccAttachmentCategory @default(INVOICE)
+  fileName     String                @map("file_name")
   mime         String
-  originalName String?    @map("original_name")
-  sizeBytes    Int        @map("size_bytes")
-  uploadedAt   DateTime   @default(now()) @map("uploaded_at")
+  originalName String?               @map("original_name")
+  sizeBytes    Int                   @map("size_bytes")
+  uploadedAt   DateTime              @default(now()) @map("uploaded_at")
 
-  @@index([expenseId])
+  @@index([expenseId, category])
   @@map("acc_expense_attachments")
 }
 

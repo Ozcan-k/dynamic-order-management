@@ -239,6 +239,16 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024
   const TOO_LARGE_MSG = `File is too large. The maximum allowed size is ${MAX_ATTACHMENT_MB} MB.`
   const NOUN: Record<svc.AttachmentKind, string> = { sale: 'invoice', expense: 'expense' }
+  const ATTACHMENT_CATEGORIES: svc.AttachmentCategory[] = ['INVOICE', 'PAYMENT_PROOF']
+
+  /** `?category=` defaults to INVOICE so pre-existing rows/callers keep working unchanged. */
+  function parseCategory(req: any, reply: any): svc.AttachmentCategory | null {
+    const raw = (req.query as any)?.category
+    if (raw === undefined) return 'INVOICE'
+    if (ATTACHMENT_CATEGORIES.includes(raw)) return raw
+    reply.code(400).send({ error: `Invalid category. Allowed: ${ATTACHMENT_CATEGORIES.join(', ')}.` })
+    return null
+  }
 
   /** Shared multipart intake for both add and replace — validates type/size, returns a buffer or sends the error itself. */
   async function readUploadedFile(req: any, reply: any): Promise<{ buffer: Buffer; mimetype: string; filename: string | undefined } | null> {
@@ -266,16 +276,20 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const prefix = kind === 'sale' ? '/sales' : '/expenses'
 
     fastify.get(`${prefix}/:id/attachments`, g, async (req, reply) => {
-      const list = await svc.listAttachments(tenantOf(req), kind, (req.params as any).id)
+      const category = parseCategory(req, reply)
+      if (!category) return
+      const list = await svc.listAttachments(tenantOf(req), kind, (req.params as any).id, category)
       if (list === null) return reply.code(404).send({ error: 'Not found' })
       return { attachments: list }
     })
 
     fastify.post(`${prefix}/:id/attachments`, g, async (req, reply) => {
+      const category = parseCategory(req, reply)
+      if (!category) return
       const uploaded = await readUploadedFile(req, reply)
       if (!uploaded) return
       try {
-        const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null)
+        const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, category, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null)
         if (!att) return reply.code(404).send({ error: 'Not found' })
         return reply.code(201).send(att)
       } catch (err) {

@@ -186,11 +186,14 @@ export interface AccSale {
   updatedAt: string
 }
 
-/** A supplier invoice (photo or PDF) filed against an expense. */
-// Same shape for a Sale's or an Expense's invoice attachment — two DB tables (each FKs
-// to its own parent), one wire shape. `kind` distinguishes them at the API boundary.
+export type AccAttachmentCategory = 'INVOICE' | 'PAYMENT_PROOF'
+
+/** A document (photo or PDF) filed against a Sale or Expense — an invoice, or a payment proof. */
+// Same shape for a Sale's or an Expense's attachment — two DB tables (each FKs to its
+// own parent), one wire shape. `resource` distinguishes them at the API boundary.
 export interface AccInvoiceAttachment {
   id: string
+  category: AccAttachmentCategory
   mime: string
   originalName: string | null
   sizeBytes: number
