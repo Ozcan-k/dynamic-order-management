@@ -80,6 +80,24 @@ export const SALE_CHANNEL_LABELS: Record<SaleChannel, string> = {
   [SaleChannel.OTHERS]: 'Others',
 }
 
+// Mandatory content slots per store per day (FB 3 + TikTok 1 + IG 3 + Shopee 2 = 9).
+// Content completion % = completed matrix slots / (store-days reported × this).
+export const CONTENT_SLOTS_PER_STORE_DAY = Object.values(CONTENT_POST_MATRIX)
+  .reduce((sum, types) => sum + types.length, 0)
+
+// Marketing Report agent score — fixed weights, single source for backend + frontend.
+export const MARKETING_SCORE_WEIGHTS = {
+  posts: 1,
+  liveHours: 2,
+  directSalesPer1000: 1,
+  inquiries: 1.5,
+} as const
+
+export function marketingScore(m: { posts: number; liveHours: number; directSales: number; inquiries: number }): number {
+  const w = MARKETING_SCORE_WEIGHTS
+  return m.posts * w.posts + m.liveHours * w.liveHours + (m.directSales / 1000) * w.directSalesPer1000 + m.inquiries * w.inquiries
+}
+
 export interface SalesDayMetrics {
   date: string                  // YYYY-MM-DD (Manila)
   contentPostsCount: number     // checked posts across all stores for the day

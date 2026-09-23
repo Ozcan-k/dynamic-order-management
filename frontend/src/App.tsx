@@ -24,6 +24,7 @@ import SalesDashboard from './pages/SalesDashboard'
 import SalesEntry from './pages/SalesEntry'
 import SalesOrders from './pages/SalesOrders'
 import MarketingReport from './pages/MarketingReport'
+import MarketingAgent from './pages/MarketingAgent'
 import IncidentReport from './pages/IncidentReport'
 import IncidentEmployeeReport from './pages/IncidentEmployeeReport'
 import EmployeeSchedule from './pages/employeeSchedule/EmployeeSchedule'
@@ -296,6 +297,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
                 <AppLayout><MarketingReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/marketing-report/agents/:agentId"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.SALES_AGENT]}>
+                <AppLayout><MarketingAgent /></AppLayout>
               </ProtectedRoute>
             }
           />

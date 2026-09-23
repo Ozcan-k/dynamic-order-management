@@ -1,8 +1,10 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.78.0  
-> **Date:** 2026-07-09  
-> **Status:** **v2.88.0 (live)** — **One employee → many logins**: link moved to `User.employeeId` (nullable FK, SET NULL); `EmpEmployee.userId` kept as deprecated and drained at startup (`migrateEmployeeLinksToUsers`); Employee Schedule edits `userIds[]`, Settings Employee ID may repeat across accounts. Additive schema. v2.87.0 — **Employee ID link open to every role** (Settings → Edit shows *Employee ID* for all users; `listLinkableUsers`/`assertLinkable` accept any active user; Warehouse Report still reads PICKER/PACKER only). No schema change. v2.86.1 — **New carrier: Shopee Instant** (`Carrier.SHOPEE_INSTANT`, additive enum value; shows in every carrier dropdown incl. inbound Quick/Bulk Scan). v2.86.0 — **4-digit employee IDs + Employee ID linking from Settings**: `empNo` shifted +900 (#101 → 1001) by an idempotent startup migration (`migrateEmpNosToFourDigit`), `#` prefix removed everywhere (UI, PDF, CSV); Settings → Edit (Picker/Packer) takes an **Employee ID** that sets the same `EmpEmployee.userId` link (`PATCH /users/:id { employeeNo }`), so Warehouse Report applies half days / days off. Schema: `EmpCounter` default 100 → 1000 only. Previous: v2.85.0 — Live Performance rebuilt as a live floor board. See Section 13.
+> **Version:** 2.89.0  
+> **Date:** 2026-09-23  
+> **Status:** **v2.89.0 (test)** — **Marketing Report + agent panel rebuilt.** New read-only analytics endpoints (`GET /marketing/analytics/overview`, `GET /marketing/analytics/activity-grid`, `GET /marketing/agents/:id/summary`; pure aggregation in `services/marketingAnalytics.ts`, Prisma loading in `marketingAnalyticsService.ts`; `from/to` ≤ 366 days + optional `agentIds`/`stores`). Content completion is measured against the mandatory matrix (`CONTENT_SLOTS_PER_STORE_DAY` = 9 per store-day reported); the score formula is unchanged and now lives once in shared `MARKETING_SCORE_WEIGHTS` / `marketingScore()`. UI: URL-driven filters, 6 KPIs with period-over-period deltas + sparklines, five tabs (Overview · Content · Live Selling · Sales · Activity), and the agent drill-down is now a route (`/marketing-report/agents/:agentId`) with team comparison, streaks, calendar and a redesigned day modal (order edit/delete shown to ADMIN only). `getDayDetail` gained additive fields only. No schema change, no new dependency.
+>
+> **Previous status:** **v2.88.0 (live)** — **One employee → many logins**: link moved to `User.employeeId` (nullable FK, SET NULL); `EmpEmployee.userId` kept as deprecated and drained at startup (`migrateEmployeeLinksToUsers`); Employee Schedule edits `userIds[]`, Settings Employee ID may repeat across accounts. Additive schema. v2.87.0 — **Employee ID link open to every role** (Settings → Edit shows *Employee ID* for all users; `listLinkableUsers`/`assertLinkable` accept any active user; Warehouse Report still reads PICKER/PACKER only). No schema change. v2.86.1 — **New carrier: Shopee Instant** (`Carrier.SHOPEE_INSTANT`, additive enum value; shows in every carrier dropdown incl. inbound Quick/Bulk Scan). v2.86.0 — **4-digit employee IDs + Employee ID linking from Settings**: `empNo` shifted +900 (#101 → 1001) by an idempotent startup migration (`migrateEmpNosToFourDigit`), `#` prefix removed everywhere (UI, PDF, CSV); Settings → Edit (Picker/Packer) takes an **Employee ID** that sets the same `EmpEmployee.userId` link (`PATCH /users/:id { employeeNo }`), so Warehouse Report applies half days / days off. Schema: `EmpCounter` default 100 → 1000 only. Previous: v2.85.0 — Live Performance rebuilt as a live floor board. See Section 13.
 >
 > **Previous status (v2.84.0):** **Warehouse Report: target-based picker/packer performance + per-employee report.** Performance tab rebuilt around a daily target (**Picker 210 / Packer 280**, `PERF_DAILY_TARGET` in shared) and the Employee Schedule attendance: ranking table (Excel layout), status mix, team-by-day chart, colour-coded daily matrix, dependency-free Excel export. New **Employee Report** tab (one worker, any period ≤ 92 days). Inactive staff hidden everywhere in these reports; Live tab's historical "Breakdown" tables removed. Only schema change: additive nullable `EmpEmployee.userId` (unique, FK → users, `ON DELETE SET NULL`). See Section 13.
 >
@@ -553,8 +555,8 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 | **`/sales` — month calendar dashboard** | ❌ | ✅ Own only |
 | **`/sales` — Enter Today's Report** (daily activity form) | ❌ | ✅ Own only |
 | **`/sales` — day-detail modal** (historical drill-down) | ❌ | ✅ Own only |
-| **`/marketing-report` — leaderboard + charts** (Today preset w/ LIVE auto-refresh v2.27.1) | ✅ | ✅ (v2.26.0) |
-| **`/marketing-report` — `AgentDetailPanel`** (per-agent drill-down) | ✅ | ✅ (v2.26.0) |
+| **`/marketing-report` — KPIs + 5 tabs (Overview, Content, Live Selling, Sales, Activity)** (v2.89.0; URL filters, LIVE refresh when the range ends today) | ✅ | ✅ (v2.26.0) |
+| **`/marketing-report/agents/:agentId` — agent profile** (v2.89.0; replaces `AgentDetailPanel`) | ✅ | ✅ |
 | **Direct order edit + delete** (own orders from My Activity + My Orders; admin edits any via agent day modal — audit-logged, v2.28.0) | ✅ Any agent | ✅ Own only |
 | **Any order/inbound/picker/packer panel** | (unchanged) | ❌ |
 
@@ -1408,7 +1410,8 @@ frontend/
 │   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
 │   │   ├── SalesEntry.tsx         ← /sales/entry — daily activity form (content posts + live selling + marketplace + direct orders)
 │   │   ├── SalesOrders.tsx        ← /sales/orders — agent's own direct-order history with edit/delete (v2.28.0)
-│   │   ├── MarketingReport.tsx    ← /marketing-report — admin + sales-agent leaderboard + 5 comparison charts + AgentDetailPanel
+│   │   ├── MarketingReport.tsx    ← /marketing-report — v2.89.0 KPI row + 5 tabs (components/marketing/*)
+│   │   ├── MarketingAgent.tsx     ← /marketing-report/agents/:agentId — v2.89.0 agent profile + calendar + day modal
 │   │   ├── StockScan.tsx          ← /stock/scan — STOCK_KEEPER mobile camera, Single/Bulk modes, operation-driven (v2.33.0)
 │   │   ├── IncidentReport.tsx     ← /incident-report — v2.43.0 admin HR module: page hero + 4 stat cards + filter + Recent table + Employee×Type pivot
 │   │   ├── incident/
@@ -1453,7 +1456,7 @@ frontend/
 │   │   ├── users.ts
 │   │   ├── reports.ts
 │   │   ├── sales.ts               ← v2.23.1 — agent calendar + day-detail + direct order CRUD
-│   │   ├── marketing.ts           ← v2.23.1 — leaderboard + drill-down
+│   │   ├── marketing.ts           ← v2.23.1 drill-down + v2.89.0 analytics (overview / activity-grid / agent summary)
 │   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD hooks
 │   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD hooks
 │   │   ├── stock.ts               ← v2.31.0 + v2.33.0 — useStockSummary, useScanStock, useGenerateLabels
@@ -1507,7 +1510,7 @@ backend/
 │   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD (admin + read for STOCK_KEEPER)
 │   │   ├── stock.ts               ← v2.31.0 + v2.33.0 rewrites — /labels, /scan (operation-driven), /summary, /stats, /items, /lookup/:id, /adjust, /movements
 │   │   ├── sales.ts               ← v2.23.1 — agent daily activity + own direct-order CRUD
-│   │   ├── marketing.ts           ← v2.23.1 — admin leaderboard + drill-down (audit-logged)
+│   │   ├── marketing.ts           ← v2.23.1 — admin leaderboard + drill-down (audit-logged) + v2.89.0 /analytics/* + /agents/:id/summary
 │   │   ├── incidents.ts           ← v2.43.0 — 12 endpoints: list/stats/pivot/types/lookup-tn/selectable-users/remembered-name + CRUD + signed upload + email send
 │   │   └── branding.ts            ← v2.43.0 — GET / POST / GET /logo (multipart upsert, ADMIN-only)
 │   ├── plugins/
@@ -1538,7 +1541,9 @@ backend/
 │   │   ├── stockService.ts        ← v2.31.0 rewrite + v2.33.0 operation-driven scan state machine + v2.34.0 manual adjust + v2.34.5 bulk lookup
 │   │   ├── salesActivityService.ts        ← v2.23.1 — calendar + day-detail + activity CRUD
 │   │   ├── salesDirectOrderService.ts     ← v2.28.0 — direct order edit/delete (transactional item replace, cascade delete)
-│   │   ├── marketingReportService.ts      ← v2.23.1 + v2.28.x — leaderboard + comparison charts + agent drill-down
+│   │   ├── marketingReportService.ts      ← v2.23.1 + v2.28.x — legacy leaderboard + comparison (UI unused since v2.89.0) + agent guard
+│   │   ├── marketingAnalytics.ts          ← v2.89.0 — pure aggregation (KPIs, daily, per-agent, breakdowns, activity grid, streaks)
+│   │   ├── marketingAnalyticsService.ts   ← v2.89.0 — Prisma loaders + range validation for the analytics endpoints
 │   │   ├── incidentService.ts             ← v2.43.0 — CRUD, list + stats + pivot, lookup-tn, signed file persistence, remembered-name lookup
 │   │   ├── incidentPdfService.ts          ← v2.43.0 — PDFKit letterhead + 25 statement templates with name/TN substitution
 │   │   ├── incidentEmailService.ts        ← v2.43.0 — SMTP send with PDF attachment, recipient + employee + isSmtpConfigured()

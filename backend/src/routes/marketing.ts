@@ -11,6 +11,12 @@ import {
   listAgents,
 } from '../services/marketingReportService'
 import {
+  AnalyticsQuerySchema,
+  getActivityGrid,
+  getAgentSummary,
+  getOverview,
+} from '../services/marketingAnalyticsService'
+import {
   CalendarQuerySchema,
   DayDetailQuerySchema,
   GetActivityQuerySchema,
@@ -68,6 +74,40 @@ export default async function marketingRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     const trends = await getComparison(tenantId, result.data.from, result.data.to)
     return reply.send({ trends })
+  })
+
+  // ─── Analytics (v2.89, read-only) ─────────────────────────────────────────
+
+  // GET /marketing/analytics/overview?from=&to=&agentIds=&stores=
+  fastify.get('/analytics/overview', { preHandler: marketingViewers }, async (request, reply) => {
+    const result = AnalyticsQuerySchema.safeParse(request.query)
+    if (!result.success) {
+      return reply.code(400).send({ error: 'Invalid query', details: result.error.flatten() })
+    }
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getOverview(tenantId, result.data))
+  })
+
+  // GET /marketing/analytics/activity-grid?from=&to=&agentIds=&stores=
+  fastify.get('/analytics/activity-grid', { preHandler: marketingViewers }, async (request, reply) => {
+    const result = AnalyticsQuerySchema.safeParse(request.query)
+    if (!result.success) {
+      return reply.code(400).send({ error: 'Invalid query', details: result.error.flatten() })
+    }
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getActivityGrid(tenantId, result.data))
+  })
+
+  // GET /marketing/agents/:id/summary?from=&to=&stores=
+  fastify.get('/agents/:id/summary', { preHandler: marketingViewers }, async (request, reply) => {
+    const params = AgentIdParam.safeParse(request.params)
+    const query = AnalyticsQuerySchema.safeParse(request.query)
+    if (!params.success || !query.success) {
+      return reply.code(400).send({ error: 'Invalid request' })
+    }
+    const { tenantId } = request.user as JWTPayload
+    await assertAgentInTenant(tenantId, params.data.id)
+    return reply.send(await getAgentSummary(tenantId, params.data.id, query.data))
   })
 
   // GET /marketing/agents/:id/calendar?month=YYYY-MM

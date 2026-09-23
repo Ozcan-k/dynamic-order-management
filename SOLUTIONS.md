@@ -5,6 +5,19 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-09-23] Dev: blank page after adding an export to `@dom/shared` — stale Vite dep cache (v2.89.0)
+
+### Problem
+After adding `marketingScore` to `shared/src/sales.ts` and rebuilding shared, the dev frontend rendered an empty `#root`; the browser console said `The requested module '/node_modules/.vite/deps/@dom_shared.js' does not provide an export named 'marketingScore'`.
+
+### Root cause
+Vite pre-bundles `@dom/shared` into `node_modules/.vite/deps` and does not notice when the workspace package's `dist/` changes. Production is unaffected (the Dockerfile builds shared first, then the frontend).
+
+### Fix
+Stop the dev servers, delete `frontend/node_modules/.vite` (and `node_modules/.vite`), then `npm run dev` again. Any time a new **export** is added to `@dom/shared`, rebuild shared (`npm run build --workspace=shared`) and clear the Vite cache before testing.
+
+---
+
 ## [2026-06-03] Windows PowerShell 5.1 corrupts `→` / `—` in large files via Get-Content -Raw + Set-Content (v2.56.0 docs)
 
 ### Problem

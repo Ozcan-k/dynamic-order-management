@@ -57,12 +57,28 @@ export async function fetchCalendar(month: string): Promise<CalendarResponse> {
   return data
 }
 
+export interface DayDetailLive {
+  platform: string
+  hours: number
+  orders: number
+  views: number
+  likes: number
+  comments: number
+  shares: number
+  followers: number
+}
+
 export interface DayDetailStore {
   store: string
   contentPostsCount: number
   liveSellingHours: number
   liveSellingOrders: number
   marketplaceInquiries: number
+  // v2.89 additive (Marketing Report day view)
+  contentPostsRequired?: number
+  contentPostsDone?: number
+  listingsCreated?: number
+  live?: DayDetailLive[]
 }
 
 export interface DayDetailResponse {

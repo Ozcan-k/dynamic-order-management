@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import {
   CONTENT_POST_MATRIX,
+  CONTENT_SLOTS_PER_STORE_DAY,
   ContentPostType,
   LIVE_SELLING_PLATFORMS,
   SalesPlatform,
@@ -305,6 +306,23 @@ export async function getDayDetail(tenantId: string, agentId: string, date: stri
       liveSellingHours: a.liveSellingMetrics.reduce((sum, m) => sum + Number(m.hours), 0),
       liveSellingOrders: a.liveSellingMetrics.reduce((sum, m) => sum + m.orders, 0),
       marketplaceInquiries: a.marketplaceReport?.inquiries ?? 0,
+      // v2.89 additive fields (Marketing Report day view) — existing consumers ignore them
+      contentPostsRequired: CONTENT_SLOTS_PER_STORE_DAY,
+      contentPostsDone: a.contentPosts.filter((p) =>
+        (CONTENT_POST_MATRIX[p.platform as SalesPlatform] ?? []).includes(p.postType as ContentPostType)).length,
+      listingsCreated: a.marketplaceReport?.listingsCreated ?? 0,
+      live: a.liveSellingMetrics
+        .filter((m) => Number(m.hours) > 0 || m.orders > 0 || m.views > 0)
+        .map((m) => ({
+          platform: m.platform,
+          hours: Number(m.hours),
+          orders: m.orders,
+          views: m.views,
+          likes: m.likes,
+          comments: m.comments,
+          shares: m.shares,
+          followers: m.followers,
+        })),
     }))
     .filter((s) =>
       s.contentPostsCount > 0 ||
