@@ -9,6 +9,7 @@ import {
   getTeamPerformance,
   getEmployeePerformance,
   getLiveBoard,
+  getLiveRoleBoard,
   listPerformanceWorkers,
   PerfRangeError,
   PerfWorkerNotFoundError,
@@ -593,6 +594,20 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     const q = request.query as { date?: string }
     try {
       return reply.send(await getLiveBoard(tenantId, q.date?.trim() || undefined))
+    } catch (err) {
+      if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
+      throw err
+    }
+  })
+
+  // GET /reports/live-workers?role=PICKER|PACKER&date= — one role of the live floor (v2.90.0),
+  // used by the Picker/Packer Admin workload cards. Same engine + numbers as /live-board.
+  fastify.get('/live-workers', { preHandler: perfPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const q = request.query as { role?: string; date?: string }
+    if (q.role !== 'PICKER' && q.role !== 'PACKER') return reply.code(400).send({ error: 'role must be PICKER or PACKER' })
+    try {
+      return reply.send(await getLiveRoleBoard(tenantId, q.role, q.date?.trim() || undefined))
     } catch (err) {
       if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
       throw err

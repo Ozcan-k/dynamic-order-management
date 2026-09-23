@@ -10,6 +10,12 @@ import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import ManilaClock from '../components/shared/ManilaClock'
 import CarrierCountChips from '../components/shared/CarrierCountChips'
+import TeamPulse from '../components/workload/TeamPulse'
+import WorkloadSection from '../components/workload/WorkloadSection'
+import WorkerPicker from '../components/workload/WorkerPicker'
+import PerformanceCompare from '../components/workload/PerformanceCompare'
+import { mergeWorkers, summarize, type WorkloadFilter, type WorkloadSort } from '../components/workload/model'
+import { useLiveWorkers } from '../components/workload/useLiveWorkers'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
@@ -18,6 +24,10 @@ import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
 import ViewOnlyBadge from '../components/shared/ViewOnlyBadge'
 import { UserRole } from '@dom/shared'
+
+// Roles allowed to read the live floor (/reports/live-workers). OUTBOUND_ADMIN views this
+// page read-only without that access, so its workload cards fall back to plain counts.
+const LIVE_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]
 
 type PackerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'pickedBy' | 'arrivedAt'
 
@@ -663,86 +673,6 @@ function PackerOrdersModal({
 
 // ─── Per-packer stat card ────────────────────────────────────────────────────
 
-function PackerStatCard({ stat, onClick }: { stat: PackerStat; onClick: () => void }) {
-  const hasOrders = stat.assigned > 0 || stat.completedToday > 0
-
-  return (
-    <div
-      className="picker-stat-card"
-      onClick={onClick}
-      style={{ cursor: 'pointer' }}
-    >
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-        <Avatar username={stat.packer.username} size={32} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '13px', color: colors.textPrimary, lineHeight: 1.2 }}>
-            {stat.packer.username}
-          </div>
-          <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
-            {stat.assigned} active · {stat.completedToday} packed today
-          </div>
-        </div>
-        {/* Total active badge — mirrors PickerStatCard */}
-        {stat.assigned > 0 && (
-          <span style={{
-            background: '#dbeafe', color: '#1d4ed8',
-            borderRadius: '9999px', padding: '2px 8px',
-            fontSize: '12px', fontWeight: 700, flexShrink: 0,
-          }}>
-            {stat.assigned}
-          </span>
-        )}
-      </div>
-
-      {/* Status chips */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: '5px',
-          background: '#dbeafe', color: '#1e40af',
-          borderRadius: '6px', padding: '4px 8px',
-          fontSize: '11px', fontWeight: 600,
-          opacity: stat.assigned === 0 ? 0.45 : 1,
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6', flexShrink: 0 }} />
-          Assigned: {stat.assigned}
-        </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: '5px',
-          background: '#d1fae5', color: '#065f46',
-          borderRadius: '6px', padding: '4px 8px',
-          fontSize: '11px', fontWeight: 600,
-          opacity: stat.completedToday === 0 ? 0.45 : 1,
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
-          Done Today: {stat.completedToday}
-        </div>
-      </div>
-
-      {/* Completion progress bar */}
-      {hasOrders && (
-        <div style={{ marginTop: '12px' }}>
-          <div style={{ height: '4px', borderRadius: '9999px', background: colors.border, overflow: 'hidden', display: 'flex', gap: '2px' }}>
-            {stat.assigned > 0 && (
-              <div style={{ flex: stat.assigned, background: '#3b82f6', transition: 'flex 0.4s ease' }} />
-            )}
-            {stat.completedToday > 0 && (
-              <div style={{ flex: stat.completedToday, background: '#10b981', transition: 'flex 0.4s ease' }} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {!hasOrders && (
-        <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '8px', fontStyle: 'italic' }}>
-          No orders assigned
-        </div>
-      )}
-
-    </div>
-  )
-}
-
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10
@@ -866,6 +796,22 @@ export default function PackerAdmin() {
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr).length
   const statsList = statsData?.stats ?? []
+
+  // Live workload (v2.90.0): page stats (10 s) merged with the live floor (30 s + socket)
+  const canSeeLive = !!user && LIVE_ROLES.includes(user.role)
+  const liveQuery = useLiveWorkers('PACKER', canSeeLive)
+  const [wlFilter, setWlFilter] = useState<WorkloadFilter>('ALL')
+  const [wlSort, setWlSort] = useState<WorkloadSort>('attention')
+  const workers = useMemo(() => mergeWorkers(
+    (statsData?.stats ?? []).map((st) => ({
+      id: st.packer.id,
+      username: st.packer.username,
+      active: st.assigned,
+      completedToday: st.completedToday,
+    })),
+    liveQuery.data,
+  ), [statsData, liveQuery.data])
+  const pulse = canSeeLive && liveQuery.data ? summarize(workers, liveQuery.data) : null
   const returnedCount = statsData?.returnedCount ?? 0
   // In Progress = orders assigned to packers (PACKER_ASSIGNED + PACKING); equals the sum of
   // the workload cards below. Total Packed = packers' completions today (resets at midnight).
@@ -1134,6 +1080,7 @@ export default function PackerAdmin() {
       <ManilaClock />
 
       <CarrierCountChips stage="packer" items={statsData?.carrierBreakdown ?? []} isLoading={!statsData} />
+      {canSeeLive && pulse && <TeamPulse role="PACKER" summary={pulse} loading={liveQuery.isLoading} onFilter={setWlFilter} />}
 
       {/* Feedback banner */}
       {actionFeedback && (
@@ -1176,17 +1123,15 @@ export default function PackerAdmin() {
 
           {/* Right: packer select + assign staged button */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '230px' }}>
-            <select
-              className="styled-select"
+            <WorkerPicker
+              role="PACKER"
+              workers={packers}
+              views={workers}
               value={selectedPackerId}
-              onChange={e => setSelectedPackerId(e.target.value)}
-              style={{ minHeight: '40px' }}
-            >
-              <option value="">Select packer…</option>
-              {packers.map(p => (
-                <option key={p.id} value={p.id}>{p.username}</option>
-              ))}
-            </select>
+              onChange={setSelectedPackerId}
+              incoming={stagedOrders.length}
+              hasLive={!!pulse}
+            />
             <button
               className="btn btn-primary"
               onClick={handleAssignStaged}
@@ -1613,39 +1558,27 @@ export default function PackerAdmin() {
         </>
       )}
 
-      {/* Packer workload section */}
-      <div style={{ marginTop: '32px' }}>
-        <SectionHeader title="Packer Workload" count={statsList.length} />
-        {statsList.length === 0 ? (
-          <div className="empty-state" style={{ marginTop: '12px' }}>
-            <div className="empty-state-icon">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            </div>
-            <p className="empty-state-title">No packers found</p>
-            <p className="empty-state-desc">Add packer users from the User Management panel.</p>
-          </div>
-        ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: '12px',
-            marginTop: '12px',
-          }}>
-            {statsList.map((stat) => (
-              <PackerStatCard
-                key={stat.packer.id}
-                stat={stat}
-                onClick={() => setPackerModal(stat)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Packer workload section — live cards (v2.90.0) */}
+      <WorkloadSection
+        role="PACKER"
+        workers={workers}
+        summary={pulse}
+        currentHour={liveQuery.data?.currentHour ?? null}
+        filter={wlFilter}
+        sort={wlSort}
+        onFilter={setWlFilter}
+        onSort={setWlSort}
+        onOpen={(w) => {
+          const st = statsList.find((x) => x.packer.id === w.id)
+          if (st) setPackerModal(st)
+        }}
+        emptyHint="Add packer users from the User Management panel."
+      />
+
+      {/* Comparative performance — Today (live) / Yesterday / 7 days / This month (v2.90.0) */}
+      {canSeeLive && (
+        <PerformanceCompare role="PACKER" live={liveQuery.data} today={liveQuery.data?.date ?? getManilaDateString()} />
+      )}
 
       {/* Complete confirmation dialog */}
       {completeTarget && (

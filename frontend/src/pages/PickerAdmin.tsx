@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
@@ -10,6 +10,12 @@ import ScanInput from '../components/ScanInput'
 import PageShell from '../components/shared/PageShell'
 import ManilaClock from '../components/shared/ManilaClock'
 import CarrierCountChips from '../components/shared/CarrierCountChips'
+import TeamPulse from '../components/workload/TeamPulse'
+import WorkloadSection from '../components/workload/WorkloadSection'
+import WorkerPicker from '../components/workload/WorkerPicker'
+import PerformanceCompare from '../components/workload/PerformanceCompare'
+import { mergeWorkers, summarize, type WorkloadFilter, type WorkloadSort } from '../components/workload/model'
+import { useLiveWorkers } from '../components/workload/useLiveWorkers'
 import StatCard from '../components/shared/StatCard'
 import Avatar from '../components/shared/Avatar'
 import PlatformBadge from '../components/shared/PlatformBadge'
@@ -18,6 +24,10 @@ import SortableTh from '../components/shared/SortableTh'
 import SlaHistoryModal from '../components/SlaHistoryModal'
 import ViewOnlyBadge from '../components/shared/ViewOnlyBadge'
 import { UserRole } from '@dom/shared'
+
+// Roles allowed to read the live floor (/reports/live-workers). OUTBOUND_ADMIN views this
+// page read-only without that access, so its workload cards fall back to plain counts.
+const LIVE_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN]
 
 type PickerSortKey = 'tracking' | 'platform' | 'carrier' | 'shop' | 'delay' | 'scannedAt' | 'scannedBy'
 
@@ -777,266 +787,6 @@ function PickerOrdersModal({
 }
 
 // ─── Per-picker stat card ────────────────────────────────────────────────────
-function PickerStatCard({ stat, onClick, onPrefetch }: { stat: PickerStat; onClick: () => void; onPrefetch?: () => void }) {
-  const hasOrders = stat.total > 0 || stat.completed > 0
-
-  return (
-    <div
-      className="picker-stat-card"
-      onClick={onClick}
-      onMouseEnter={onPrefetch}
-      onFocus={onPrefetch}
-      style={{ cursor: 'pointer' }}
-    >
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-        <Avatar username={stat.picker.username} size={32} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '13px', color: colors.textPrimary, lineHeight: 1.2 }}>
-            {stat.picker.username}
-          </div>
-          <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '2px' }}>
-            {stat.total} active · {stat.completedToday} done today
-          </div>
-        </div>
-        {/* Total active badge */}
-        {stat.total > 0 && (
-          <span style={{
-            background: '#dbeafe',
-            color: '#1d4ed8',
-            borderRadius: '9999px',
-            padding: '2px 8px',
-            fontSize: '12px',
-            fontWeight: 700,
-            flexShrink: 0,
-          }}>
-            {stat.total}
-          </span>
-        )}
-      </div>
-
-      {/* Status breakdown */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <StatusChip
-          label="Assigned"
-          count={stat.statusCounts.PICKER_ASSIGNED + stat.statusCounts.PICKING}
-          bg="#dbeafe"
-          color="#1e40af"
-          dot="#3b82f6"
-        />
-        <StatusChip
-          label="Done Today"
-          count={stat.completedToday}
-          bg="#d1fae5"
-          color="#065f46"
-          dot="#10b981"
-        />
-        {stat.returned > 0 && (
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '5px',
-            background: '#fef3c7', color: '#92400e',
-            borderRadius: '6px', padding: '4px 8px',
-            fontSize: '11px', fontWeight: 600,
-          }}>
-            ↩ Returned: {stat.returned}
-          </div>
-        )}
-      </div>
-
-      {/* Completion progress bar */}
-      {hasOrders && (
-        <div style={{ marginTop: '12px' }}>
-          <div style={{ height: '4px', borderRadius: '9999px', background: colors.border, overflow: 'hidden', display: 'flex', gap: '2px' }}>
-            {stat.statusCounts.PICKER_ASSIGNED > 0 && (
-              <div style={{
-                flex: stat.statusCounts.PICKER_ASSIGNED,
-                background: '#3b82f6',
-                transition: 'flex 0.4s ease',
-              }} />
-            )}
-            {stat.completedToday > 0 && (
-              <div style={{
-                flex: stat.completedToday,
-                background: '#10b981',
-                transition: 'flex 0.4s ease',
-              }} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {!hasOrders && (
-        <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '8px', fontStyle: 'italic' }}>
-          No orders assigned
-        </div>
-      )}
-
-    </div>
-  )
-}
-
-function StatusChip({ label, count, bg, color, dot }: {
-  label: string; count: number; bg: string; color: string; dot: string
-}) {
-  return (
-    <div style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '5px',
-      background: bg,
-      color,
-      borderRadius: '6px',
-      padding: '4px 8px',
-      fontSize: '11px',
-      fontWeight: 600,
-      opacity: count === 0 ? 0.45 : 1,
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot, flexShrink: 0 }} />
-      {label}: {count}
-    </div>
-  )
-}
-
-// ─── Custom picker dropdown ──────────────────────────────────────────────────
-function PickerSelect({
-  pickers,
-  value,
-  onChange,
-}: {
-  pickers: Picker[]
-  value: string
-  onChange: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  const selected = pickers.find(p => p.id === value) ?? null
-
-  // Close on outside click
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  return (
-    <div ref={ref} style={{ position: 'relative', minWidth: '220px' }}>
-      {/* Trigger button */}
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '8px 12px',
-          background: selected ? '#eff6ff' : '#fff',
-          border: `1.5px solid ${selected ? colors.primary : colors.borderStrong}`,
-          borderRadius: '8px',
-          cursor: 'pointer',
-          fontSize: '13px',
-          fontWeight: selected ? 600 : 400,
-          color: selected ? colors.primary : colors.textSecondary,
-          transition: 'all 0.15s',
-          textAlign: 'left',
-        }}
-      >
-        {selected ? (
-          <>
-            <Avatar username={selected.username} size={24} />
-            <span style={{ flex: 1 }}>{selected.username}</span>
-            {/* Selected checkmark */}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </>
-        ) : (
-          <>
-            <span style={{
-              width: 24, height: 24, borderRadius: '50%',
-              background: '#e5e7eb', display: 'inline-flex',
-              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </span>
-            <span style={{ flex: 1 }}>Select a picker...</span>
-          </>
-        )}
-        {/* Chevron */}
-        <svg
-          width="14" height="14" viewBox="0 0 24 24" fill="none"
-          stroke={selected ? colors.primary : '#9ca3af'}
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s', flexShrink: 0 }}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-
-      {/* Dropdown list */}
-      {open && (
-        <div style={{
-          position: 'absolute',
-          top: 'calc(100% + 6px)',
-          left: 0,
-          right: 0,
-          background: '#fff',
-          border: `1px solid ${colors.border}`,
-          borderRadius: '10px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          zIndex: 50,
-          overflow: 'hidden',
-          maxHeight: '320px',
-          overflowY: 'auto',
-        }}>
-          {pickers.map(p => {
-            const isActive = p.id === value
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => { onChange(p.id); setOpen(false) }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '9px 14px',
-                  background: isActive ? '#eff6ff' : 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? colors.primary : colors.textPrimary,
-                  textAlign: 'left',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc' }}
-                onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
-              >
-                <Avatar username={p.username} size={26} />
-                <span style={{ flex: 1 }}>{p.username}</span>
-                {isActive && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Main component ──────────────────────────────────────────────────────────
 export default function PickerAdmin() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
@@ -1241,7 +991,22 @@ export default function PickerAdmin() {
   const orderList = orders ?? []
   const carryoverCount = orderList.filter(o => getManilaDateString(new Date(o.workDate)) < todayStr).length
   const pickerList = pickers ?? []
-  const statsList = statsData?.stats ?? []
+  // Live workload (v2.90.0): page stats (10 s) merged with the live floor (30 s + socket)
+  const canSeeLive = !!user && LIVE_ROLES.includes(user.role)
+  const liveQuery = useLiveWorkers('PICKER', canSeeLive)
+  const [wlFilter, setWlFilter] = useState<WorkloadFilter>('ALL')
+  const [wlSort, setWlSort] = useState<WorkloadSort>('attention')
+  const workers = useMemo(() => mergeWorkers(
+    (statsData?.stats ?? []).map((st) => ({
+      id: st.picker.id,
+      username: st.picker.username,
+      active: st.statusCounts.PICKER_ASSIGNED + st.statusCounts.PICKING,
+      completedToday: st.completedToday,
+      returned: st.returned,
+    })),
+    liveQuery.data,
+  ), [statsData, liveQuery.data])
+  const pulse = canSeeLive && liveQuery.data ? summarize(workers, liveQuery.data) : null
   const returnedFromPacker = statsData?.returnedCount ?? 0
   // In Progress = orders assigned to pickers (PICKER_ASSIGNED + PICKING); equals the sum
   // of the workload cards below. Total Completed = pickers' completions today (resets daily).
@@ -1435,6 +1200,7 @@ export default function PickerAdmin() {
       <ManilaClock />
 
       <CarrierCountChips stage="picker" items={statsData?.carrierBreakdown ?? []} isLoading={!statsData} />
+      {canSeeLive && pulse && <TeamPulse role="PICKER" summary={pulse} loading={liveQuery.isLoading} onFilter={setWlFilter} />}
 
       {/* ── Scan & Stage ── (hidden for read-only viewers) */}
       {!readOnly && (
@@ -1467,10 +1233,14 @@ export default function PickerAdmin() {
 
           {/* Right: picker select + assign staged button */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '230px' }}>
-            <PickerSelect
-              pickers={pickerList}
+            <WorkerPicker
+              role="PICKER"
+              workers={pickerList}
+              views={workers}
               value={selectedPickerId}
               onChange={setSelectedPickerId}
+              incoming={stagedOrders.length || selectedIds.size}
+              hasLive={!!pulse}
             />
             <button
               className="btn btn-primary"
@@ -1863,47 +1633,32 @@ export default function PickerAdmin() {
         </>
       )}
 
-      {/* Picker workload section */}
-      <div style={{ marginTop: '32px' }}>
-        <SectionHeader title="Picker Workload" count={statsList.length} />
-        {statsList.length === 0 ? (
-          <div className="empty-state" style={{ marginTop: '12px' }}>
-            <div className="empty-state-icon">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            </div>
-            <p className="empty-state-title">No pickers found</p>
-            <p className="empty-state-desc">Run the seed script to create picker accounts.</p>
-          </div>
-        ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-            gap: '12px',
-            marginTop: '12px',
-          }}>
-            {statsList.map(stat => (
-              <PickerStatCard
-                key={stat.picker.id}
-                stat={stat}
-                onClick={() => setModalPicker({ id: stat.picker.id, username: stat.picker.username })}
-                onPrefetch={() => queryClient.prefetchQuery({
-                  queryKey: ['picker-orders', stat.picker.id],
-                  queryFn: async () => {
-                    const res = await api.get<{ orders: PickerOrderRow[] }>(`/picker-admin/picker/${stat.picker.id}/orders`)
-                    return res.data.orders
-                  },
-                  staleTime: 5_000,
-                })}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Picker workload section — live cards (v2.90.0) */}
+      <WorkloadSection
+        role="PICKER"
+        workers={workers}
+        summary={pulse}
+        currentHour={liveQuery.data?.currentHour ?? null}
+        filter={wlFilter}
+        sort={wlSort}
+        onFilter={setWlFilter}
+        onSort={setWlSort}
+        onOpen={(w) => setModalPicker({ id: w.id, username: w.username })}
+        onPrefetch={(w) => queryClient.prefetchQuery({
+          queryKey: ['picker-orders', w.id],
+          queryFn: async () => {
+            const res = await api.get<{ orders: PickerOrderRow[] }>(`/picker-admin/picker/${w.id}/orders`)
+            return res.data.orders
+          },
+          staleTime: 5_000,
+        })}
+        emptyHint="Run the seed script to create picker accounts."
+      />
+
+      {/* Comparative performance — Today (live) / Yesterday / 7 days / This month (v2.90.0) */}
+      {canSeeLive && (
+        <PerformanceCompare role="PICKER" live={liveQuery.data} today={liveQuery.data?.date ?? getManilaDateString()} />
+      )}
 
       {modalPicker && (
         <PickerOrdersModal

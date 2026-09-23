@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
@@ -528,13 +529,26 @@ function OrderTimelineSection() {
 
 export default function Reports() {
   const [days, setDays] = useState(30)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('live')
+  // Optional deep link (v2.90.0, from Picker/Packer Admin): ?tab=performance|employee&role=&from=&to=&userId=
+  // Read once for the initial state only — the page keeps its own state afterwards.
+  const [sp] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const t = sp.get('tab')
+    return t === 'performance' || t === 'employee' || t === 'live' || t === 'sla' || t === 'timeline' ? t : 'live'
+  })
 
   // Shared by the Performance + Employee Report tabs so switching keeps the period.
   const [today] = useState(() => getManilaDateString())
-  const [perfRange, setPerfRange] = useState<PerfRange>(() => presetRange('last30', getManilaDateString()))
-  const [perfRole, setPerfRole] = useState<PerfRole>('PICKER')
-  const [employeeUserId, setEmployeeUserId] = useState<string | null>(null)
+  const [perfRange, setPerfRange] = useState<PerfRange>(() => {
+    const from = sp.get('from')
+    const to = sp.get('to')
+    const re = /^\d{4}-\d{2}-\d{2}$/
+    return from && to && re.test(from) && re.test(to) && from <= to
+      ? { preset: 'custom', from, to }
+      : presetRange('last30', getManilaDateString())
+  })
+  const [perfRole, setPerfRole] = useState<PerfRole>(() => (sp.get('role') === 'PACKER' ? 'PACKER' : 'PICKER'))
+  const [employeeUserId, setEmployeeUserId] = useState<string | null>(() => sp.get('userId'))
 
   const openEmployee = useCallback((userId: string) => {
     setEmployeeUserId(userId)

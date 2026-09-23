@@ -222,6 +222,15 @@ export interface LiveBoard {
   roles: Record<PerfRole, LiveRoleBoard>
 }
 
+/** A single role of the live floor (GET /reports/live-workers, v2.90) — same numbers as LiveBoard.roles[role]. */
+export interface LiveRoleSnapshot {
+  date: string
+  isLive: boolean
+  generatedAt: string
+  currentHour: number | null
+  board: LiveRoleBoard
+}
+
 /** Active picker/packer users that can be picked in the employee report or linked to an employee. */
 export interface PerfWorkerOption {
   userId: string

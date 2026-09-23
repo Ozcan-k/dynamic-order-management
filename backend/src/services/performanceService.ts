@@ -9,6 +9,7 @@ import {
   LIVE_DEFAULT_SHIFT_HOURS,
   type LiveBoard,
   type LiveRoleBoard,
+  type LiveRoleSnapshot,
   type LiveRoleTotals,
   type LiveState,
   type LiveWorker,
@@ -597,7 +598,11 @@ function liveTotals(workers: LiveWorker[]): LiveRoleTotals {
 }
 
 /** Live floor board for both roles. `date` omitted / today = live; a past day (≤ 90 days back) = replay. */
-export async function getLiveBoard(tenantId: string, dateInput?: string): Promise<LiveBoard> {
+/**
+ * Shared engine for the live floor. Only the requested roles are loaded, so a
+ * single-role consumer (Picker/Packer Admin workload, v2.90) runs half the queries.
+ */
+async function loadLiveRoles(tenantId: string, dateInput: string | undefined, roles: PerfRole[]) {
   const today = getManilaDateString()
   let date = today
   if (dateInput && dateInput !== today) {
@@ -610,14 +615,19 @@ export async function getLiveBoard(tenantId: string, dateInput?: string): Promis
   const now = new Date()
   const lastHourCut = new Date(now.getTime() - HOUR_MS)
 
-  const [pickers, packers] = await Promise.all([loadWorkers(tenantId, 'PICKER'), loadWorkers(tenantId, 'PACKER')])
+  const want = (r: PerfRole) => roles.includes(r)
+  const [pickers, packers] = await Promise.all([
+    want('PICKER') ? loadWorkers(tenantId, 'PICKER') : Promise.resolve([] as WorkerSource[]),
+    want('PACKER') ? loadWorkers(tenantId, 'PACKER') : Promise.resolve([] as WorkerSource[]),
+  ])
   const employeeIds = [...pickers, ...packers].flatMap((w) => (w.employee ? [w.employee.id] : []))
+  const noOpen = () => Promise.resolve(new Map<string, { queued: number; inHand: number }>())
 
   const [pickRaw, packRaw, pickOpen, packOpen, schedRows] = await Promise.all([
-    loadDayCompletions('PICKER', pickers.map((w) => w.userId), date, lastHourCut),
-    loadDayCompletions('PACKER', packers.map((w) => w.userId), date, lastHourCut),
-    isLive ? loadOpenWork(tenantId, 'PICKER', pickers.map((w) => w.userId)) : Promise.resolve(new Map()),
-    isLive ? loadOpenWork(tenantId, 'PACKER', packers.map((w) => w.userId)) : Promise.resolve(new Map()),
+    want('PICKER') ? loadDayCompletions('PICKER', pickers.map((w) => w.userId), date, lastHourCut) : Promise.resolve(new Map<string, LiveRaw>()),
+    want('PACKER') ? loadDayCompletions('PACKER', packers.map((w) => w.userId), date, lastHourCut) : Promise.resolve(new Map<string, LiveRaw>()),
+    isLive && want('PICKER') ? loadOpenWork(tenantId, 'PICKER', pickers.map((w) => w.userId)) : noOpen(),
+    isLive && want('PACKER') ? loadOpenWork(tenantId, 'PACKER', packers.map((w) => w.userId)) : noOpen(),
     employeeIds.length
       ? prisma.empSchedule.findMany({
           where: { tenantId, employeeId: { in: employeeIds }, date: new Date(`${date}T00:00:00.000Z`) },
@@ -642,11 +652,22 @@ export async function getLiveBoard(tenantId: string, dateInput?: string): Promis
     isLive,
     generatedAt: now.toISOString(),
     currentHour: isLive ? new Date(now.getTime() + 8 * HOUR_MS).getUTCHours() : null,
-    roles: {
-      PICKER: board('PICKER', pickers, pickRaw, pickOpen),
-      PACKER: board('PACKER', packers, packRaw, packOpen),
+    boards: {
+      PICKER: want('PICKER') ? board('PICKER', pickers, pickRaw, pickOpen) : null,
+      PACKER: want('PACKER') ? board('PACKER', packers, packRaw, packOpen) : null,
     },
   }
+}
+
+export async function getLiveBoard(tenantId: string, dateInput?: string): Promise<LiveBoard> {
+  const { boards, ...meta } = await loadLiveRoles(tenantId, dateInput, ['PICKER', 'PACKER'])
+  return { ...meta, roles: { PICKER: boards.PICKER!, PACKER: boards.PACKER! } }
+}
+
+/** One role of the live floor — Picker/Packer Admin workload cards (v2.90). */
+export async function getLiveRoleBoard(tenantId: string, role: PerfRole, dateInput?: string): Promise<LiveRoleSnapshot> {
+  const { boards, ...meta } = await loadLiveRoles(tenantId, dateInput, [role])
+  return { ...meta, board: boards[role]! }
 }
 
 /** Active pickers + packers selectable in the employee report (inactive employees hidden). */

@@ -1,8 +1,10 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.89.0  
-> **Date:** 2026-09-23  
-> **Status:** **v2.89.0 (live — deployed 2026-09-23, verified on prod and by the user)** — **Marketing Report + agent panel rebuilt.** New read-only analytics endpoints (`GET /marketing/analytics/overview`, `GET /marketing/analytics/activity-grid`, `GET /marketing/agents/:id/summary`; pure aggregation in `services/marketingAnalytics.ts`, Prisma loading in `marketingAnalyticsService.ts`; `from/to` ≤ 366 days + optional `agentIds`/`stores`). Content completion is measured against the mandatory matrix (`CONTENT_SLOTS_PER_STORE_DAY` = 9 per store-day reported); the score formula is unchanged and now lives once in shared `MARKETING_SCORE_WEIGHTS` / `marketingScore()`. UI: URL-driven filters, 6 KPIs with period-over-period deltas + sparklines, five tabs (Overview · Content · Live Selling · Sales · Activity), and the agent drill-down is now a route (`/marketing-report/agents/:agentId`) with team comparison, streaks, calendar and a redesigned day modal (order edit/delete shown to ADMIN only). `getDayDetail` gained additive fields only. No schema change, no new dependency.
+> **Version:** 2.90.0  
+> **Date:** 2026-09-24  
+> **Status:** **v2.90.0 (test)** — **Picker / Packer Admin live workload.** New read-only `GET /reports/live-workers?role=` (one role of the live floor; engine extracted to `loadLiveRoles`, `/reports/live-board` output verified identical to the previous code). Shared `components/workload/*` replace both pages' duplicated workload cards: Team pulse strip (state counts → filter, team done/target/projection, load-balance warning), live worker cards (state, target progress + projection, queue vs in hand, hourly rhythm, heavy-queue / can-take-more flags, sort + filter), an assignment dropdown showing each worker's load and "clears in ~N min" with a "Suggested" hint (no auto-assign), and a comparative performance section (Today live / Yesterday / 7 days / This month) that reuses the Warehouse Report presets and endpoint so the numbers match exactly. `Reports.tsx` reads optional deep-link params. OUTBOUND_ADMIN access unchanged (live parts hidden). No schema change, no new dependency.
+>
+> **Previous status:** **v2.89.0 (live — deployed 2026-09-23, verified on prod and by the user)** — **Marketing Report + agent panel rebuilt.** New read-only analytics endpoints (`GET /marketing/analytics/overview`, `GET /marketing/analytics/activity-grid`, `GET /marketing/agents/:id/summary`; pure aggregation in `services/marketingAnalytics.ts`, Prisma loading in `marketingAnalyticsService.ts`; `from/to` ≤ 366 days + optional `agentIds`/`stores`). Content completion is measured against the mandatory matrix (`CONTENT_SLOTS_PER_STORE_DAY` = 9 per store-day reported); the score formula is unchanged and now lives once in shared `MARKETING_SCORE_WEIGHTS` / `marketingScore()`. UI: URL-driven filters, 6 KPIs with period-over-period deltas + sparklines, five tabs (Overview · Content · Live Selling · Sales · Activity), and the agent drill-down is now a route (`/marketing-report/agents/:agentId`) with team comparison, streaks, calendar and a redesigned day modal (order edit/delete shown to ADMIN only). `getDayDetail` gained additive fields only. No schema change, no new dependency.
 >
 > **Previous status:** **v2.88.0 (live)** — **One employee → many logins**: link moved to `User.employeeId` (nullable FK, SET NULL); `EmpEmployee.userId` kept as deprecated and drained at startup (`migrateEmployeeLinksToUsers`); Employee Schedule edits `userIds[]`, Settings Employee ID may repeat across accounts. Additive schema. v2.87.0 — **Employee ID link open to every role** (Settings → Edit shows *Employee ID* for all users; `listLinkableUsers`/`assertLinkable` accept any active user; Warehouse Report still reads PICKER/PACKER only). No schema change. v2.86.1 — **New carrier: Shopee Instant** (`Carrier.SHOPEE_INSTANT`, additive enum value; shows in every carrier dropdown incl. inbound Quick/Bulk Scan). v2.86.0 — **4-digit employee IDs + Employee ID linking from Settings**: `empNo` shifted +900 (#101 → 1001) by an idempotent startup migration (`migrateEmpNosToFourDigit`), `#` prefix removed everywhere (UI, PDF, CSV); Settings → Edit (Picker/Packer) takes an **Employee ID** that sets the same `EmpEmployee.userId` link (`PATCH /users/:id { employeeNo }`), so Warehouse Report applies half days / days off. Schema: `EmpCounter` default 100 → 1000 only. Previous: v2.85.0 — Live Performance rebuilt as a live floor board. See Section 13.
 >
@@ -1396,15 +1398,15 @@ frontend/
 │   │   ├── Dashboard.tsx          ← / for ADMIN/INBOUND_ADMIN (Phase 11) — pipeline KPIs + SLA summary
 │   │   ├── Inbound.tsx            ← /dashboard — Phase 2 (Single + Bulk scan modal, pagination 25/page)
 │   │   ├── InboundScan.tsx        ← /inbound-scan — phase 10b handheld camera scan, single + bulk modes
-│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 + scan+stage + workload cards
+│   │   ├── PickerAdmin.tsx        ← /picker-admin — Phase 3+4 + scan+stage + v2.90.0 live workload (components/workload/*)
 │   │   ├── PickerAdminScan.tsx    ← /picker-admin-scan — phone scan station (relays via socket)
 │   │   ├── PickerMobile.tsx       ← /picker — login + own PICKER_ASSIGNED orders + scan complete
-│   │   ├── PackerAdmin.tsx        ← /packer-admin — v2.29.0 scan & stage + per-packer assignment + workload
+│   │   ├── PackerAdmin.tsx        ← /packer-admin — v2.29.0 scan & stage + per-packer assignment + v2.90.0 live workload
 │   │   ├── PackerAdminScan.tsx    ← /packer-admin-scan — v2.29.0 phone scan station (green theme)
 │   │   ├── PackerMobile.tsx       ← /packer — v2.29.0 own PACKER_ASSIGNED list + scan complete (green theme)
 │   │   ├── Outbound.tsx           ← /outbound — Phase 8 (dispatch queue, comparison report, stuck orders)
 │   │   ├── Archive.tsx            ← /archive — v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
-│   │   ├── Reports.tsx            ← /reports — 4 tabs: Live Performance, Performance, SLA Analytics, Order Timeline
+│   │   ├── Reports.tsx            ← /reports — Live Performance, Performance, Employee Report, SLA Analytics, Order Timeline (v2.90.0: ?tab=&role=&from=&to=&userId= deep link)
 │   │   ├── Settings.tsx           ← admin user management + sales-agent + stock-keeper creation
 │   │   ├── Users.tsx              ← legacy placeholder (Settings replaced most functionality)
 │   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
@@ -1504,7 +1506,7 @@ backend/
 │   │   ├── packer.ts              ← PACKER handheld endpoints (own assigned orders, complete)
 │   │   ├── outbound.ts            ← dispatch single + bulk, stats, stuck list
 │   │   ├── users.ts
-│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance, /reports/order-timeline (+ PDF/CSV)
+│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance, /reports/order-timeline (+ PDF/CSV); v2.84+ target/employee/live-board; v2.90.0 /live-workers
 │   │   ├── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
 │   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD (admin + read for STOCK_KEEPER)
 │   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD (admin + read for STOCK_KEEPER)
@@ -1691,6 +1693,13 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 - Pace = completed ÷ hours since first completion (min 1h); projection (live) = completed + pace × remaining shift hours; outcome vs target uses the projection while live and actual output on a past day
 - State: WORKING (completion < `LIVE_IDLE_MINUTES` = 20 min ago, or work in hand) · IDLE (started, no completion for 20+ min, shift not over) · NOT_STARTED (expected but nothing completed and nothing in hand) · DONE (shift + 1h break elapsed, or any worker with output on a past day) · OFF (scheduled off, no output) · NO_ACTIVITY
 - Frontend: `frontend/src/pages/reports/LivePerformanceTab.tsx` (+ `.live-*` in `styles/performance.css`); live mode polls every 30 s and refetches on `order:stats_changed` throttled to one call per 5 s
+
+#### Picker / Packer Admin live workload (v2.90.0)
+- Endpoint: `GET /reports/live-workers?role=PICKER|PACKER` (read-only, same RBAC as `/performance`; OUTBOUND_ADMIN → 403). Returns `LiveRoleSnapshot` (`date`, `isLive`, `generatedAt`, `currentHour`, `board: LiveRoleBoard`) — the same engine and numbers as `/reports/live-board`, computing only the requested role.
+- Frontend: `frontend/src/components/workload/` — `useLiveWorkers` (30 s poll + `order:stats_changed`, 5 s throttle), `model.ts` (merges the page's own 10 s stats with the live floor; load flags: HEAVY = ≥ 8 open and ≥ 1.5 × the on-floor median, NEEDS_WORK = working/idle with ≤ 1 open), `TeamPulse`, `WorkloadSection` + `WorkerCard`, `WorkerPicker` (assignment dropdown), `PerformanceCompare`. Styles: `styles/workload.css`.
+- Assignment hint: "Suggested" = the WORKING worker whose open queue clears first at their own pace (open ÷ pace); falls back to the lightest IDLE worker. Advisory only — nothing is auto-assigned.
+- Comparative performance: Today uses the live snapshot (ranked by projection vs own target); Yesterday / 7 days / This month call `GET /reports/target-performance` with the Warehouse Report's `presetRange` (7 days ends yesterday; This month shows today but excludes it from totals) and share its React Query cache key. Rows link to `/reports?tab=employee&userId=&from=&to=`.
+- OUTBOUND_ADMIN (read-only viewer of these pages) is not granted the performance endpoints: the live query is never issued, the pulse / filters / performance section are hidden and the cards show plain counts.
 
 #### Performance (target) + Employee Report tabs — data model (v2.84.0)
 - Endpoints (read-only, same RBAC as `/performance`): `GET /reports/target-performance?role=PICKER|PACKER&from=&to=`, `GET /reports/employee-performance?userId=&from=&to=`, `GET /reports/performance-workers`. Service: `backend/src/services/performanceService.ts`

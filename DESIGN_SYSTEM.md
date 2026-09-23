@@ -5,6 +5,19 @@
 
 ---
 
+## Picker / Packer Admin — `.wl-*` live workload (v2.90.0)
+
+Shared by both admin pages via `frontend/src/components/workload/` and `styles/workload.css`.
+
+- **Role accent** through `--wl-accent` / `--wl-soft`: pickers blue `#2563eb`, packers teal `#0e7490` — the same accents as the Warehouse Report.
+- **Live state** colours (Working green, Idle amber, Not started red, Shift done / Off / No activity slate) always ship with the state label; Working blinks (disabled under reduced motion).
+- **Target outcome** reuses the Warehouse Report `OUTCOME_COLOR` (met / near 90–99 % / below 90 %) with a text label next to every bar.
+- **Progress bars:** solid fill = done, dark 2 px tick = own target or projection, dashed tick = team average, lighter extension = projection.
+- **Load flags:** Heavy queue = orange left edge + badge; Can take more = blue left edge + badge.
+- Cards and dropdown options are real `<button>`s (keyboard + screen-reader friendly); the dropdown supports ↑ / ↓ / Enter / Esc.
+
+---
+
 ## Marketing Report — `.mkt-*` report kit (v2.89.0)
 
 The Marketing Report (`/marketing-report`) and agent profile (`/marketing-report/agents/:agentId`) share one namespaced partial, `frontend/src/styles/marketing.css`, and a small component kit in `frontend/src/components/marketing/`. Chrome mirrors the Warehouse Report (`.perf-*`) so the two reports feel alike; the app has no dark theme, so neither does this kit.
@@ -107,7 +120,8 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 | 6 | `accounting.css` | Accounting module (`.acc-*`) — added v2.51.0 |
 | 7 | `performance.css` | Warehouse Report (`.perf-*`) — added v2.84.0 |
 | 8 | `marketing.css` | Marketing Report + agent profile (`.mkt-*`) — added v2.89.0 |
-| 9 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
+| 9 | `workload.css` | Picker / Packer Admin live workload (`.wl-*` cards + pulse, `.wp-*` assignment dropdown, `.pc-*` performance compare) — added v2.90.0 |
+| 10 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
 
 ### Carryover defer list (no version bump required)
 These all inherit Phase C primitive polish automatically through shared classes; per-file inline-style extractions can be done incrementally:
