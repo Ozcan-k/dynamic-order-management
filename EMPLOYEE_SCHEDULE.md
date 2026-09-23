@@ -4,6 +4,12 @@
 > **Hedef versiyon:** `v2.66.0`
 > **Konum:** Sidebar'da **Incident Report** girişinin **altında**, tek giriş "Employee Schedule".
 > **Erişim:** **ADMIN + WAREHOUSE_ADMIN** (görür + edit yapar). Başka hiçbir rol göremez.
+> **Sonraki değişiklikler:**
+> - **v2.84.0** — çalışan ↔ sistem login bağlantısı (Warehouse Report → Performance attendance'ı okur).
+> - **v2.86.0** — Employee ID'ler **4 haneli, `#`'sız** (#101 → 1001; açılışta idempotent `migrateEmpNosToFourDigit`), Settings → Edit'e **Employee ID** alanı.
+> - **v2.87.0** — Employee ID bağlantısı **tüm rollere** açık (Admin, Accountant vb.).
+> - **v2.88.0** — **Bir çalışan birden fazla login'e** bağlanabilir (örn. picker + packer hesabı): bağlantı `User.employeeId`'de; eski `EmpEmployee.userId` deprecated. Edit modal'da *Linked system logins* (çoklu).
+>
 > **Bağımsızlık:** Order pipeline'a / mevcut tablolara / mevcut raporlara **HİÇ dokunmaz**. Kendi `emp_*` tabloları, tenant-scoped, mevcut modellere FK yok. Accounting/Incident/Dispatch modüllerindeki bağımsız-modül deseninin aynısı.
 
 Görsel referans: `Downloads/employee.jpeg` (Everhour "Restaurant Schedule Template"). Haftalık grid + departman bölümleri + sol tarafta `#ID + isim + haftalık toplam saat klok` + 7 gün sütunu + her hücrede renk-kodlu dropdown. Bizim modül bu **layout'u** taklit eder, ama hücre dropdown'u **rol/saat aralığı yerine attendance status** olur ve present'te OT çıkar.
