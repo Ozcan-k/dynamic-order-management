@@ -112,6 +112,17 @@ enum IncidentType {
   MISMATCH_PARCEL_COUNT
 }
 
+/// v2.91.0 — disciplinary ladder recorded on an incident
+enum DisciplinaryAction {
+  NO_ACTION
+  COACHING
+  VERBAL_WARNING
+  WRITTEN_WARNING
+  FINAL_WARNING
+  SUSPENSION
+  TERMINATION
+}
+
 enum ReturnCancelType {
   RETURN
   CANCEL
@@ -496,34 +507,36 @@ model StockMovement {
 // Formal HR/operations incident documentation. Independent of order pipeline.
 
 model Incident {
-  id                 String       @id @default(uuid())
-  tenantId           String       @map("tenant_id")
-  incidentType       IncidentType @map("incident_type")
-  incidentDate       DateTime     @map("incident_date")
-  employeeUserId     String       @map("employee_user_id")
-  employeeFullName   String       @map("employee_full_name")
-  employeeEmail      String       @map("employee_email")
-  recipientEmail     String       @map("recipient_email")
-  reportedByUserId   String       @map("reported_by_user_id")
-  reportedByFullName String       @map("reported_by_full_name")
-  reportedByRole     String       @map("reported_by_role")
-  adminDescription   String       @map("admin_description") @db.Text
-  trackingNumber     String?      @map("tracking_number")
+  id                 String              @id @default(uuid())
+  tenantId           String              @map("tenant_id")
+  incidentType       IncidentType        @map("incident_type")
+  incidentDate       DateTime            @map("incident_date")
+  employeeUserId     String              @map("employee_user_id")
+  employeeFullName   String              @map("employee_full_name")
+  employeeEmail      String              @map("employee_email")
+  recipientEmail     String              @map("recipient_email")
+  reportedByUserId   String              @map("reported_by_user_id")
+  reportedByFullName String              @map("reported_by_full_name")
+  reportedByRole     String              @map("reported_by_role")
+  adminDescription   String              @map("admin_description") @db.Text
+  trackingNumber     String?             @map("tracking_number")
   platform           Platform?
-  shopName           String?      @map("shop_name")
-  witnessName        String?      @map("witness_name")
-  witnessPosition    String?      @map("witness_position")
-  costAmount         Decimal?     @map("cost_amount") @db.Decimal(12, 2)
-  costQuantity       Int?         @map("cost_quantity")
-  shippingCost       Decimal?     @map("shipping_cost") @db.Decimal(12, 2)
-  signedFilePath     String?      @map("signed_file_path")
-  signedFileMime     String?      @map("signed_file_mime")
-  signedUploadedAt   DateTime?    @map("signed_uploaded_at")
-  emailSentAt        DateTime?    @map("email_sent_at")
-  emailSentTo        String?      @map("email_sent_to")
-  createdById        String       @map("created_by")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  shopName           String?             @map("shop_name")
+  witnessName        String?             @map("witness_name")
+  witnessPosition    String?             @map("witness_position")
+  costAmount         Decimal?            @map("cost_amount") @db.Decimal(12, 2)
+  costQuantity       Int?                @map("cost_quantity")
+  shippingCost       Decimal?            @map("shipping_cost") @db.Decimal(12, 2)
+  /// v2.91.0 — nullable; incidents before v2.91 stay NULL ("Not recorded")
+  disciplinaryAction DisciplinaryAction? @map("disciplinary_action")
+  signedFilePath     String?             @map("signed_file_path")
+  signedFileMime     String?             @map("signed_file_mime")
+  signedUploadedAt   DateTime?           @map("signed_uploaded_at")
+  emailSentAt        DateTime?           @map("email_sent_at")
+  emailSentTo        String?             @map("email_sent_to")
+  createdById        String              @map("created_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
 
   employee   User               @relation("IncidentEmployee", fields: [employeeUserId], references: [id], onDelete: Restrict)
   reportedBy User               @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)

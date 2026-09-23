@@ -5,6 +5,19 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-09-24] Mobile: page scrolls sideways although the table has an overflow-x wrapper (v2.91.0)
+
+### Problem
+On a 390 px phone the Incident Report was 1 042 px wide. The table sat inside `.mkt-table-scroll { overflow-x: auto }`, yet the whole page scrolled horizontally.
+
+### Root cause
+Two independent causes: (1) the page body is `display: grid` with an implicit `auto` column, so the grid item grew to the table's min-content width; (2) an `.sr-only` header cell (`position: absolute`) escaped the scroll wrapper because the wrapper was not a positioned element, so it was not clipped and extended the document width.
+
+### Fix
+`grid-template-columns: minmax(0, 1fr)` on the grid page + `> * { min-width: 0 }`, and `position: relative` on the scroll wrapper. Check with `document.documentElement.scrollWidth` (not `body.scrollWidth` — body stayed 390 px while the document was 1 042 px).
+
+---
+
 ## [2026-09-23] Dev: blank page after adding an export to `@dom/shared` — stale Vite dep cache (v2.89.0)
 
 ### Problem

@@ -217,6 +217,136 @@ export function requiresCostContext(type: IncidentType): boolean {
   return COST_INCIDENT_TYPES.includes(type)
 }
 
+// ─── Incident categories + disciplinary ladder (v2.91.0) ────────────────────
+
+/** Five reporting groups for the 25 incident types. */
+export enum IncidentCategory {
+  ORDER_HANDLING = 'ORDER_HANDLING',
+  INVENTORY = 'INVENTORY',
+  ATTENDANCE = 'ATTENDANCE',
+  CONDUCT_SAFETY = 'CONDUCT_SAFETY',
+  SALES_REPORTING = 'SALES_REPORTING',
+}
+
+export const INCIDENT_CATEGORY_LABELS: Record<IncidentCategory, string> = {
+  [IncidentCategory.ORDER_HANDLING]: 'Order & parcel handling',
+  [IncidentCategory.INVENTORY]: 'Inventory',
+  [IncidentCategory.ATTENDANCE]: 'Attendance & productivity',
+  [IncidentCategory.CONDUCT_SAFETY]: 'Conduct & safety',
+  [IncidentCategory.SALES_REPORTING]: 'Sales & reporting',
+}
+
+export const INCIDENT_TYPE_CATEGORY: Record<IncidentType, IncidentCategory> = {
+  [IncidentType.WRONG_ITEM_PICKED]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.WRONG_ITEM_PACKED]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.MISSING_ITEM]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.WRONG_QUANTITY]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.PARCEL_DAMAGE]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.LOST_PARCEL]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.UNSCANNED_PARCEL]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.LATE_PROCESSING]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.COURIER_COORDINATION_FAILURE]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.FAILURE_TURN_OVER_PARCELS]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.MISMATCH_PARCEL_COUNT]: IncidentCategory.ORDER_HANDLING,
+  [IncidentType.INVENTORY_DISCREPANCY]: IncidentCategory.INVENTORY,
+  [IncidentType.DAMAGED_INVENTORY]: IncidentCategory.INVENTORY,
+  [IncidentType.UNAUTHORIZED_ABSENCE]: IncidentCategory.ATTENDANCE,
+  [IncidentType.UNDERTIME]: IncidentCategory.ATTENDANCE,
+  [IncidentType.LOW_PRODUCTIVITY]: IncidentCategory.ATTENDANCE,
+  [IncidentType.FAILURE_TO_FOLLOW_SOP]: IncidentCategory.CONDUCT_SAFETY,
+  [IncidentType.MISCONDUCT]: IncidentCategory.CONDUCT_SAFETY,
+  [IncidentType.COMPANY_PROPERTY_DAMAGE]: IncidentCategory.CONDUCT_SAFETY,
+  [IncidentType.SAFETY_INCIDENT]: IncidentCategory.CONDUCT_SAFETY,
+  [IncidentType.UNAUTHORIZED_RECORDING]: IncidentCategory.CONDUCT_SAFETY,
+  [IncidentType.FAILURE_TO_SUBMIT_REPORTS]: IncidentCategory.SALES_REPORTING,
+  [IncidentType.FAILURE_POSTING_SCHEDULE]: IncidentCategory.SALES_REPORTING,
+  [IncidentType.POOR_QUALITY_CONTENT]: IncidentCategory.SALES_REPORTING,
+  [IncidentType.WRONG_SALES_ENCODING]: IncidentCategory.SALES_REPORTING,
+}
+
+/**
+ * Disciplinary action recorded on an incident (v2.91.0). Nullable in the DB —
+ * incidents created before v2.91 stay NULL ("Not recorded"); nothing is guessed.
+ */
+export enum DisciplinaryAction {
+  NO_ACTION = 'NO_ACTION',
+  COACHING = 'COACHING',
+  VERBAL_WARNING = 'VERBAL_WARNING',
+  WRITTEN_WARNING = 'WRITTEN_WARNING',
+  FINAL_WARNING = 'FINAL_WARNING',
+  SUSPENSION = 'SUSPENSION',
+  TERMINATION = 'TERMINATION',
+}
+
+export const DISCIPLINARY_ACTION_LABELS: Record<DisciplinaryAction, string> = {
+  [DisciplinaryAction.NO_ACTION]: 'No action',
+  [DisciplinaryAction.COACHING]: 'Coaching',
+  [DisciplinaryAction.VERBAL_WARNING]: 'Verbal Warning',
+  [DisciplinaryAction.WRITTEN_WARNING]: 'Written Warning',
+  [DisciplinaryAction.FINAL_WARNING]: 'Final Written Warning',
+  [DisciplinaryAction.SUSPENSION]: 'Suspension',
+  [DisciplinaryAction.TERMINATION]: 'Termination',
+}
+
+/** Ladder position (0 = no action). Warnings are the levels ≥ VERBAL_WARNING. */
+export const DISCIPLINARY_LEVEL: Record<DisciplinaryAction, number> = {
+  [DisciplinaryAction.NO_ACTION]: 0,
+  [DisciplinaryAction.COACHING]: 1,
+  [DisciplinaryAction.VERBAL_WARNING]: 2,
+  [DisciplinaryAction.WRITTEN_WARNING]: 3,
+  [DisciplinaryAction.FINAL_WARNING]: 4,
+  [DisciplinaryAction.SUSPENSION]: 5,
+  [DisciplinaryAction.TERMINATION]: 6,
+}
+
+export function isWarningAction(a: DisciplinaryAction | null | undefined): boolean {
+  return !!a && DISCIPLINARY_LEVEL[a] >= DISCIPLINARY_LEVEL[DisciplinaryAction.VERBAL_WARNING]
+}
+
+/** Highest action on record by ladder level — null when nothing was recorded. */
+export function highestOf(actions: ReadonlyArray<DisciplinaryAction | null | undefined>): DisciplinaryAction | null {
+  let best: DisciplinaryAction | null = null
+  for (const a of actions) {
+    if (a && (!best || DISCIPLINARY_LEVEL[a] > DISCIPLINARY_LEVEL[best])) best = a
+  }
+  return best
+}
+
+/**
+ * Progressive-discipline hint: one step above the highest action already on
+ * record (a first incident suggests Coaching). Advisory only — the admin decides.
+ */
+export function suggestNextAction(highest: DisciplinaryAction | null): DisciplinaryAction {
+  const ladder = [
+    DisciplinaryAction.COACHING,
+    DisciplinaryAction.VERBAL_WARNING,
+    DisciplinaryAction.WRITTEN_WARNING,
+    DisciplinaryAction.FINAL_WARNING,
+    DisciplinaryAction.SUSPENSION,
+    DisciplinaryAction.TERMINATION,
+  ]
+  if (!highest || highest === DisciplinaryAction.NO_ACTION) return DisciplinaryAction.COACHING
+  const next = ladder.find((a) => DISCIPLINARY_LEVEL[a] > DISCIPLINARY_LEVEL[highest])
+  return next ?? DisciplinaryAction.TERMINATION
+}
+
+/** Occurrence numbers computed at read time (never stored). */
+export interface IncidentOccurrence {
+  /** Person key: linked Employee id when the login is linked, else the login's user id. */
+  personKey: string
+  /** 1-based position of this incident among the person's incidents (date order). */
+  no: number
+  /** 1-based position among the person's incidents of the same type. */
+  typeNo: number
+  /** 1-based position among the person's warning-level actions; null when this incident is not a warning. */
+  warningNo: number | null
+  /** Person's all-time incident count and in the 12 months before this incident's date (inclusive). */
+  personTotal: number
+  last12Months: number
+  /** Most recent action recorded on an EARLIER incident of the same person. */
+  previousAction: { action: DisciplinaryAction; date: string } | null
+}
+
 // ─── Return & Cancel Parcel Module ───────────────────────────────────────────
 
 export enum ReturnCancelType {

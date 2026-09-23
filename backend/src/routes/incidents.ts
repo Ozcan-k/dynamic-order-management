@@ -8,6 +8,8 @@ import {
   Platform,
   requiresParcelContext,
   requiresCostContext,
+  DisciplinaryAction,
+  IncidentCategory,
 } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import {
@@ -19,6 +21,8 @@ import {
   getIncidentStats,
   getIncidentPivot,
   getIncidentReport,
+  getIncidentOccurrence,
+  getPersonHistory,
   lookupOrderByTrackingNumber,
   saveSignedFile,
   readSignedFile,
@@ -49,6 +53,9 @@ const ListQuerySchema = z.object({
   employeeUserId: z.string().uuid().optional(),
   from:           z.string().regex(DATE_RE).optional(),
   to:             z.string().regex(DATE_RE).optional(),
+  action:         z.union([z.nativeEnum(DisciplinaryAction), z.literal('NOT_RECORDED')]).optional(),
+  category:       z.nativeEnum(IncidentCategory).optional(),
+  samePersonAs:   z.string().uuid().optional(),
 })
 
 const RangeQuerySchema = z.object({
@@ -75,6 +82,8 @@ const CreateBodySchema = z.object({
   costAmount:         z.number().nonnegative().optional(),
   costQuantity:       z.number().int().nonnegative().optional(),
   shippingCost:       z.number().nonnegative().optional(),
+  // v2.91.0 — omitted = untouched on edit (older clients), null = clear
+  disciplinaryAction: z.nativeEnum(DisciplinaryAction).nullable().optional(),
 })
 
 const LookupTnSchema = z.object({
@@ -182,6 +191,19 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
     },
   )
 
+  // GET /incidents/people/:userId/history — v2.91.0: every incident of the person
+  // behind a login (all linked logins), disciplinary ladder + advisory next step.
+  fastify.get(
+    '/people/:userId/history',
+    { preHandler: [fastify.authenticate, requireRole(UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER)] },
+    async (request, reply) => {
+      const params = z.object({ userId: z.string().uuid() }).safeParse(request.params)
+      if (!params.success) return reply.code(400).send({ error: 'Invalid user id' })
+      const { tenantId } = request.user as JWTPayload
+      return reply.send(await getPersonHistory(tenantId, params.data.userId))
+    },
+  )
+
   // ─── Create ────────────────────────────────────────────────────────────────
 
   fastify.post(
@@ -232,6 +254,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         costAmount:         body.costAmount,
         costQuantity:       body.costQuantity,
         shippingCost:       body.shippingCost,
+        disciplinaryAction: body.disciplinaryAction,
       })
       return reply.code(201).send(created)
     },
@@ -284,6 +307,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
         costAmount:         body.costAmount,
         costQuantity:       body.costQuantity,
         shippingCost:       body.shippingCost,
+        disciplinaryAction: body.disciplinaryAction,
       })
       if (!updated) return reply.code(404).send({ error: 'Incident not found' })
       return reply.send(updated)
@@ -316,7 +340,8 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
       const { tenantId } = request.user as JWTPayload
       const incident = await getIncidentById(tenantId, id)
       if (!incident) return reply.code(404).send({ error: 'Incident not found' })
-      return reply.send(incident)
+      // v2.91.0: occurrence numbers are computed, never stored
+      return reply.send({ ...incident, occurrence: await getIncidentOccurrence(tenantId, id) })
     },
   )
 
@@ -328,7 +353,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
       const { tenantId } = request.user as JWTPayload
       const incident = await getIncidentById(tenantId, id)
       if (!incident) return reply.code(404).send({ error: 'Incident not found' })
-      const pdf = await generateIncidentPdfBuffer(incident)
+      const pdf = await generateIncidentPdfBuffer(incident, await getIncidentOccurrence(tenantId, incident.id))
       const filename = `incident-${id.slice(0, 8)}.pdf`
       reply.header('Content-Type', 'application/pdf')
       reply.header('Content-Disposition', `inline; filename="${filename}"`)
@@ -466,7 +491,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
       const incident = await getIncidentById(tenantId, id)
       if (!incident) return reply.code(404).send({ error: 'Incident not found' })
 
-      const pdf = await generateIncidentPdfBuffer(incident)
+      const pdf = await generateIncidentPdfBuffer(incident, await getIncidentOccurrence(tenantId, incident.id))
       const typeLabel = INCIDENT_TYPE_LABELS[incident.incidentType as IncidentType]
       const recipients = Array.from(new Set([incident.recipientEmail, incident.employeeEmail].filter(Boolean)))
       const subject = `Incident Report — ${typeLabel} — ${incident.employeeFullName}`

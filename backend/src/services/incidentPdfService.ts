@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit'
 import { Incident } from '@prisma/client'
-import { IncidentType, INCIDENT_TYPE_LABELS, requiresParcelContext } from '@dom/shared'
+import { DISCIPLINARY_ACTION_LABELS, DisciplinaryAction, IncidentType, INCIDENT_TYPE_LABELS, requiresParcelContext, type IncidentOccurrence } from '@dom/shared'
 import { readLogoBuffer, getBranding } from './brandingService'
 
 /**
@@ -20,7 +20,12 @@ import { readLogoBuffer, getBranding } from './brandingService'
  *   │ Acknowledgement & Signatures (2 boxes)                        │
  *   └───────────────────────────────────────────────────────────────┘
  */
-export async function generateIncidentPdfBuffer(incident: Incident): Promise<Buffer> {
+/**
+ * @param occurrence v2.91.0 — when the incident has a disciplinary action, a one-line
+ *        "Disciplinary Action" block is added (action · warning no. · previous incidents).
+ *        Incidents without an action render exactly as before.
+ */
+export async function generateIncidentPdfBuffer(incident: Incident, occurrence?: IncidentOccurrence | null): Promise<Buffer> {
   const branding = await getBranding(incident.tenantId)
   const logo = await readLogoBuffer(incident.tenantId)
 
@@ -34,6 +39,7 @@ export async function generateIncidentPdfBuffer(incident: Incident): Promise<Buf
     drawHeader(doc, incident, branding, logo)
     doc.moveDown(0.5)
     drawIncidentInfo(doc, incident)
+    if (incident.disciplinaryAction) drawDisciplinaryAction(doc, incident.disciplinaryAction as DisciplinaryAction, occurrence ?? null)
     if (requiresParcelContext(incident.incidentType as IncidentType)) {
       drawParcelReference(doc, incident)
     }
@@ -140,6 +146,35 @@ function drawIncidentInfo(doc: PDFKit.PDFDocument, incident: Incident) {
   doc.y = rowY + 108
   doc.x = leftX
   void startY
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`
+}
+
+// v2.91.0 — only drawn when an action was recorded on the incident. Kept to a single
+// compact line so it adds as little height as possible (the report is meant to fit one page).
+function drawDisciplinaryAction(doc: PDFKit.PDFDocument, action: DisciplinaryAction, occ: IncidentOccurrence | null) {
+  const leftX = doc.page.margins.left
+  const rightX = doc.page.width - doc.page.margins.right
+  const width = rightX - leftX
+  const previous = occ ? occ.no - 1 : null
+  const parts = [
+    occ?.warningNo ? `${ordinal(occ.warningNo)} warning` : null,
+    previous === null ? null : `${previous} previous incident${previous === 1 ? '' : 's'}${occ && occ.last12Months - 1 !== previous ? ` (${occ.last12Months - 1} in the last 12 months)` : ''}`,
+  ].filter(Boolean)
+
+  const y = doc.y - 4
+  doc.font('Helvetica').fontSize(8).fillColor(COLOR_LABEL)
+     .text('DISCIPLINARY ACTION', leftX, y + 2, { width: 110, characterSpacing: 0.5, continued: false })
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_TEXT)
+     .text(DISCIPLINARY_ACTION_LABELS[action] + (parts.length ? '  ·  ' : ''), leftX + 112, y, { width: width - 112, continued: parts.length > 0 })
+  if (parts.length) doc.font('Helvetica').fontSize(10).fillColor(COLOR_LABEL).text(parts.join('  ·  '))
+
+  doc.y = y + 20
+  doc.x = leftX
 }
 
 function drawParcelReference(doc: PDFKit.PDFDocument, incident: Incident) {

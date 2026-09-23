@@ -649,7 +649,8 @@
 .mkt-donut-pct { width: 40px; text-align: right; color: var(--mkt-ink-3); font-variant-numeric: tabular-nums; }
 
 /* ─── Tables ─────────────────────────────────────────────────────────────── */
-.mkt-table-scroll { overflow-x: auto; }
+/* position: relative so absolutely-positioned children (e.g. .sr-only headers) are clipped too */
+.mkt-table-scroll { position: relative; overflow-x: auto; }
 .mkt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mkt-table th {
   padding: 10px 12px;

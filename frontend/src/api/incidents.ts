@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { api } from './client'
-import { IncidentType, Platform, UserRole } from '@dom/shared'
+import { IncidentType, Platform, UserRole, type DisciplinaryAction, type IncidentCategory, type IncidentOccurrence } from '@dom/shared'
 
 export interface IncidentTypeOption {
   value: IncidentType
@@ -37,6 +37,13 @@ export interface Incident {
   emailSentTo: string | null
   createdAt: string
   updatedAt: string
+  /** v2.91.0 — null = not recorded (every incident before v2.91) */
+  disciplinaryAction?: DisciplinaryAction | null
+  /** v2.91.0 — computed at read time (list + detail) */
+  occurrence?: IncidentOccurrence | null
+  /** v2.91.0 — list only: uploaded documents (signed copies) */
+  documentCount?: number
+  hasSignedCopy?: boolean
 }
 
 export interface SelectableUser {
@@ -65,6 +72,22 @@ export interface IncidentReportTrendPoint {
   label: string
   count: number
   cost: number
+  /** v2.91.0 — incident count per IncidentCategory in this bucket */
+  byCategory?: Record<string, number>
+}
+
+export interface IncidentRepeatPerson {
+  personKey: string
+  name: string
+  userId: string
+  count: number
+  allTime: number
+  warnings: number
+  notRecorded: number
+  highestAction: DisciplinaryAction | null
+  lastDate: string
+  cost: number
+  topType: { type: IncidentType; label: string; count: number } | null
 }
 
 export interface IncidentReportByType {
@@ -85,6 +108,41 @@ export interface IncidentReport {
   byEmployeeCost: IncidentReportByEmployeeCost[]
   total: number
   totalCost: number
+  // v2.91.0 additions
+  employeesInvolved?: number
+  repeatOffenders?: number
+  warningsIssued?: number
+  unsignedCount?: number
+  byAction?: { action: DisciplinaryAction | 'NOT_RECORDED'; count: number }[]
+  byCategory?: { category: IncidentCategory; count: number; cost: number }[]
+  repeatList?: IncidentRepeatPerson[]
+  previous?: { from: string; to: string; total: number; employeesInvolved: number; totalCost: number; warningsIssued: number } | null
+}
+
+export interface PersonHistory {
+  personKey: string
+  name: string | null
+  userIds: string[]
+  total: number
+  last12Months: number
+  warningCount: number
+  notRecorded: number
+  highestAction: DisciplinaryAction | null
+  lastWarning: { action: DisciplinaryAction; date: string } | null
+  suggestedNext: DisciplinaryAction
+  totalCost: number
+  byType: { type: IncidentType; label: string; count: number }[]
+  incidents: {
+    id: string
+    incidentType: IncidentType
+    incidentDate: string
+    employeeUserId: string
+    disciplinaryAction: DisciplinaryAction | null
+    cost: number
+    reportedByFullName: string
+    hasSignedCopy: boolean
+    occurrence: IncidentOccurrence | null
+  }[]
 }
 
 export interface CreateIncidentInput {
@@ -106,6 +164,8 @@ export interface CreateIncidentInput {
   costAmount?: number
   costQuantity?: number
   shippingCost?: number
+  /** v2.91.0 — omit to leave untouched on edit; null clears */
+  disciplinaryAction?: DisciplinaryAction | null
 }
 
 // ─── Lookups ────────────────────────────────────────────────────────────────
@@ -124,6 +184,11 @@ export function useSelectableUsers() {
     queryFn: async () => (await api.get<SelectableUser[]>('/incidents/selectable-users')).data,
     staleTime: 60_000,
   })
+}
+
+/** v2.91.0 — one incident with its occurrence numbers (profile timeline → detail). */
+export async function fetchIncident(id: string): Promise<Incident> {
+  return (await api.get<Incident>(`/incidents/${id}`)).data
 }
 
 export async function fetchRememberedFullName(userId: string): Promise<string | null> {
@@ -146,6 +211,11 @@ export interface ListIncidentsQuery {
   employeeUserId?: string
   from?: string
   to?: string
+  /** v2.91.0 */
+  action?: DisciplinaryAction | 'NOT_RECORDED'
+  category?: IncidentCategory
+  /** every login of the person behind this user id */
+  samePersonAs?: string
 }
 
 export function useIncidents(query: ListIncidentsQuery) {
@@ -159,6 +229,16 @@ export function useIncidents(query: ListIncidentsQuery) {
     },
     placeholderData: keepPreviousData,
     staleTime: 5_000,
+  })
+}
+
+/** v2.91.0 — every incident of the person behind a login (all linked logins) + ladder summary. */
+export function usePersonHistory(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['incidents', 'person-history', userId],
+    queryFn: async () => (await api.get<PersonHistory>(`/incidents/people/${userId}/history`)).data,
+    enabled: !!userId,
+    staleTime: 30_000,
   })
 }
 

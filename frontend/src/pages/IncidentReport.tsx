@@ -1,10 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
-  ResponsiveContainer, BarChart, Bar, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts'
-import { INCIDENT_TYPE_LABELS, IncidentType, UserRole } from '@dom/shared'
+  DISCIPLINARY_ACTION_LABELS,
+  DisciplinaryAction,
+  INCIDENT_TYPE_CATEGORY,
+  INCIDENT_TYPE_LABELS,
+  IncidentCategory,
+  IncidentType,
+  UserRole,
+} from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import {
   useIncidents,
@@ -12,57 +17,72 @@ import {
   useIncidentReport,
   useIncidentTypes,
   useDeleteIncident,
+  fetchIncident,
   type Incident,
 } from '../api/incidents'
 import { useBranding, brandingLogoUrl } from '../api/branding'
-import { money, PESO } from '../api/accounting'
+import { money } from '../api/accounting'
 import DateRangePicker, { type DateRange } from '../components/accounting/DateRangePicker'
-import CreateIncidentModal     from './incident/CreateIncidentModal'
-import ViewIncidentModal       from './incident/ViewIncidentModal'
-import CompanySettingsModal    from './incident/CompanySettingsModal'
-import ConfirmModal            from '../components/shared/ConfirmModal'
+import CreateIncidentModal from './incident/CreateIncidentModal'
+import ViewIncidentModal from './incident/ViewIncidentModal'
+import CompanySettingsModal from './incident/CompanySettingsModal'
+import ConfirmModal from '../components/shared/ConfirmModal'
+import { BarList, ChartCard, Empty, Legend, TooltipCard } from '../components/marketing/chartKit'
+import { AXIS_PROPS, GRID_PROPS } from '../components/marketing/chartTheme'
+import { relativeDelta } from '../components/marketing/format'
+import { ACTION_ORDER, ACTION_STYLE, actionLabel, CATEGORY_COLOR, CATEGORY_ORDER, categoryLabel } from '../components/incident/incidentPalette'
+import { ActionPill, LadderDots, OccurrenceBadge } from '../components/incident/incidentUi'
+import PersonProfileDrawer from '../components/incident/PersonProfileDrawer'
 
-const TYPE_COLORS = ['#dc2626', '#d97706', '#2563eb', '#7c3aed', '#0891b2', '#16a34a', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#9333ea']
-const EMP_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#9333ea']
+const PAGE_SIZE = 25
 
 function compactPeso(n: number): string {
   const a = Math.abs(n)
-  if (a >= 1_000_000) return PESO + (n / 1_000_000).toFixed(1) + 'M'
-  if (a >= 1_000) return PESO + (n / 1_000).toFixed(1) + 'k'
-  return PESO + Math.round(n)
+  if (a >= 1_000_000) return `₱${(n / 1_000_000).toFixed(1)}M`
+  if (a >= 1_000) return `₱${(n / 1_000).toFixed(1)}K`
+  return `₱${Math.round(n)}`
 }
+
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 export default function IncidentReport() {
   const navigate = useNavigate()
 
-  const [page,        setPage]        = useState(1)
-  const [search,      setSearch]      = useState('')
-  const [typeFilter,  setTypeFilter]  = useState<IncidentType | ''>('')
-  const [range,       setRange]       = useState<DateRange>({ from: '', to: '' })
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<IncidentType | ''>('')
+  const [categoryFilter, setCategoryFilter] = useState<IncidentCategory | ''>('')
+  const [actionFilter, setActionFilter] = useState<DisciplinaryAction | 'NOT_RECORDED' | ''>('')
+  const [personFilter, setPersonFilter] = useState<{ userId: string; name: string } | null>(null)
+  const [range, setRange] = useState<DateRange>({ from: '', to: '' })
 
   const periodLabel = !range.from && !range.to
     ? 'All time'
     : range.from === range.to ? range.from : `${range.from || '…'} → ${range.to || '…'}`
 
-  const stats    = useIncidentStats()
-  const report   = useIncidentReport({ from: range.from || undefined, to: range.to || undefined })
+  const stats = useIncidentStats()
+  const report = useIncidentReport({ from: range.from || undefined, to: range.to || undefined })
   const incidents = useIncidents({
-    page, pageSize: 25,
+    page, pageSize: PAGE_SIZE,
     search: search.trim() || undefined,
-    type:   typeFilter || undefined,
+    type: typeFilter || undefined,
+    category: typeFilter ? undefined : categoryFilter || undefined,
+    action: actionFilter || undefined,
+    samePersonAs: personFilter?.userId,
     from: range.from || undefined, to: range.to || undefined,
   })
-  const branding  = useBranding()
-  const types     = useIncidentTypes()
+  const branding = useBranding()
+  const types = useIncidentTypes()
 
-  const [createOpen,   setCreateOpen]   = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [viewing,      setViewing]      = useState<Incident | null>(null)
-  const [editing,      setEditing]      = useState<Incident | null>(null)
-  const [deleting,     setDeleting]     = useState<Incident | null>(null)
+  const [viewing, setViewing] = useState<Incident | null>(null)
+  const [editing, setEditing] = useState<Incident | null>(null)
+  const [deleting, setDeleting] = useState<Incident | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const deleteIncident = useDeleteIncident()
 
-  const totalPages = Math.max(1, Math.ceil((incidents.data?.total ?? 0) / 25))
+  const totalPages = Math.max(1, Math.ceil((incidents.data?.total ?? 0) / PAGE_SIZE))
   const smtpConfigured = !!stats.data?.smtpConfigured
 
   // Incident Reporters can create/edit/email any incident but may never delete one.
@@ -74,21 +94,71 @@ export default function IncidentReport() {
     [types.data],
   )
 
-  const trendData = (report.data?.trend ?? []).map((t) => ({ label: t.label, count: t.count }))
-  const byTypeRows = (report.data?.byType ?? []).map((t) => ({ type: t.type, name: t.label, count: t.count }))
-  const byEmployeeCostRows = (report.data?.byEmployeeCost ?? []).map((e) => ({ employeeUserId: e.employeeUserId, name: e.employeeFullName, cost: e.cost }))
-  const topType = report.data?.byType[0] ?? null
+  const r = report.data
+  const loading = report.isLoading
+  const prev = r?.previous ?? null
+  const resetPage = () => setPage(1)
+  const hasFilters = !!(search || typeFilter || categoryFilter || actionFilter || personFilter)
+
+  function clearFilters() {
+    setSearch(''); setTypeFilter(''); setCategoryFilter(''); setActionFilter(''); setPersonFilter(null); resetPage()
+  }
 
   function goToEmployeeReport() {
     const params = new URLSearchParams()
     if (range.from) params.set('from', range.from)
-    if (range.to)   params.set('to', range.to)
+    if (range.to) params.set('to', range.to)
     navigate(`/incident-report/employees${params.toString() ? `?${params}` : ''}`)
   }
 
+  function scrollToTable() {
+    document.getElementById('incident-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // ─── Chart data ────────────────────────────────────────────────────────────
+  const trendData = (r?.trend ?? []).map((t) => ({ label: t.label, total: t.count, ...(t.byCategory ?? {}) }))
+  const presentCategories = CATEGORY_ORDER.filter((c) => (r?.byCategory ?? []).some((x) => x.category === c))
+
+  const categoryItems = (r?.byCategory ?? []).map((c) => ({
+    id: c.category,
+    label: categoryLabel(c.category),
+    value: c.count,
+    display: `${c.count}`,
+    color: CATEGORY_COLOR[c.category],
+    sub: c.cost > 0 ? `${money(c.cost)} cost` : undefined,
+  }))
+
+  const actionCounts = new Map((r?.byAction ?? []).map((a) => [a.action, a.count]))
+  const actionItems = ACTION_ORDER
+    .filter((a) => (actionCounts.get(a) ?? 0) > 0)
+    .map((a) => ({
+      id: a,
+      label: actionLabel(a),
+      value: actionCounts.get(a) ?? 0,
+      display: `${actionCounts.get(a) ?? 0}`,
+      color: ACTION_STYLE[a].fill,
+    }))
+  const notRecorded = actionCounts.get('NOT_RECORDED') ?? 0
+
+  const typeItems = (r?.byType ?? []).slice(0, 10).map((t) => ({
+    id: t.type,
+    label: t.label,
+    value: t.count,
+    display: `${t.count}`,
+    color: CATEGORY_COLOR[INCIDENT_TYPE_CATEGORY[t.type as IncidentType]],
+  }))
+
+  const costItems = (r?.byEmployeeCost ?? []).slice(0, 8).map((e) => ({
+    id: e.employeeUserId,
+    label: e.employeeFullName,
+    value: e.cost,
+    display: money(e.cost),
+    color: '#DC2626',
+  }))
+
   return (
     <div className="panel-root">
-      <main className="panel-body" style={{ display: 'grid', gap: 18 }}>
+      <main className="panel-body mkt-root inc-root" style={{ display: 'grid', gap: 18 }}>
 
         {/* ── Page hero ─────────────────────────────────────────────────────── */}
         <section className="page-hero" style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
@@ -103,230 +173,284 @@ export default function IncidentReport() {
             <div className="page-hero-label">HR &amp; Operations</div>
             <h1 className="page-hero-title">Incident Reports</h1>
             <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
-              {branding.data?.companyName ? `${branding.data.companyName} · ` : ''}Track and document employee incidents
+              {branding.data?.companyName ? `${branding.data.companyName} · ` : ''}Track incidents, repeat offenders and the disciplinary ladder
             </div>
           </div>
           <div className="page-hero-actions" style={{ display: 'flex', gap: 10 }}>
-            <button className="page-hero-cta" onClick={() => setSettingsOpen(true)} title="Company name & logo">
-              ⚙ Branding
-            </button>
-            <button className="page-hero-cta" onClick={() => setCreateOpen(true)}>
-              + Create Incident
-            </button>
+            <button className="page-hero-cta" onClick={() => setSettingsOpen(true)} title="Company name & logo">⚙ Branding</button>
+            <button className="page-hero-cta" onClick={() => setCreateOpen(true)}>+ Create Incident</button>
           </div>
         </section>
 
-        {/* ── Date range control (drives stat cards, charts and the table) ───── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        {/* ── Period (drives KPIs, charts and the table) ─────────────────────── */}
+        <div className="inc-period">
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overview</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{periodLabel}</div>
+            <div className="inc-eyebrow">Overview</div>
+            <div className="inc-period-title">{periodLabel}</div>
+            {prev && <div className="inc-period-sub">compared with {prev.from} → {prev.to}</div>}
           </div>
-          <DateRangePicker value={range} onChange={(r) => { setRange(r); setPage(1) }} />
+          <DateRangePicker value={range} onChange={(v) => { setRange(v); resetPage() }} />
         </div>
 
-        {/* ── Stat cards ────────────────────────────────────────────────────── */}
-        <div className="stats-grid">
-          <Stat label="Total Incidents"    value={report.data?.total ?? 0}      tint="primary" />
-          <Stat label="This Month"          value={stats.data?.thisMonth ?? 0} tint="info" />
-          <Stat
-            label="Top Incident Type"
-            value={topType ? `${topType.label} (${topType.count})` : '—'}
-            tint="warn"
-            stringValue
-          />
-          <Stat
-            label="Total Cost"
-            value={money(report.data?.totalCost ?? 0)}
-            tint="danger"
-            stringValue
-          />
-          <Stat
-            label="Email Delivery"
-            value={smtpConfigured ? 'Configured' : 'Not configured'}
-            tint={smtpConfigured ? 'success' : 'danger'}
-            stringValue
-          />
+        {/* ── KPIs ──────────────────────────────────────────────────────────── */}
+        <div className="mkt-kpis">
+          <Kpi color="#DC2626" label="Incidents" value={r?.total ?? 0} loading={loading}
+            delta={prev ? relativeDelta(r?.total ?? 0, prev.total) : null} deltaGoodWhenDown
+            sub={prev ? `prev ${prev.total}` : `${stats.data?.thisMonth ?? 0} this month`} />
+          <Kpi color="#3B82F6" label="People involved" value={r?.employeesInvolved ?? 0} loading={loading}
+            delta={prev ? relativeDelta(r?.employeesInvolved ?? 0, prev.employeesInvolved) : null} deltaGoodWhenDown
+            sub="distinct employees" />
+          <Kpi color="#C2410C" label="Repeat offenders" value={r?.repeatOffenders ?? 0} loading={loading}
+            sub="2+ incidents in this period" onClick={() => document.getElementById('repeat-offenders')?.scrollIntoView({ behavior: 'smooth' })} />
+          <Kpi color="#9A3412" label="Warnings issued" value={r?.warningsIssued ?? 0} loading={loading}
+            delta={prev ? relativeDelta(r?.warningsIssued ?? 0, prev.warningsIssued) : null} deltaGoodWhenDown
+            sub={notRecorded > 0 ? `${notRecorded} without a recorded action` : 'every incident has an action'} />
+          <Kpi color="#16A34A" label="Total cost" value={money(r?.totalCost ?? 0)} loading={loading}
+            delta={prev ? relativeDelta(r?.totalCost ?? 0, prev.totalCost) : null} deltaGoodWhenDown
+            sub={prev ? `prev ${compactPeso(prev.totalCost)}` : 'estimated loss + shipping'} />
+          <Kpi color="#4C1D95" label="Awaiting signed copy" value={r?.unsignedCount ?? 0} loading={loading}
+            sub={r?.total ? `${Math.round(((r.total - (r.unsignedCount ?? 0)) / r.total) * 100)}% signed` : '—'} />
         </div>
 
-        {/* ── Trend chart ───────────────────────────────────────────────────── */}
-        <ChartCard title="Incidents Over Time" subtitle={periodLabel}>
-          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
-            : trendData.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No incidents for this period.</p></div>
-            : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={trendData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} interval="preserveStartEnd" />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} width={40} />
-                  <Tooltip formatter={(v: any) => [`${v} incident${Number(v) === 1 ? '' : 's'}`, 'Incidents']} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
-                  <Bar dataKey="count" fill="#dc2626" radius={[4, 4, 0, 0]} maxBarSize={28} />
+        {/* ── Trend by category ─────────────────────────────────────────────── */}
+        <ChartCard title="Incidents over time" sub={`${periodLabel} · stacked by category`}>
+          {loading ? <div className="mkt-chart-skeleton" style={{ height: 280 }} /> : trendData.length === 0 ? (
+            <Empty title="No incidents in this period" />
+          ) : (
+            <>
+              <Legend items={presentCategories.map((c) => ({ label: categoryLabel(c), color: CATEGORY_COLOR[c] }))} />
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={trendData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }} barCategoryGap="18%">
+                  <CartesianGrid {...GRID_PROPS} />
+                  <XAxis dataKey="label" {...AXIS_PROPS} interval="preserveStartEnd" minTickGap={16} />
+                  <YAxis {...AXIS_PROPS} allowDecimals={false} width={32} />
+                  <Tooltip
+                    cursor={{ fill: '#94A3B8', fillOpacity: 0.12 }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const row = payload[0].payload as Record<string, number>
+                      return (
+                        <TooltipCard
+                          title={`${label} · ${row.total} incident${row.total === 1 ? '' : 's'}`}
+                          rows={presentCategories.filter((c) => row[c]).map((c) => ({ label: categoryLabel(c), value: String(row[c]), color: CATEGORY_COLOR[c] }))}
+                        />
+                      )
+                    }}
+                  />
+                  {presentCategories.map((c, i) => (
+                    <Bar key={c} dataKey={c} stackId="cat" fill={CATEGORY_COLOR[c]} radius={i === presentCategories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} maxBarSize={30} />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
-            )}
+            </>
+          )}
         </ChartCard>
 
-        {/* ── Breakdown by type ────────────────────────────────────────────── */}
-        <ChartCard title="Incidents by Type" subtitle={`${periodLabel} · ${report.data?.total ?? 0} total`}>
-          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
-            : byTypeRows.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No incidents for this period.</p></div>
-            : (
+        {/* ── Category + disciplinary actions ───────────────────────────────── */}
+        <div className="mkt-grid-2">
+          <ChartCard title="By category" sub="Click a category to filter the table">
+            {loading ? <div className="mkt-chart-skeleton" style={{ height: 200 }} /> : (
+              <BarList items={categoryItems} onSelect={(id) => { setCategoryFilter(id as IncidentCategory); setTypeFilter(''); resetPage(); scrollToTable() }} emptyTitle="No incidents in this period" />
+            )}
+          </ChartCard>
+          <ChartCard title="Disciplinary actions" sub="Coaching → Verbal → Written → Final → Suspension → Termination">
+            {loading ? <div className="mkt-chart-skeleton" style={{ height: 200 }} /> : (
               <>
-                <ResponsiveContainer width="100%" height={Math.max(180, byTypeRows.length * 34 + 30)}>
-                  <BarChart data={byTypeRows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#334155' }} width={160} tickFormatter={shortLabel} />
-                    <Tooltip formatter={(v: any) => [`${v} incident${Number(v) === 1 ? '' : 's'}`, 'Incidents']} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={26} cursor="pointer" onClick={(d: any) => { const t = d?.payload?.type ?? d?.type; setTypeFilter((cur) => (cur === t ? '' : t)); setPage(1) }}>
-                      {byTypeRows.map((r, i) => <Cell key={r.type} fill={typeFilter && typeFilter !== r.type ? '#cbd5e1' : TYPE_COLORS[i % TYPE_COLORS.length]} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                {typeFilter && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    Filtered to <b>{INCIDENT_TYPE_LABELS[typeFilter as IncidentType]}</b> —{' '}
-                    <button type="button" className="btn btn-sm btn-outline" onClick={() => setTypeFilter('')}>Clear</button>
-                  </div>
+                <BarList items={actionItems} onSelect={(id) => { setActionFilter(id as DisciplinaryAction | 'NOT_RECORDED'); resetPage(); scrollToTable() }} emptyTitle="No incidents in this period" />
+                {notRecorded > 0 && (
+                  <p className="inc-note">
+                    <b>{notRecorded}</b> incident{notRecorded === 1 ? ' has' : 's have'} no recorded action — incidents filed before this feature
+                    stay <i>Not recorded</i>. Open one and use <b>Edit</b> to record the action that was actually taken.
+                  </p>
                 )}
               </>
             )}
-        </ChartCard>
+          </ChartCard>
+        </div>
 
-        {/* ── Cost by employee ─────────────────────────────────────────────── */}
-        <ChartCard title="Cost by Employee" subtitle={`${periodLabel} · Total ${money(report.data?.totalCost ?? 0)}`}>
-          {report.isLoading ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">Loading…</p></div>
-            : byEmployeeCostRows.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><p className="empty-state-desc">No cost-incurring incidents for this period.</p></div>
-            : (
-              <ResponsiveContainer width="100%" height={Math.max(180, byEmployeeCostRows.length * 34 + 30)}>
-                <BarChart data={byEmployeeCostRows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
-                  <XAxis type="number" tickFormatter={compactPeso} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#334155' }} width={160} tickFormatter={shortLabel} />
-                  <Tooltip formatter={(v: any) => money(Number(v))} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
-                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} maxBarSize={26}>
-                    {byEmployeeCostRows.map((r, i) => <Cell key={r.employeeUserId} fill={EMP_COLORS[i % EMP_COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+        {/* ── Repeat offenders + types ──────────────────────────────────────── */}
+        <div className="mkt-grid-2">
+          <ChartCard title="Repeat offenders" sub="2+ incidents in this period · ladder = highest action in the period · click for full history">
+            <div id="repeat-offenders" />
+            {loading ? <div className="mkt-chart-skeleton" style={{ height: 240 }} /> : (r?.repeatList ?? []).length === 0 ? (
+              <Empty title="No repeat offenders in this period" />
+            ) : (
+              <ol className="inc-repeat">
+                {(r?.repeatList ?? []).slice(0, 10).map((p) => (
+                  <li key={p.personKey}>
+                    <button type="button" className="inc-repeat-row" onClick={() => setProfileUserId(p.userId)} title={`Open ${p.name}'s incident history`}>
+                      <span className="inc-repeat-count">{p.count}</span>
+                      <span className="inc-repeat-main">
+                        <b>{p.name}</b>
+                        <small>
+                          {p.allTime > p.count ? `${p.allTime} all time · ` : ''}
+                          {p.topType ? `${p.topType.label} ×${p.topType.count}` : ''}
+                          {' · last '}{p.lastDate}
+                        </small>
+                      </span>
+                      <span className="inc-repeat-ladder">
+                        <LadderDots highest={p.highestAction} />
+                        <small>{p.highestAction ? DISCIPLINARY_ACTION_LABELS[p.highestAction] : p.notRecorded === p.count ? 'Not recorded' : '—'}{p.warnings > 0 ? ` · ${p.warnings} warning${p.warnings === 1 ? '' : 's'}` : ''}</small>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
             )}
-        </ChartCard>
+          </ChartCard>
+          <ChartCard title="Top incident types" sub="Colour = category · click to filter">
+            {loading ? <div className="mkt-chart-skeleton" style={{ height: 240 }} /> : (
+              <div className="mkt-scroll-list">
+                <BarList items={typeItems} onSelect={(id) => { setTypeFilter(id as IncidentType); setCategoryFilter(''); resetPage(); scrollToTable() }} emptyTitle="No incidents in this period" />
+              </div>
+            )}
+          </ChartCard>
+        </div>
 
-        {/* ── CTA → employee breakdown (page 2) ───────────────────────────────── */}
-        <button
-          type="button"
-          onClick={goToEmployeeReport}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
-            background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)', border: '1px solid #c7d2fe',
-            borderRadius: 12, padding: '18px 20px', cursor: 'pointer', textAlign: 'left',
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', textTransform: 'uppercase', letterSpacing: 0.5 }}>Employee Breakdown</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>View Incident Count by Employee</div>
-            <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>Ranked leaderboard + full type breakdown per employee, for {periodLabel.toLowerCase()}</div>
-          </div>
-          <div style={{ fontSize: 22, color: '#4338ca' }}>→</div>
-        </button>
+        {/* ── Cost + employee breakdown CTA ─────────────────────────────────── */}
+        <div className="mkt-grid-2">
+          <ChartCard title="Cost by employee" sub={`${periodLabel} · total ${money(r?.totalCost ?? 0)}`}>
+            {loading ? <div className="mkt-chart-skeleton" style={{ height: 200 }} /> : (
+              <BarList items={costItems} emptyTitle="No cost-incurring incidents in this period" />
+            )}
+          </ChartCard>
+          <button type="button" className="inc-cta" onClick={goToEmployeeReport}>
+            <div>
+              <div className="inc-eyebrow" style={{ color: '#4338ca' }}>Employee breakdown</div>
+              <div className="inc-cta-title">Incident count by employee →</div>
+              <div className="inc-cta-sub">Ranked leaderboard + full type breakdown per employee, for {periodLabel.toLowerCase()}</div>
+            </div>
+          </button>
+        </div>
 
-        {/* ── Filter bar ────────────────────────────────────────────────────── */}
-        <div className="filter-card">
+        {/* ── Filters ───────────────────────────────────────────────────────── */}
+        <div className="filter-card" id="incident-table">
           <div className="filter-field">
             <div className="filter-field-label">Search</div>
-            <input
-              type="text" value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Name, tracking #, email…"
-              className="filter-field-input"
-            />
+            <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); resetPage() }}
+              placeholder="Name, tracking #, email…" className="filter-field-input" />
           </div>
           <div className="filter-field">
-            <div className="filter-field-label">Incident Type</div>
-            <select
-              value={typeFilter}
-              onChange={(e) => { setTypeFilter(e.target.value as IncidentType | ''); setPage(1) }}
-              className="styled-select"
-            >
+            <div className="filter-field-label">Category</div>
+            <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value as IncidentCategory | ''); setTypeFilter(''); resetPage() }} className="styled-select">
+              <option value="">All categories</option>
+              {CATEGORY_ORDER.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+            </select>
+          </div>
+          <div className="filter-field">
+            <div className="filter-field-label">Incident type</div>
+            <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value as IncidentType | ''); resetPage() }} className="styled-select">
               <option value="">All types</option>
-              {sortedTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {sortedTypes
+                .filter((t) => !categoryFilter || INCIDENT_TYPE_CATEGORY[t.value] === categoryFilter)
+                .map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="filter-field">
+            <div className="filter-field-label">Disciplinary action</div>
+            <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value as DisciplinaryAction | 'NOT_RECORDED' | ''); resetPage() }} className="styled-select">
+              <option value="">All actions</option>
+              {ACTION_ORDER.map((a) => <option key={a} value={a}>{actionLabel(a)}</option>)}
             </select>
           </div>
         </div>
 
-        {/* ── Recent Incidents ─────────────────────────────────────────────── */}
-        <SectionCard title="Recent Incidents" count={incidents.data?.total ?? 0}>
-          <div className="data-table-wrap">
-            <table style={{ width: '100%' }}>
+        {/* ── Incidents table ───────────────────────────────────────────────── */}
+        <section className="mkt-card">
+          <header className="mkt-card-head">
+            <div>
+              <h3 className="mkt-card-title">Incidents <span className="count-badge" style={{ marginLeft: 6 }}>{incidents.data?.total ?? 0}</span></h3>
+              <p className="mkt-card-sub"># = the person's incident count across all time (both logins when linked to one employee)</p>
+            </div>
+            {hasFilters && (
+              <div className="inc-active-filters">
+                {personFilter && <span className="inc-chip">Employee: {personFilter.name}</span>}
+                {categoryFilter && <span className="inc-chip">{categoryLabel(categoryFilter)}</span>}
+                {typeFilter && <span className="inc-chip">{INCIDENT_TYPE_LABELS[typeFilter]}</span>}
+                {actionFilter && <span className="inc-chip">{actionLabel(actionFilter)}</span>}
+                <button type="button" className="mkt-btn-ghost" onClick={clearFilters}>Clear filters</button>
+              </div>
+            )}
+          </header>
+          <div className="mkt-table-scroll">
+            <table className="mkt-table mkt-table--compact inc-table">
               <thead>
                 <tr>
-                  <Th>#</Th>
-                  <Th>Date</Th>
-                  <Th>Type</Th>
-                  <Th>Employee</Th>
-                  <Th>Reported By</Th>
-                  <Th style={{ textAlign: 'center' }}>Email</Th>
-                  <Th style={{ textAlign: 'center' }}>Signed</Th>
-                  <Th style={{ textAlign: 'right' }}>Actions</Th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Employee</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Reported by</th>
+                  <th scope="col" style={{ textAlign: 'center' }}>Email</th>
+                  <th scope="col" style={{ textAlign: 'center' }}>Signed</th>
+                  <th scope="col" style={{ textAlign: 'right' }}><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {incidents.data?.rows.length === 0 && (
                   <tr><td colSpan={8}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">📋</div>
-                      <p className="empty-state-title">No incidents yet</p>
-                      <p className="empty-state-desc">Click <b>+ Create Incident</b> to file the first report.</p>
-                    </div>
+                    <Empty title={hasFilters ? 'No incidents match these filters' : 'No incidents yet'}>
+                      {hasFilters ? <button type="button" className="mkt-btn-ghost" style={{ marginTop: 8 }} onClick={clearFilters}>Clear filters</button> : <>Click <b>+ Create Incident</b> to file the first report.</>}
+                    </Empty>
                   </td></tr>
                 )}
-                {incidents.data?.rows.map((row, i) => (
-                  <tr key={row.id}>
-                    <Td>{(page - 1) * 25 + i + 1}</Td>
-                    <Td>{new Date(row.incidentDate).toLocaleDateString()}</Td>
-                    <Td>{INCIDENT_TYPE_LABELS[row.incidentType as IncidentType]}</Td>
-                    <Td>{row.employeeFullName}</Td>
-                    <Td>{row.reportedByFullName}</Td>
-                    <Td style={{ textAlign: 'center' }}>
-                      {row.emailSentAt
-                        ? <span className="count-badge" style={{ background: '#d1fae5', color: '#047857' }}>Sent</span>
-                        : <span className="count-badge" style={{ background: '#f1f5f9', color: '#64748b' }}>—</span>}
-                    </Td>
-                    <Td style={{ textAlign: 'center' }}>
-                      {row.signedFilePath
-                        ? <span className="count-badge" style={{ background: '#dbeafe', color: '#1d4ed8' }}>✓</span>
-                        : <span className="count-badge" style={{ background: '#f1f5f9', color: '#64748b' }}>—</span>}
-                    </Td>
-                    <Td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: 6 }}>
-                        <button className="btn btn-sm btn-outline" onClick={() => setEditing(row)}>Edit</button>
-                        <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
-                        {canDelete && (
-                          <button
-                            className="btn btn-sm btn-outline"
-                            style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-                            onClick={() => setDeleting(row)}
-                          >Delete</button>
-                        )}
-                      </div>
-                    </Td>
-                  </tr>
-                ))}
+                {incidents.data?.rows.map((row) => {
+                  const cat = INCIDENT_TYPE_CATEGORY[row.incidentType as IncidentType]
+                  return (
+                    <tr key={row.id}>
+                      <td>{fmtDate(row.incidentDate)}</td>
+                      <td>
+                        <span className="inc-type">
+                          <i style={{ background: CATEGORY_COLOR[cat] }} title={categoryLabel(cat)} />
+                          {INCIDENT_TYPE_LABELS[row.incidentType as IncidentType]}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="inc-emp">
+                          <button type="button" className="inc-link inc-link--strong" onClick={() => setProfileUserId(row.employeeUserId)} title="Open incident history">
+                            {row.employeeFullName}
+                          </button>
+                          <OccurrenceBadge occ={row.occurrence} />
+                        </span>
+                      </td>
+                      <td><ActionPill action={row.disciplinaryAction} warningNo={row.occurrence?.warningNo} compact /></td>
+                      <td>{row.reportedByFullName}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {row.emailSentAt
+                          ? <span className="inc-status inc-status--ok" title={`Sent ${fmtDate(row.emailSentAt)}`}>Sent</span>
+                          : <span className="inc-status">—</span>}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {row.hasSignedCopy ?? !!row.signedFilePath
+                          ? <span className="inc-status inc-status--signed" title={`${row.documentCount ?? 1} document${(row.documentCount ?? 1) === 1 ? '' : 's'}`}>✓ {row.documentCount && row.documentCount > 1 ? row.documentCount : ''}</span>
+                          : <span className="inc-status inc-status--missing" title="No signed copy uploaded yet">Missing</span>}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
+                          <button className="btn btn-sm btn-outline" onClick={() => setEditing(row)}>Edit</button>
+                          <button className="btn btn-sm btn-outline" onClick={() => setViewing(row)}>Open</button>
+                          {canDelete && (
+                            <button className="btn btn-sm btn-outline" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => setDeleting(row)}>Delete</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
 
           {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', fontSize: 13, color: 'var(--color-text-muted)' }}>
+            <div className="inc-pager">
               <span>Page {page} / {totalPages}</span>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-sm btn-outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
-                <button className="btn btn-sm btn-outline" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</button>
+                <button className="btn btn-sm btn-outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+                <button className="btn btn-sm btn-outline" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
               </div>
             </div>
           )}
-        </SectionCard>
-
+        </section>
       </main>
 
       {createOpen && (
@@ -342,15 +466,33 @@ export default function IncidentReport() {
           onCreated={() => { stats.refetch(); incidents.refetch(); report.refetch() }}
         />
       )}
-      {settingsOpen && (
-        <CompanySettingsModal onClose={() => setSettingsOpen(false)} />
-      )}
+      {settingsOpen && <CompanySettingsModal onClose={() => setSettingsOpen(false)} />}
       {viewing && (
         <ViewIncidentModal
           incident={viewing}
           smtpConfigured={smtpConfigured}
           onClose={() => setViewing(null)}
-          onChanged={() => { incidents.refetch(); stats.refetch() }}
+          onChanged={() => { incidents.refetch(); stats.refetch(); report.refetch() }}
+          onOpenHistory={() => { const uid = viewing.employeeUserId; setViewing(null); setProfileUserId(uid) }}
+        />
+      )}
+      {profileUserId && (
+        <PersonProfileDrawer
+          userId={profileUserId}
+          onClose={() => setProfileUserId(null)}
+          onOpenIncident={async (id) => {
+            try {
+              const inc = await fetchIncident(id)
+              setProfileUserId(null)
+              setViewing(inc)
+            } catch { /* keep the drawer open */ }
+          }}
+          onShowInTable={(userId, name) => {
+            setProfileUserId(null)
+            setPersonFilter({ userId, name })
+            resetPage()
+            setTimeout(scrollToTable, 50)
+          }}
         />
       )}
       {deleting && (
@@ -374,64 +516,47 @@ export default function IncidentReport() {
   )
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────────────
+// ─── KPI tile (Marketing Report styling, incident semantics) ────────────────
 
-function Stat({ label, value, tint, stringValue }: { label: string; value: number | string; tint: 'primary' | 'success' | 'info' | 'warn' | 'danger'; stringValue?: boolean }) {
-  const tintBg: Record<string, string> = {
-    primary: 'linear-gradient(135deg,#eff6ff,#dbeafe)',
-    success: 'linear-gradient(135deg,#ecfdf5,#d1fae5)',
-    info:    'linear-gradient(135deg,#eff6ff,#e0e7ff)',
-    warn:    'linear-gradient(135deg,#fffbeb,#fef3c7)',
-    danger:  'linear-gradient(135deg,#fef2f2,#fee2e2)',
-  }
-  const tintColor: Record<string, string> = {
-    primary: '#1d4ed8', success: '#047857', info: '#4338ca', warn: '#b45309', danger: '#b91c1c',
-  }
+/** For incidents fewer is better: an increase is shown red, a decrease green — the arrow always tells the truth. */
+function Kpi({ color, label, value, sub, delta, deltaGoodWhenDown, loading, onClick }: {
+  color: string
+  label: string
+  value: number | string
+  sub: string
+  delta?: ReturnType<typeof relativeDelta> | null
+  deltaGoodWhenDown?: boolean
+  loading: boolean
+  onClick?: () => void
+}) {
+  const increase = delta?.dir === 'up' || delta?.dir === 'new'
+  const decrease = delta?.dir === 'down'
+  const tone = !delta || delta.dir === 'none' ? null
+    : delta.dir === 'flat' ? 'flat'
+      : increase === !!deltaGoodWhenDown ? 'bad' : 'good'
   return (
-    <div className="stat-card" style={{ background: tintBg[tint] }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: tintColor[tint], textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: stringValue ? 14 : 28, fontWeight: 800, color: '#0f172a', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-    </div>
+    <article
+      className={`mkt-kpi${loading ? ' mkt-kpi--skeleton' : ''}${onClick ? ' inc-kpi--link' : ''}`}
+      style={{ '--kpi': color } as React.CSSProperties}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+    >
+      {!loading && (
+        <>
+          <div className="mkt-kpi-label">{label}</div>
+          <div className="mkt-kpi-value">{value}</div>
+          <div className="mkt-kpi-sub">
+            {tone && (
+              <span className={`inc-delta inc-delta--${tone}`} title="vs previous period">
+                {increase ? '▲ ' : decrease ? '▼ ' : ''}{delta!.dir === 'new' ? 'New' : delta!.label}
+              </span>
+            )}
+            <span>{sub}</span>
+          </div>
+        </>
+      )}
+    </article>
   )
-}
-
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <section style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, padding: 16 }}>
-      <div style={{ marginBottom: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{title}</h2>
-        {subtitle && <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-muted)' }}>{subtitle}</p>}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function SectionCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
-  return (
-    <section style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-      <header style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '12px 16px', borderBottom: '1px solid var(--color-border)',
-        background: '#fafbff',
-      }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{title}</h2>
-        <span className="count-badge">{count}</span>
-      </header>
-      {children}
-    </section>
-  )
-}
-
-function Th({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'left', ...style }}>{children}</th>
-}
-function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <td style={{ padding: '10px 12px', fontSize: 13, color: '#0f172a', borderTop: '1px solid #f1f5f9', ...style }}>{children}</td>
-}
-
-function shortLabel(label: string): string {
-  // Strip parenthetical descriptions and trailing detail for a tighter chart axis label.
-  const cleaned = String(label).replace(/\s*\/.*$/, '').trim()
-  return cleaned.length > 20 ? cleaned.slice(0, 20) + '…' : cleaned
 }

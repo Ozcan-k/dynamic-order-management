@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { IncidentType, Platform } from '@dom/shared'
+import { IncidentType, Platform, type DisciplinaryAction } from '@dom/shared'
 import {
   useIncidentTypes,
   useSelectableUsers,
@@ -14,6 +14,7 @@ import {
 } from '../../api/incidents'
 import { useAuthStore } from '../../stores/authStore'
 import { PESO } from '../../api/accounting'
+import DisciplineSection from '../../components/incident/DisciplineSection'
 
 interface Props {
   onClose: () => void
@@ -52,6 +53,10 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
   const [costQuantity,       setCostQuantity]       = useState<string>(editing?.costQuantity != null ? String(editing.costQuantity) : '')
   const [shippingCost,       setShippingCost]       = useState<string>(editing?.shippingCost != null ? String(editing.shippingCost) : '')
   const [error,              setError]              = useState<string | null>(null)
+  // v2.91.0 — only sent when the user actually touched it, so editing an incident
+  // never silently changes (or clears) a recorded disciplinary action.
+  const [discipline,         setDiscipline]         = useState<DisciplinaryAction | ''>(editing?.disciplinaryAction ?? '')
+  const [disciplineTouched,  setDisciplineTouched]  = useState(false)
 
   const typeMeta = useMemo(() => types.data?.find((t) => t.value === incidentType), [types.data, incidentType])
   const needsParcel = !!typeMeta?.requiresParcel
@@ -120,6 +125,11 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
       reportedByFullName,
       reportedByRole,
       adminDescription,
+    }
+    if (!isEdit) {
+      if (discipline) input.disciplinaryAction = discipline
+    } else if (disciplineTouched) {
+      input.disciplinaryAction = discipline || null
     }
     if (witnessName.trim())     input.witnessName     = witnessName.trim()
     if (witnessPosition.trim()) input.witnessPosition = witnessPosition.trim()
@@ -235,6 +245,16 @@ export default function CreateIncidentModal({ onClose, onCreated, editing }: Pro
                 />
               </Field>
             </Row>
+
+            <SectionLabel>Disciplinary Action</SectionLabel>
+            <DisciplineSection
+              employeeUserId={employeeUserId}
+              employeeName={employeeFullName}
+              incidentType={incidentType}
+              editing={editing}
+              value={discipline}
+              onChange={(v) => { setDiscipline(v); setDisciplineTouched(true) }}
+            />
 
             <SectionLabel>Reported By (you)</SectionLabel>
             <Row>

@@ -5,6 +5,16 @@
 
 ---
 
+## Incident Report — `.inc-*` (v2.91.0)
+
+- Reuses the Marketing kit (`.mkt-kpi`, `.mkt-card`, `BarList`, `TooltipCard`) inside a `.mkt-root` wrapper so both reports look alike.
+- **Disciplinary ladder** is one warm ramp (Coaching light amber → Termination near-black) and always carries its text label; "Not recorded" is a muted italic slate pill.
+- **Categories** use the vivid categorical palette in a fixed order (blue, orange, teal, pink, purple).
+- KPI deltas are inverted for incidents: an increase is red, a decrease green; the arrow always shows the true direction.
+- Grid pages must set `grid-template-columns: minmax(0, 1fr)` (and children `min-width: 0`) or a wide table stretches the page on phones; scroll wrappers need `position: relative` so `.sr-only` children are clipped.
+
+---
+
 ## Picker / Packer Admin — `.wl-*` live workload (v2.90.0)
 
 Shared by both admin pages via `frontend/src/components/workload/` and `styles/workload.css`.
@@ -121,7 +131,8 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 | 7 | `performance.css` | Warehouse Report (`.perf-*`) — added v2.84.0 |
 | 8 | `marketing.css` | Marketing Report + agent profile (`.mkt-*`) — added v2.89.0 |
 | 9 | `workload.css` | Picker / Packer Admin live workload (`.wl-*` cards + pulse, `.wp-*` assignment dropdown, `.pc-*` performance compare) — added v2.90.0 |
-| 10 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
+| 10 | `incident.css` | Incident Report (`.inc-*`: occurrence badge, disciplinary ladder, repeat offenders, form hint, profile drawer) — added v2.91.0 |
+| 11 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
 
 ### Carryover defer list (no version bump required)
 These all inherit Phase C primitive polish automatically through shared classes; per-file inline-style extractions can be done incrementally:

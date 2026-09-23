@@ -1,8 +1,10 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.90.0  
+> **Version:** 2.91.0  
 > **Date:** 2026-09-24  
-> **Status:** **v2.90.0 (test)** — **Picker / Packer Admin live workload.** New read-only `GET /reports/live-workers?role=` (one role of the live floor; engine extracted to `loadLiveRoles`, `/reports/live-board` output verified identical to the previous code). Shared `components/workload/*` replace both pages' duplicated workload cards: Team pulse strip (state counts → filter, team done/target/projection, load-balance warning), live worker cards (state, target progress + projection, queue vs in hand, hourly rhythm, heavy-queue / can-take-more flags, sort + filter), an assignment dropdown showing each worker's load and "clears in ~N min" with a "Suggested" hint (no auto-assign), and a comparative performance section (Today live / Yesterday / 7 days / This month) that reuses the Warehouse Report presets and endpoint so the numbers match exactly. `Reports.tsx` reads optional deep-link params. OUTBOUND_ADMIN access unchanged (live parts hidden). No schema change, no new dependency.
+> **Status:** **v2.91.0 (test)** — **Incident Report: disciplinary tracking, repeat offenders, employee profile.** Additive schema only: enum `DisciplinaryAction` + nullable `incidents.disciplinary_action` (pre-v2.91 rows stay NULL = "Not recorded"; PATCH leaves it untouched when omitted). Occurrence numbers (Nth incident / Nth of type / Nth warning / last 12 months, per person = linked Employee or login) are computed at read time in `services/incidentInsights.ts`. New `GET /incidents/people/:userId/history`; list gains `action`/`category`/`samePersonAs` filters + `occurrence`/`documentCount`/`hasSignedCopy`; `/report` gains previous-period comparison, category trend, repeat list and unsigned count (old fields unchanged). Fixes the table's "Signed" column (it ignored `incident_documents`, hiding 87 signed copies in prod). PDF adds one "Disciplinary action" line only when an action is recorded.
+>
+> **Previous status:** **v2.90.0 (test)** — **Picker / Packer Admin live workload.** New read-only `GET /reports/live-workers?role=` (one role of the live floor; engine extracted to `loadLiveRoles`, `/reports/live-board` output verified identical to the previous code). Shared `components/workload/*` replace both pages' duplicated workload cards: Team pulse strip (state counts → filter, team done/target/projection, load-balance warning), live worker cards (state, target progress + projection, queue vs in hand, hourly rhythm, heavy-queue / can-take-more flags, sort + filter), an assignment dropdown showing each worker's load and "clears in ~N min" with a "Suggested" hint (no auto-assign), and a comparative performance section (Today live / Yesterday / 7 days / This month) that reuses the Warehouse Report presets and endpoint so the numbers match exactly. `Reports.tsx` reads optional deep-link params. OUTBOUND_ADMIN access unchanged (live parts hidden). No schema change, no new dependency.
 >
 > **Previous status:** **v2.89.0 (live — deployed 2026-09-23, verified on prod and by the user)** — **Marketing Report + agent panel rebuilt.** New read-only analytics endpoints (`GET /marketing/analytics/overview`, `GET /marketing/analytics/activity-grid`, `GET /marketing/agents/:id/summary`; pure aggregation in `services/marketingAnalytics.ts`, Prisma loading in `marketingAnalyticsService.ts`; `from/to` ≤ 366 days + optional `agentIds`/`stores`). Content completion is measured against the mandatory matrix (`CONTENT_SLOTS_PER_STORE_DAY` = 9 per store-day reported); the score formula is unchanged and now lives once in shared `MARKETING_SCORE_WEIGHTS` / `marketingScore()`. UI: URL-driven filters, 6 KPIs with period-over-period deltas + sparklines, five tabs (Overview · Content · Live Selling · Sales · Activity), and the agent drill-down is now a route (`/marketing-report/agents/:agentId`) with team comparison, streaks, calendar and a redesigned day modal (order edit/delete shown to ADMIN only). `getDayDetail` gained additive fields only. No schema change, no new dependency.
 >
@@ -1183,7 +1185,7 @@ PENDING and OUT_OF_STOCK rows are excluded from every aggregate above. Frontend 
 
 ---
 
-### 7.10 Incident Report Module ✅ Built (v2.43.0; v2.44.0 added edit + date-range filter + blob PDF download; v2.80.0 added cost/quantity tracking + split into a two-page dashboard/employee-drilldown)
+### 7.10 Incident Report Module ✅ Built (v2.43.0; v2.44.0 added edit + date-range filter + blob PDF download; v2.80.0 added cost/quantity tracking + split into a two-page dashboard/employee-drilldown; v2.91.0 added disciplinary actions, occurrence numbers, repeat offenders, employee profile drawer)
 **Visible to:** Admin only
 **Sidebar:** "Incident Report" — placed directly under "Marketing Report".
 **Routes:** `/incident-report` (dashboard) + `/incident-report/employees` (employee drill-down, reached only via an in-page button — no separate sidebar entry, same pattern as Outbound Report → Old Orders).
@@ -1210,6 +1212,14 @@ Logos and signed (uploaded) incident files live under `/app/uploads` inside the 
 In dev (`NODE_ENV !== 'production'`) the root falls back to `backend/uploads/`. `ensureUploadDirs()` is called at server startup.
 
 > **Unsigned PDFs are never persisted.** Each download or email request re-generates the PDF in-memory via PDFKit so the document always reflects the current data, current logo, and current company name.
+
+#### Disciplinary actions + occurrence numbers (v2.91.0)
+- Schema (additive): enum `DisciplinaryAction` and nullable `Incident.disciplinaryAction`. Incidents created before v2.91 stay NULL and are shown as "Not recorded" — never back-filled.
+- Write rule: `POST` stores the value (or NULL); `PATCH` treats an omitted field as "leave untouched", `null` as "clear". Older clients therefore cannot wipe a recorded warning.
+- Occurrence (never stored): per person — the linked Employee when the login is linked (`User.employeeId`, several logins = one person), else the login — ordered by incident date, then creation time: `no` (Nth incident), `typeNo` (Nth of the same type), `warningNo` (Nth action at Verbal Warning or above), `last12Months`, `previousAction`. Computed in `services/incidentInsights.ts` over all tenant incidents.
+- `GET /incidents/people/:userId/history` (ADMIN, WAREHOUSE_ADMIN, INCIDENT_REPORTER): person summary, highest action, last warning, `suggestedNext` (one step above the highest action — advisory only), type mix and the newest-first incident list.
+- Categories: `INCIDENT_TYPE_CATEGORY` maps the 25 types to Order & parcel handling / Inventory / Attendance & productivity / Conduct & safety / Sales & reporting.
+- Frontend: `components/incident/*` (palette, pills/badges/ladder, `DisciplineSection` form block, `PersonProfileDrawer`) + `styles/incident.css` (`.inc-*`); charts reuse the Marketing kit.
 
 #### PDF generation (`incidentPdfService.ts`)
 
@@ -1415,7 +1425,7 @@ frontend/
 │   │   ├── MarketingReport.tsx    ← /marketing-report — v2.89.0 KPI row + 5 tabs (components/marketing/*)
 │   │   ├── MarketingAgent.tsx     ← /marketing-report/agents/:agentId — v2.89.0 agent profile + calendar + day modal
 │   │   ├── StockScan.tsx          ← /stock/scan — STOCK_KEEPER mobile camera, Single/Bulk modes, operation-driven (v2.33.0)
-│   │   ├── IncidentReport.tsx     ← /incident-report — v2.43.0 admin HR module: page hero + 4 stat cards + filter + Recent table + Employee×Type pivot
+│   │   ├── IncidentReport.tsx     ← /incident-report — v2.91.0 redesign: KPIs (Δ vs previous) + category trend + disciplinary / repeat-offender panels + table with occurrence & action badges + profile drawer
 │   │   ├── incident/
 │   │   │   ├── CreateIncidentModal.tsx     ← form with 25-type dropdown + conditional parcel block
 │   │   │   ├── ViewIncidentModal.tsx       ← row-action modal: PDF download + signed upload + send email
@@ -1546,7 +1556,8 @@ backend/
 │   │   ├── marketingReportService.ts      ← v2.23.1 + v2.28.x — legacy leaderboard + comparison (UI unused since v2.89.0) + agent guard
 │   │   ├── marketingAnalytics.ts          ← v2.89.0 — pure aggregation (KPIs, daily, per-agent, breakdowns, activity grid, streaks)
 │   │   ├── marketingAnalyticsService.ts   ← v2.89.0 — Prisma loaders + range validation for the analytics endpoints
-│   │   ├── incidentService.ts             ← v2.43.0 — CRUD, list + stats + pivot, lookup-tn, signed file persistence, remembered-name lookup
+│   │   ├── incidentService.ts             ← v2.43.0 — CRUD, list + stats + pivot, lookup-tn, signed file persistence, remembered-name lookup; v2.91.0 person history + extended report
+│   │   ├── incidentInsights.ts            ← v2.91.0 — occurrence numbers (pure) + person mapping (linked Employee → one person)
 │   │   ├── incidentPdfService.ts          ← v2.43.0 — PDFKit letterhead + 25 statement templates with name/TN substitution
 │   │   ├── incidentEmailService.ts        ← v2.43.0 — SMTP send with PDF attachment, recipient + employee + isSmtpConfigured()
 │   │   └── brandingService.ts             ← v2.43.0 — getBranding, upsertBranding, readLogoBuffer (filesystem + Prisma)

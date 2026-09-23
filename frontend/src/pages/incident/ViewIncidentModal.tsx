@@ -10,6 +10,7 @@ import {
   useDeleteIncidentDocument,
   useSendIncidentEmail,
 } from '../../api/incidents'
+import { actionLabel, ordinal } from '../../components/incident/incidentPalette'
 import { money } from '../../api/accounting'
 
 // Keep in sync with the backend's MAX_SIGNED_MB (routes/incidents.ts).
@@ -20,9 +21,11 @@ interface Props {
   smtpConfigured: boolean
   onClose: () => void
   onChanged: () => void
+  /** v2.91.0 — opens the employee's incident history */
+  onOpenHistory?: () => void
 }
 
-export default function ViewIncidentModal({ incident, smtpConfigured, onClose, onChanged }: Props) {
+export default function ViewIncidentModal({ incident, smtpConfigured, onClose, onChanged, onOpenHistory }: Props) {
   const upload = useUploadIncidentDocument()
   const delDoc = useDeleteIncidentDocument()
   const docsQuery = useIncidentDocuments(incident.id)
@@ -133,6 +136,9 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
             <div className="modal-title">{typeLabel}</div>
             <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
               {incident.employeeFullName} · {new Date(incident.incidentDate).toLocaleDateString()}
+              {onOpenHistory && (
+                <> · <button type="button" className="inc-link" onClick={onOpenHistory}>View employee history</button></>
+              )}
             </div>
           </div>
         </div>
@@ -141,6 +147,10 @@ export default function ViewIncidentModal({ incident, smtpConfigured, onClose, o
 
           <InfoTable
             rows={[
+              ['Disciplinary Action', incident.disciplinaryAction
+                ? `${actionLabel(incident.disciplinaryAction)}${incident.occurrence?.warningNo ? ` · ${ordinal(incident.occurrence.warningNo)} warning` : ''}`
+                : 'Not recorded'],
+              ...(incident.occurrence ? [['History', `${ordinal(incident.occurrence.no)} incident for this person · ${ordinal(incident.occurrence.typeNo)} of this type · ${incident.occurrence.last12Months} in the last 12 months`] as [string, string]] : []),
               ['Reported By',  `${incident.reportedByFullName} (${humanRole(incident.reportedByRole)})`],
               ['Recipient',    incident.recipientEmail],
               ['Created',      new Date(incident.createdAt).toLocaleString()],
