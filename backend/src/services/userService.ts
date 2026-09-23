@@ -34,7 +34,7 @@ export async function listUsers(tenantId: string) {
       email: true,
       createdAt: true,
       createdBy: { select: { id: true, username: true } },
-      empEmployee: { select: { empNo: true } },
+      employee: { select: { empNo: true } },
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -185,46 +185,31 @@ export async function updateUser(
   }
   if ('email' in input) data.email = input.email ?? null
 
-  // v2.86.0 — the Employee ID sets the same EmpEmployee.userId link that the
-  // Employee Schedule "Linked system user" dropdown edits (single source of truth).
-  let linkTarget: { id: string } | null | undefined // undefined = leave link unchanged
+  // v2.86.0 — the Employee ID sets User.employeeId, the same link the Employee Schedule
+  // "Linked system users" field edits. Several logins may share one employee (v2.88.0).
   if (input.employeeNo !== undefined) {
     if (input.employeeNo === null) {
-      linkTarget = null
+      data.employeeId = null
     } else {
       const emp = await prisma.empEmployee.findFirst({
         where: { tenantId, empNo: input.employeeNo },
-        select: { id: true, isActive: true, userId: true, user: { select: { username: true } } },
+        select: { id: true, isActive: true },
       })
       if (!emp) throw new Error(`Employee ID ${input.employeeNo} not found in Employee Schedule`)
       if (!emp.isActive) throw new Error(`Employee ID ${input.employeeNo} is marked as left the company`)
-      if (emp.userId && emp.userId !== userId) {
-        throw new Error(`Employee ID ${input.employeeNo} is already linked to ${emp.user?.username ?? 'another user'}`)
-      }
-      linkTarget = { id: emp.id }
+      data.employeeId = emp.id
     }
   }
 
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.user.update({
-      where: { id: userId },
-      data,
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        isActive: true,
-        createdAt: true,
-      },
-    })
-    if (linkTarget !== undefined) {
-      // userId is unique on emp_employees — drop the old link before setting the new one
-      await tx.empEmployee.updateMany({
-        where: { tenantId, userId, ...(linkTarget ? { NOT: { id: linkTarget.id } } : {}) },
-        data: { userId: null },
-      })
-      if (linkTarget) await tx.empEmployee.update({ where: { id: linkTarget.id }, data: { userId } })
-    }
-    return updated
+  return prisma.user.update({
+    where: { id: userId },
+    data,
+    select: {
+      id: true,
+      username: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+    },
   })
 }

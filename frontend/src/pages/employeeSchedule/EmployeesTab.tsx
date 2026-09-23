@@ -60,8 +60,8 @@ function dtoToInput(e: EmpEmployeeDTO): EmployeeInput {
     emergencyContactNumber: e.emergencyContactNumber ?? '',
     isActive: e.isActive,
     leaveDate: e.leaveDate ?? '',
-    // always echo the link back so Set Inactive / Reactivate never drop it
-    userId: e.userId ?? '',
+    // always echo the links back so Set Inactive / Reactivate never drop them
+    userIds: e.userIds,
   }
 }
 
@@ -219,12 +219,12 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={avatarStyle(ds)}>{initials(emp.firstName, emp.lastName)}</span>
                               <span style={{ fontWeight: 600, color: colors.textPrimary }}>{emp.firstName} {emp.lastName}</span>
-                              {emp.userId && usernameById.has(emp.userId) && (
-                                <span title="Linked system user — used by Warehouse Report → Performance" style={{
+                              {emp.userIds.filter((id) => usernameById.has(id)).map((id) => (
+                                <span key={id} title="Linked system login — used by Warehouse Report → Performance" style={{
                                   fontSize: '11px', fontWeight: 600, color: ds.bandText, background: ds.soft,
                                   padding: '1px 8px', borderRadius: radius.full, whiteSpace: 'nowrap',
-                                }}>@{usernameById.get(emp.userId)}</span>
-                              )}
+                                }}>@{usernameById.get(id)}</span>
+                              ))}
                             </div>
                           </td>
                           <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>{emp.contactNumber || <span style={{ color: colors.textMuted }}>—</span>}</td>
@@ -410,8 +410,12 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
 }) {
   const [form, setForm] = useState<EmployeeInput>(dtoToInput(employee))
   const linkRole = LINKABLE_ROLE[form.department]
-  // every login can be linked (v2.87.0); the department's own role is listed first
-  const linkOptions = [...linkable].sort((a, b) => Number(b.role === linkRole) - Number(a.role === linkRole))
+  // every login can be linked (v2.87.0), several per employee (v2.88.0); the department's own role first
+  const linkedIds = form.userIds ?? []
+  const linkedUsers = linkedIds.map((id) => linkable.find((u) => u.id === id)).filter((u): u is LinkableUser => !!u)
+  const linkOptions = linkable
+    .filter((u) => !linkedIds.includes(u.id))
+    .sort((a, b) => Number(b.role === linkRole) - Number(a.role === linkRole))
   const canSave = !!(form.firstName?.trim() && form.lastName?.trim() && form.startDate && (form.isActive || form.leaveDate))
 
   return (
@@ -447,9 +451,32 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
               <Field label="Leave Date *"><input type="date" value={form.leaveDate ?? ''} onChange={(e) => setForm({ ...form, leaveDate: e.target.value })} style={inputStyle} /></Field>
             )}
 
-            <Field label="Linked system user" full>
-              <select value={form.userId ?? ''} onChange={(e) => setForm({ ...form, userId: e.target.value })} style={inputStyle}>
-                <option value="">— Not linked —</option>
+            <Field label="Linked system logins" full>
+              {linkedUsers.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                  {linkedUsers.map((u) => (
+                    <span key={u.id} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600,
+                      color: colors.textPrimary, background: colors.surfaceAlt, border: `1px solid ${colors.border}`,
+                      padding: '3px 6px 3px 10px', borderRadius: radius.full,
+                    }}>
+                      @{u.username} <span style={{ fontWeight: 500, color: colors.textMuted }}>{roleLabel(u.role)}</span>
+                      <button
+                        type="button"
+                        aria-label={`Unlink ${u.username}`}
+                        onClick={() => setForm({ ...form, userIds: linkedIds.filter((id) => id !== u.id) })}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: colors.textMuted, fontSize: '14px', lineHeight: 1, padding: '0 2px' }}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <select
+                value=""
+                onChange={(e) => e.target.value && setForm({ ...form, userIds: [...linkedIds, e.target.value] })}
+                style={inputStyle}
+              >
+                <option value="">{linkedUsers.length ? '+ Link another login…' : '— Not linked — pick a login —'}</option>
                 {linkOptions.map((u) => {
                   const taken = !!u.linkedEmployeeId && u.linkedEmployeeId !== employee.id
                   return (
@@ -460,8 +487,8 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
                 })}
               </select>
               <span style={{ display: 'block', marginTop: '6px', fontSize: '11.5px', color: colors.textMuted, lineHeight: 1.45 }}>
-                The system login of this employee (also settable from Settings → Employee ID). For pickers/packers,
-                Warehouse Report → Performance uses this link to apply the schedule (Day Off / leave days are excluded from the daily target).
+                The system logins of this employee — one person can have several (e.g. a picker and a packer account). Also settable
+                from Settings → Employee ID. Warehouse Report → Performance uses picker/packer links to apply the schedule.
               </span>
             </Field>
 

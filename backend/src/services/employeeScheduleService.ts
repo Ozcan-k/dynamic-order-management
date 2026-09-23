@@ -60,8 +60,10 @@ interface EmpRow {
   contactNumber: string | null; email: string | null; address: string | null; birthday: Date | null
   emergencyContactName: string | null; emergencyContactNumber: string | null
   isActive: boolean; leaveDate: Date | null
-  userId: string | null
+  users?: { id: string }[]
 }
+/** Pulls the linked logins along with an employee row (serEmployee → userIds). */
+const WITH_USERS = { users: { select: { id: true } } } as const
 function serEmployee(e: EmpRow): EmpEmployeeDTO {
   return {
     id: e.id,
@@ -78,7 +80,7 @@ function serEmployee(e: EmpRow): EmpEmployeeDTO {
     emergencyContactNumber: e.emergencyContactNumber,
     isActive: e.isActive,
     leaveDate: e.leaveDate ? fmt(e.leaveDate) : null,
-    userId: e.userId,
+    userIds: (e.users ?? []).map((u) => u.id),
   }
 }
 
@@ -111,9 +113,22 @@ export async function migrateEmpNosToFourDigit(): Promise<number> {
   return shifted
 }
 
+/**
+ * v2.88.0 — the login link moved from EmpEmployee.userId (one login) to User.employeeId
+ * (one employee → many logins). Copies any old link across and clears the old column.
+ * Idempotent, safe on every startup.
+ */
+export async function migrateEmployeeLinksToUsers(): Promise<number> {
+  const [moved] = await prisma.$transaction([
+    prisma.$executeRaw`UPDATE users u SET employee_id = e.id FROM emp_employees e WHERE e.user_id = u.id AND u.employee_id IS NULL`,
+    prisma.$executeRaw`UPDATE emp_employees SET user_id = NULL WHERE user_id IS NOT NULL`,
+  ])
+  return moved
+}
+
 // ─── employees CRUD ─────────────────────────────────────────────────────────
 export async function listEmployees(tenantId: string): Promise<EmpEmployeeDTO[]> {
-  const rows = await prisma.empEmployee.findMany({ where: { tenantId } })
+  const rows = await prisma.empEmployee.findMany({ where: { tenantId }, include: WITH_USERS })
   return sortEmployees(rows.map(serEmployee))
 }
 
@@ -130,8 +145,8 @@ export interface EmployeeInput {
   emergencyContactNumber?: string | null
   isActive?: boolean
   leaveDate?: string | null
-  /** Linked picker/packer user. undefined = leave unchanged (older clients), '' / null = unlink. */
-  userId?: string | null
+  /** Linked logins (v2.88.0). undefined = leave unchanged, [] = unlink all. */
+  userIds?: string[]
 }
 
 const trimOrNull = (v?: string | null) => {
@@ -155,48 +170,54 @@ function buildData(input: EmployeeInput) {
     isActive,
     // a leave date only makes sense for an inactive employee
     leaveDate: !isActive && input.leaveDate ? dateOnly(input.leaveDate) : null,
-    // only touch the link when the client sent the field
-    ...(input.userId !== undefined ? { userId: input.userId || null } : {}),
   }
 }
 
-/** A link must point at a user of this tenant (any role since v2.87.0) that no other employee already uses. */
-async function assertLinkable(tenantId: string, userId: string | null | undefined, employeeId: string | null) {
-  if (!userId) return
-  const user = await prisma.user.findFirst({
-    where: { id: userId, tenantId },
-    select: { id: true },
+/**
+ * Links must point at users of this tenant (any role) that are not already linked
+ * to a different employee. An employee may own several logins (v2.88.0).
+ */
+async function assertLinkable(tenantId: string, userIds: string[] | undefined, employeeId: string | null) {
+  if (!userIds?.length) return
+  const ids = [...new Set(userIds)]
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids }, tenantId },
+    select: { username: true, employee: { select: { id: true, empNo: true } } },
   })
-  if (!user) throw new EmployeeLinkError('Linked user not found', 400)
-  const other = await prisma.empEmployee.findFirst({
-    where: { tenantId, userId, ...(employeeId ? { NOT: { id: employeeId } } : {}) },
-    select: { empNo: true, firstName: true, lastName: true },
-  })
-  if (other) {
-    throw new EmployeeLinkError(`This user is already linked to employee ${other.empNo} ${other.firstName} ${other.lastName}`, 409)
+  if (users.length !== ids.length) throw new EmployeeLinkError('Linked user not found', 400)
+  const taken = users.find((u) => u.employee && u.employee.id !== employeeId)
+  if (taken) {
+    throw new EmployeeLinkError(`${taken.username} is already linked to employee ${taken.employee!.empNo}`, 409)
   }
+}
+
+/** The relation write for a userIds list — undefined leaves the links untouched. */
+function usersWrite(userIds: string[] | undefined, mode: 'connect' | 'set') {
+  if (userIds === undefined) return {}
+  return { users: { [mode]: [...new Set(userIds)].map((id) => ({ id })) } }
 }
 
 /** Active accounts (any role) that can be linked, with the employee they are linked to (if any). */
 export async function listLinkableUsers(tenantId: string): Promise<{ id: string; username: string; role: UserRole; linkedEmployeeId: string | null }[]> {
   const users = await prisma.user.findMany({
     where: { tenantId, isActive: true },
-    select: { id: true, username: true, role: true, empEmployee: { select: { id: true } } },
+    select: { id: true, username: true, role: true, employeeId: true },
     orderBy: [{ role: 'asc' }, { username: 'asc' }],
   })
   return users.map((u) => ({
     id: u.id,
     username: u.username,
     role: u.role as UserRole,
-    linkedEmployeeId: u.empEmployee?.id ?? null,
+    linkedEmployeeId: u.employeeId,
   }))
 }
 
 export async function createEmployee(tenantId: string, input: EmployeeInput): Promise<EmpEmployeeDTO> {
-  await assertLinkable(tenantId, input.userId, null)
+  await assertLinkable(tenantId, input.userIds, null)
   const empNo = await nextEmpNo(tenantId)
   const created = await prisma.empEmployee.create({
-    data: { tenantId, empNo, ...buildData(input) },
+    data: { tenantId, empNo, ...buildData(input), ...usersWrite(input.userIds, 'connect') },
+    include: WITH_USERS,
   })
   return serEmployee(created)
 }
@@ -204,10 +225,11 @@ export async function createEmployee(tenantId: string, input: EmployeeInput): Pr
 export async function updateEmployee(tenantId: string, id: string, input: EmployeeInput): Promise<EmpEmployeeDTO> {
   const existing = await prisma.empEmployee.findFirst({ where: { id, tenantId } })
   if (!existing) throw new EmployeeNotFoundError()
-  await assertLinkable(tenantId, input.userId, id)
+  await assertLinkable(tenantId, input.userIds, id)
   const updated = await prisma.empEmployee.update({
     where: { id },
-    data: buildData(input),
+    data: { ...buildData(input), ...usersWrite(input.userIds, 'set') },
+    include: WITH_USERS,
   })
   return serEmployee(updated)
 }

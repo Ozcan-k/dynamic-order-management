@@ -183,9 +183,15 @@ model User {
   brandingUpdates      CompanyBranding[]    @relation("BrandingUpdatedBy")
   returnCancelCreated  ReturnCancelParcel[] @relation("ReturnCancelCreatedBy")
   dispatchCreated      DispatchParcel[]     @relation("DispatchCreatedBy")
-  empEmployee          EmpEmployee?         @relation("EmpEmployeeUser")
+  legacyEmpEmployee    EmpEmployee?         @relation("EmpEmployeeUser") // deprecated (v2.88.0) — see User.employeeId
+
+  // v2.88.0 — the Employee Schedule record this login belongs to. One employee can
+  // own several logins (e.g. a picker and a packer account), so the link lives here.
+  employeeId String?      @map("employee_id")
+  employee   EmpEmployee? @relation("UserEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, username])
+  @@index([employeeId])
   @@map("users")
 }
 
@@ -965,14 +971,16 @@ model EmpEmployee {
   isActive  Boolean   @default(true) @map("is_active")
   leaveDate DateTime? @map("leave_date") @db.Date
 
-  // v2.84.0 — optional link to the picker/packer login, so the Warehouse Report
-  // target report can read this employee's attendance. Nullable + additive.
+  // DEPRECATED (v2.88.0): one-login link superseded by User.employeeId (one employee →
+  // many logins). Copied over + cleared at startup by migrateEmployeeLinksToUsers();
+  // kept in the schema so the CD db push never drops a column.
   userId String? @unique @map("user_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id])
   user     User?         @relation("EmpEmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
+  users    User[]        @relation("UserEmployee")
   schedule EmpSchedule[]
 
   @@unique([tenantId, empNo])

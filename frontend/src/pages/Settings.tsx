@@ -16,7 +16,7 @@ interface AppUser {
   email?: string | null
   createdAt: string
   createdBy?: { id: string; username: string } | null
-  empEmployee?: { empNo: number } | null
+  employee?: { empNo: number } | null
 }
 
 // ─── Role config ──────────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ function EditUserModal({
   const [username, setUsername] = useState(user.username)
   const [email, setEmail] = useState(user.email ?? '')
   const [newPassword, setNewPassword] = useState('')
-  const currentEmpNo = user.empEmployee?.empNo != null ? String(user.empEmployee.empNo) : ''
+  const currentEmpNo = user.employee?.empNo != null ? String(user.employee.empNo) : ''
   const [employeeNo, setEmployeeNo] = useState(currentEmpNo)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -691,8 +691,8 @@ function UserRoleCard({
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: colors.textPrimary }}>
                     {u.username}
-                    {u.empEmployee
-                      ? <span style={{ fontSize: '11px', color: colors.textSecondary, fontWeight: 600 }}> · ID {u.empEmployee.empNo}</span>
+                    {u.employee
+                      ? <span style={{ fontSize: '11px', color: colors.textSecondary, fontWeight: 600 }}> · ID {u.employee.empNo}</span>
                       : <span style={{ fontSize: '11px', color: '#b45309', fontWeight: 500, fontStyle: 'italic' }}> · No employee ID</span>}
                   </div>
                   {cfg.hasEmail ? (

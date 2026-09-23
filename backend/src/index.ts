@@ -35,7 +35,7 @@ import returnRoutes from './routes/returns'
 import brandingRoutes from './routes/branding'
 import accountingRoutes from './routes/accounting'
 import employeeScheduleRoutes from './routes/employeeSchedule'
-import { migrateEmpNosToFourDigit } from './services/employeeScheduleService'
+import { migrateEmpNosToFourDigit, migrateEmployeeLinksToUsers } from './services/employeeScheduleService'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -200,6 +200,13 @@ async function start() {
     if (shifted > 0) fastify.log.info(`Employee IDs migrated to 4 digits: ${shifted} row(s)`)
   } catch (err) {
     fastify.log.error({ err }, 'Employee ID 4-digit migration failed')
+  }
+  // v2.88.0 — move login links from emp_employees.user_id to users.employee_id (idempotent)
+  try {
+    const moved = await migrateEmployeeLinksToUsers()
+    if (moved > 0) fastify.log.info(`Employee login links moved to users: ${moved} row(s)`)
+  } catch (err) {
+    fastify.log.error({ err }, 'Employee login link migration failed')
   }
 
   // Start BullMQ workers

@@ -23,7 +23,7 @@ export interface EmployeeInput {
   emergencyContactNumber?: string | null
   isActive?: boolean
   leaveDate?: string | null // YYYY-MM-DD — required when isActive=false
-  userId?: string | null // linked picker/packer login ('' / null = not linked)
+  userIds?: string[] // linked system logins — one employee can own several (v2.88.0)
 }
 
 export interface LinkableUser {

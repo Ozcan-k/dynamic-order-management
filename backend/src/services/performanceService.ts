@@ -87,17 +87,17 @@ async function loadWorkers(tenantId: string, role: PerfRole): Promise<WorkerSour
     select: {
       id: true,
       username: true,
-      empEmployee: { select: { id: true, empNo: true, firstName: true, lastName: true, isActive: true } },
+      employee: { select: { id: true, empNo: true, firstName: true, lastName: true, isActive: true } },
     },
     orderBy: { username: 'asc' },
   })
   return users
-    .filter((u) => !u.empEmployee || u.empEmployee.isActive)
+    .filter((u) => !u.employee || u.employee.isActive)
     .map((u) => ({
       userId: u.id,
       username: u.username,
-      employee: u.empEmployee
-        ? { id: u.empEmployee.id, empNo: u.empEmployee.empNo, firstName: u.empEmployee.firstName, lastName: u.empEmployee.lastName }
+      employee: u.employee
+        ? { id: u.employee.id, empNo: u.employee.empNo, firstName: u.employee.firstName, lastName: u.employee.lastName }
         : null,
     }))
 }

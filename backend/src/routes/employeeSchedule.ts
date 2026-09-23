@@ -46,8 +46,8 @@ const EmployeeBody = z.object({
   emergencyContactNumber: optStr(40),
   isActive: z.boolean().default(true),
   leaveDate: optDate,
-  // v2.84.0 system-user link — existence + picker/packer role verified in the service
-  userId: z.union([z.string().trim().min(1).max(64), z.literal(''), z.null()]).optional(),
+  // v2.88.0 linked system logins (several allowed) — tenant + conflicts verified in the service
+  userIds: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
 }).refine((d) => d.isActive || (!!d.leaveDate && DATE_RE.test(d.leaveDate)), {
   message: 'A leave date is required when the employee is inactive',
   path: ['leaveDate'],
