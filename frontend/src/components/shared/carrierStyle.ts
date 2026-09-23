@@ -32,7 +32,7 @@ const NO_CARRIER_STYLE: CarrierStyle = {
   headerBg: '#475569', headerText: '#fff', badgeBg: '#e2e8f0', badgeText: '#334155', border: '#cbd5e1',
 }
 
-// The seven known carriers are pinned to distinct palette entries. Hashing alone
+// The known carriers are pinned to distinct palette entries. Hashing alone
 // collided (JT_EXPRESS/LEX both landed on 3, FLASH/OTHER both on 6), which rendered
 // those pairs in an identical colour on every board.
 const CARRIER_PALETTE_INDEX: Record<Carrier, number> = {
@@ -43,6 +43,7 @@ const CARRIER_PALETTE_INDEX: Record<Carrier, number> = {
   [Carrier.SPX]:        4, // orange
   [Carrier.OTHER]:      5, // teal
   [Carrier.FLASH]:      8, // amber
+  [Carrier.SHOPEE_INSTANT]: 6, // pink
 }
 
 export function hashCarrier(name: string): number {

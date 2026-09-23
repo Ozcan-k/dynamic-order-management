@@ -82,6 +82,7 @@ export interface JWTPayload {
 
 export enum Carrier {
   SPX        = 'SPX',
+  SHOPEE_INSTANT = 'SHOPEE_INSTANT',
   JT_EXPRESS = 'JT_EXPRESS',
   FLASH      = 'FLASH',
   LEX        = 'LEX',
@@ -92,6 +93,7 @@ export enum Carrier {
 
 export const CARRIER_LABELS: Record<Carrier, string> = {
   [Carrier.SPX]:        'SPX / Shopee Express',
+  [Carrier.SHOPEE_INSTANT]: 'Shopee Instant',
   [Carrier.JT_EXPRESS]: 'J&T Express',
   [Carrier.FLASH]:      'Flash Express',
   [Carrier.LEX]:        'LEX / Lazada Logistics',

@@ -119,6 +119,7 @@ enum ReturnCancelType {
 
 enum Carrier {
   SPX
+  SHOPEE_INSTANT
   JT_EXPRESS
   FLASH
   LEX
