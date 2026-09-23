@@ -37,6 +37,7 @@ import accountingRoutes from './routes/accounting'
 import employeeScheduleRoutes from './routes/employeeSchedule'
 import { migrateEmpNosToFourDigit, migrateEmployeeLinksToUsers } from './services/employeeScheduleService'
 import devTestRoutes from './routes/devTest'
+import { registerPermissionCollector } from './services/permissionMap'
 
 const fastify = Fastify({
   logger: {
@@ -62,6 +63,9 @@ async function start() {
   })
 
   await ensureUploadDirs()
+
+  // Must run before the route plugins register — records each route's allowed roles
+  registerPermissionCollector(fastify)
 
   await fastify.register(authRoutes, { prefix: '/auth' })
   await fastify.register(userRoutes, { prefix: '/users' })

@@ -7,11 +7,11 @@ import {
   RETURN_CANCEL_PLATFORMS,
   Carrier,
   CARRIER_LABELS,
-  SALES_STORES,
   detectPlatform,
 } from '@dom/shared'
 import { useReturnCancelList, useDeleteReturnCancel, useCreateReturnCancel, type ReturnCancelRow } from '../api/returns'
 import ConfirmModal from '../components/shared/ConfirmModal'
+import StoreOptions from '../components/shared/StoreOptions'
 
 const CARRIERS = Object.values(Carrier)
 
@@ -330,7 +330,7 @@ function AddParcelModal({ onClose }: { onClose: () => void }) {
         <ModalField label="Store">
           <select className="styled-select" value={storeName} onChange={(e) => setStoreName(e.target.value)}>
             <option value="">Select a store…</option>
-            {SALES_STORES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <StoreOptions current={storeName} />
           </select>
         </ModalField>
 

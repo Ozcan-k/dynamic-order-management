@@ -2,7 +2,9 @@
 
 > **Version:** 2.91.0  
 > **Date:** 2026-09-24  
-> **Status:** **v2.91.0 (test)** — **Incident Report: disciplinary tracking, repeat offenders, employee profile.** Additive schema only: enum `DisciplinaryAction` + nullable `incidents.disciplinary_action` (pre-v2.91 rows stay NULL = "Not recorded"; PATCH leaves it untouched when omitted). Occurrence numbers (Nth incident / Nth of type / Nth warning / last 12 months, per person = linked Employee or login) are computed at read time in `services/incidentInsights.ts`. New `GET /incidents/people/:userId/history`; list gains `action`/`category`/`samePersonAs` filters + `occurrence`/`documentCount`/`hasSignedCopy`; `/report` gains previous-period comparison, category trend, repeat list and unsigned count (old fields unchanged). Fixes the table's "Signed" column (it ignored `incident_documents`, hiding 87 signed copies in prod). PDF adds one "Disciplinary action" line only when an action is recorded.
+> **Status:** **v2.92.0 (test)** — **Settings rebuilt: Users / Stores / Permissions tabs; store names are now managed data.** Additive schema only: tables `stores` (seeded idempotently from the old `SALES_STORES` constant) and `store_audit`. Every store picker reads `GET /sales/stores` (any signed-in user; `?all=1` includes archived); sales activity / direct-order writes validate the name against the table. Settings → Stores (ADMIN) adds, renames (preview + one transaction over `sales_daily_activity`, `sales_direct_order`, `return_cancel_parcels`; merges blocked), archives / restores, and deletes only never-used stores; Accounting's `acc_stores` is untouched. Settings → Permissions shows the role × module access map generated from the `requireRole` rules at boot (`services/permissionMap.ts`, `GET /users/permissions`). See §7.15.
+>
+> **Previous status:** **v2.91.0 (test)** — **Incident Report: disciplinary tracking, repeat offenders, employee profile.** Additive schema only: enum `DisciplinaryAction` + nullable `incidents.disciplinary_action` (pre-v2.91 rows stay NULL = "Not recorded"; PATCH leaves it untouched when omitted). Occurrence numbers (Nth incident / Nth of type / Nth warning / last 12 months, per person = linked Employee or login) are computed at read time in `services/incidentInsights.ts`. New `GET /incidents/people/:userId/history`; list gains `action`/`category`/`samePersonAs` filters + `occurrence`/`documentCount`/`hasSignedCopy`; `/report` gains previous-period comparison, category trend, repeat list and unsigned count (old fields unchanged). Fixes the table's "Signed" column (it ignored `incident_documents`, hiding 87 signed copies in prod). PDF adds one "Disciplinary action" line only when an action is recorded.
 >
 > **Previous status:** **v2.90.0 (test)** — **Picker / Packer Admin live workload.** New read-only `GET /reports/live-workers?role=` (one role of the live floor; engine extracted to `loadLiveRoles`, `/reports/live-board` output verified identical to the previous code). Shared `components/workload/*` replace both pages' duplicated workload cards: Team pulse strip (state counts → filter, team done/target/projection, load-balance warning), live worker cards (state, target progress + projection, queue vs in hand, hourly rhythm, heavy-queue / can-take-more flags, sort + filter), an assignment dropdown showing each worker's load and "clears in ~N min" with a "Suggested" hint (no auto-assign), and a comparative performance section (Today live / Yesterday / 7 days / This month) that reuses the Warehouse Report presets and endpoint so the numbers match exactly. `Reports.tsx` reads optional deep-link params. OUTBOUND_ADMIN access unchanged (live parts hidden). No schema change, no new dependency.
 >
@@ -520,6 +522,8 @@ CREATE INDEX ON sla_escalations (tenant_id, triggered_at DESC);
 ---
 
 ## 6. User Roles & Permissions
+
+> **v2.92.0:** the always-current matrix is **Settings → Permissions**, generated from the `requireRole` rules the server enforces (§7.15). The table below is a historical summary and may lag behind.
 
 | Panel / Action | Admin | Inbound Admin | Picker Admin | Packer Admin | Picker | Packer |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -1397,6 +1401,20 @@ A self-contained workforce-scheduling module placed **directly under Incident Re
 
 ---
 
+### 7.15 Settings — Users · Stores · Permissions ✅ Built (v2.92.0)
+
+`/settings` (ADMIN) is a tabbed page; the tab lives in the URL (`?tab=users|stores|permissions`). Code: `pages/Settings.tsx` + `components/settings/*` + `styles/settings.css` (`.set-*`).
+
+- **Users** — the same user API and the same add / edit / remove modals as before (moved to `components/settings/UserModals.tsx`); adds a KPI strip, role-count chips (click = filter), search, Active / Removed / All and **Reactivate** for removed users (`PATCH /users/:id { isActive: true }`).
+- **Stores** — managed store list.
+  - Tables: `stores` (`tenant_id`, `name` unique per tenant, `is_active`, `sort_order`) and `store_audit` (action CREATE / RENAME / ARCHIVE / RESTORE / DELETE, from / to name, per-table row counts of a rename, user, time; no FK so history survives a delete). `services/storeService.ts` seeds `stores` from `SALES_STORES` the first time a tenant reads it (insert-only).
+  - Store names stay **plain text** on `sales_daily_activity`, `sales_direct_order` and `return_cancel_parcels`. A rename updates the store row and all three tables in **one transaction** after a server-side preview (`GET /sales/stores/:id/rename-preview?name=`); renaming onto another store's name (case-insensitive) or onto a name already used by records is refused (409) because it would merge two stores.
+  - Archive hides a store from new entries only; archived names stay valid when editing an old record and stay selectable in report filters. Hard delete is allowed only while no record uses the name; the last active store cannot be archived or deleted.
+  - Writes from sales activity / direct orders call `assertKnownStore` (400 `Unknown store "…"`). Return / Cancel keeps accepting free text; names found on records but missing from the list are shown read-only with an "Add" shortcut.
+  - Endpoints (prefix `/sales`, ADMIN unless noted): `GET /stores` (any signed-in user), `GET /stores/manage`, `POST /stores`, `GET /stores/:id/rename-preview`, `POST /stores/:id/rename`, `POST /stores/:id/archive`, `POST /stores/:id/restore`, `DELETE /stores/:id`.
+  - Accounting keeps its own `acc_stores` list; not touched.
+- **Permissions** (read-only) — `requireRole(...)` behaves exactly as before but records its allowed roles in a WeakMap (`rolesOf()`); `registerPermissionCollector` adds an `onRoute` hook **before** the route plugins register and records method + URL + access (`roles` / `signed-in` / `public`) for every route. `GET /users/permissions` (ADMIN) returns them grouped by module (first URL segment; `/sales/stores/*` management = "Settings — stores"). The UI derives View (GET) / Edit (POST / PUT / PATCH) / Delete per module × role: filled pip = every endpoint of that kind, outlined = some. Rights are changed in code, never from this page. The §6 table is a historical summary; this tab is the current truth.
+
 ## 8. Frontend Structure
 
 ```
@@ -1417,7 +1435,7 @@ frontend/
 │   │   ├── Outbound.tsx           ← /outbound — Phase 8 (dispatch queue, comparison report, stuck orders)
 │   │   ├── Archive.tsx            ← /archive — v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
 │   │   ├── Reports.tsx            ← /reports — Live Performance, Performance, Employee Report, SLA Analytics, Order Timeline (v2.90.0: ?tab=&role=&from=&to=&userId= deep link)
-│   │   ├── Settings.tsx           ← admin user management + sales-agent + stock-keeper creation
+│   │   ├── Settings.tsx           ← v2.92.0 tabbed: Users · Stores · Permissions (components/settings/*)
 │   │   ├── Users.tsx              ← legacy placeholder (Settings replaced most functionality)
 │   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
 │   │   ├── SalesEntry.tsx         ← /sales/entry — daily activity form (content posts + live selling + marketplace + direct orders)
@@ -1531,7 +1549,7 @@ backend/
 │   │   ├── rateLimit.ts
 │   │   └── socket.ts              ← Socket.io integration; joins user to tenant:{id} + user:{id} rooms on connect
 │   ├── middleware/
-│   │   ├── rbac.ts                ← role-based access control
+│   │   ├── rbac.ts                ← role-based access control (v2.92.0: rolesOf() metadata for the permission map)
 │   │   └── auditLog.ts            ← v2.26.0 — logs marketing-report reads/writes (userId, role, tenantId, method, url, ts)
 │   ├── jobs/
 │   │   ├── index.ts               ← registers all BullMQ workers and repeatable jobs
@@ -1558,6 +1576,8 @@ backend/
 │   │   ├── marketingAnalyticsService.ts   ← v2.89.0 — Prisma loaders + range validation for the analytics endpoints
 │   │   ├── incidentService.ts             ← v2.43.0 — CRUD, list + stats + pivot, lookup-tn, signed file persistence, remembered-name lookup; v2.91.0 person history + extended report
 │   │   ├── incidentInsights.ts            ← v2.91.0 — occurrence numbers (pure) + person mapping (linked Employee → one person)
+│   │   ├── storeService.ts                ← v2.92.0 — managed store list: seed, validation, rename (one transaction), archive, delete, audit
+│   │   ├── permissionMap.ts               ← v2.92.0 — onRoute collector → role × route access map (Settings → Permissions)
 │   │   ├── incidentPdfService.ts          ← v2.43.0 — PDFKit letterhead + 25 statement templates with name/TN substitution
 │   │   ├── incidentEmailService.ts        ← v2.43.0 — SMTP send with PDF attachment, recipient + employee + isSmtpConfigured()
 │   │   └── brandingService.ts             ← v2.43.0 — getBranding, upsertBranding, readLogoBuffer (filesystem + Prisma)

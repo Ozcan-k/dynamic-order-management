@@ -5,6 +5,19 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-09-24] Route throws a 4xx error but the UI shows "Bad Request" instead of the message (v2.92.0)
+
+### Problem
+A service threw an error with `statusCode = 400` and a clear message (`Unknown store "…"`), expecting the global `setErrorHandler` in `index.ts` to reply `{ error: message }`. The client received `{ statusCode: 400, error: 'Bad Request', message: '…' }` instead, and the UI (which reads `response.data.error`) showed only "Bad Request".
+
+### Root cause
+All route plugins are registered **before** `fastify.setErrorHandler(...)` runs in `index.ts`. Encapsulated plugins take the error handler that exists when they are created, so every route still uses Fastify's **default** handler, whose body puts the text in `message` and the HTTP reason in `error`.
+
+### Fix
+Catch the typed error in the route and send the shape the UI expects: `catch (e) { if (e instanceof UnknownStoreError) return reply.code(400).send({ error: e.message }); throw e }` (see `routes/sales.ts` `storeError`). Don't rely on the global error handler for 4xx messages unless it is moved above the route registrations; moving it changes the error body of every route, so do it only as a deliberate, tested change.
+
+---
+
 ## [2026-09-24] Mobile: page scrolls sideways although the table has an overflow-x wrapper (v2.91.0)
 
 ### Problem

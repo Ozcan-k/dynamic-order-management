@@ -10,13 +10,13 @@ import {
   RETURN_CANCEL_PLATFORMS,
   Carrier,
   CARRIER_LABELS,
-  SALES_STORES,
   detectPlatform,
 } from '@dom/shared'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import { disconnectSocket } from '../lib/socket'
 import { useCreateReturnCancel, type ReturnCancelRow } from '../api/returns'
+import StoreOptions from '../components/shared/StoreOptions'
 
 const CARRIERS = Object.values(Carrier)
 
@@ -261,7 +261,7 @@ export default function ReturnScanMobile() {
           <Section label="Store">
             <select className="styled-select" value={storeName} onChange={(e) => setStoreName(e.target.value)} style={darkSelect}>
               <option value="">Select a store…</option>
-              {SALES_STORES.map((s) => <option key={s} value={s}>{s}</option>)}
+              <StoreOptions current={storeName} />
             </select>
           </Section>
 

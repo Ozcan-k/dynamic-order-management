@@ -20,7 +20,9 @@ export const SALES_STORES = [
   'Sport Snack',
 ] as const
 
-export type SalesStore = typeof SALES_STORES[number]
+// Seed list only (v2.92.0): live store names are managed in Settings → Stores (`stores`
+// table), so a store name is any string from that table.
+export type SalesStore = string
 
 export enum SalesPlatform {
   FACEBOOK = 'FACEBOOK',

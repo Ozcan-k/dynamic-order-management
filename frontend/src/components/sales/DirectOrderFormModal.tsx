@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { SaleChannel, SALE_CHANNEL_LABELS, SALES_STORES, type SalesStore } from '@dom/shared'
+import { SaleChannel, SALE_CHANNEL_LABELS, type SalesStore } from '@dom/shared'
+import StoreOptions from '../shared/StoreOptions'
 import type { CreateDirectOrderPayload, DirectOrder, DirectOrderItem } from '../../api/sales'
 import AutoSuggestInput from './AutoSuggestInput'
 
@@ -157,9 +158,7 @@ export default function DirectOrderFormModal({
                   onChange={(e) => setFormStore(e.target.value as SalesStore)}
                   style={inputStyle}
                 >
-                  {SALES_STORES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                  <StoreOptions current={formStore} />
                 </select>
               </FieldShell>
             </div>

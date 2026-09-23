@@ -309,6 +309,41 @@ model SlaEscalation {
 // ─── Sales Agent Module ──────────────────────────────────────────────────────
 // Fully isolated from the warehouse Order pipeline above.
 
+/// v2.92.0 — managed store list (Settings → Stores). Seeded idempotently from the
+/// historical SALES_STORES constant. Store names are also kept as plain text on the
+/// sales / return rows; a rename updates them in one transaction, archive only hides.
+model Store {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+  @@map("stores")
+}
+
+/// v2.92.0 — who added / renamed / archived / deleted a store. No FK to `stores` so the
+/// history survives a hard delete. `details` holds the per-table row counts of a rename.
+model StoreAudit {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  storeId   String?  @map("store_id")
+  action    String
+  fromName  String?  @map("from_name")
+  toName    String?  @map("to_name")
+  details   Json?
+  userId    String?  @map("user_id")
+  username  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("store_audit")
+}
+
 model SalesDailyActivity {
   id         String   @id @default(uuid())
   tenantId   String   @map("tenant_id")

@@ -1,12 +1,14 @@
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
-import { SaleChannel, SALES_STORES } from '@dom/shared'
+import { SaleChannel } from '@dom/shared'
+import { assertKnownStore } from './storeService'
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD')
-const StoreName = z.enum(SALES_STORES as readonly [string, ...string[]])
+// Store names are validated against the managed `stores` table at write time (storeService)
+const StoreName = z.string().trim().min(1).max(120)
 
 export const DirectOrderItemInput = z.object({
   productName: z.string().trim().min(1).max(120),
@@ -57,6 +59,7 @@ function itemsTotal(items: { price: number; quantity: number }[], deliveryCost: 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function createDirectOrder(tenantId: string, agentId: string, input: CreateDirectOrderInput) {
+  await assertKnownStore(tenantId, input.store)
   const orderDate = toDateOnly(input.date)
   const totalAmount = itemsTotal(input.items, input.deliveryCost)
 
@@ -112,6 +115,7 @@ export async function updateDirectOrder(
 
   const existing = await prisma.salesDirectOrder.findFirst({ where, select: { id: true } })
   if (!existing) return null
+  await assertKnownStore(tenantId, input.store)
 
   const orderDate = toDateOnly(input.date)
   const totalAmount = itemsTotal(input.items, input.deliveryCost)

@@ -1,4 +1,5 @@
-import { SALES_STORES, type SalesStore } from '@dom/shared'
+import { type SalesStore } from '@dom/shared'
+import { useStores } from '../../api/stores'
 
 interface StoreSelectorProps {
   value: SalesStore | null
@@ -6,6 +7,7 @@ interface StoreSelectorProps {
 }
 
 export default function StoreSelector({ value, onChange }: StoreSelectorProps) {
+  const { names } = useStores()
   return (
     <div style={{
       display: 'flex',
@@ -17,7 +19,7 @@ export default function StoreSelector({ value, onChange }: StoreSelectorProps) {
       borderRadius: '12px',
       boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
     }}>
-      {SALES_STORES.map((store) => {
+      {names.map((store) => {
         const active = store === value
         return (
           <button

@@ -1,4 +1,4 @@
-import { SALES_STORES } from '@dom/shared'
+import { useStores } from '../../api/stores'
 import type { MarketingAgent } from '../../api/marketing'
 import { dayCountLabel, rangeTitle } from './rangeLabel'
 import MultiSelect from './MultiSelect'
@@ -14,6 +14,7 @@ interface Props {
 }
 
 export default function FilterHero({ f, agents, agentColors, previous, fetching }: Props) {
+  const { names: storeNames } = useStores({ all: true })
   const hasDimFilter = f.agentIds.length > 0 || f.stores.length > 0
 
   return (
@@ -92,7 +93,7 @@ export default function FilterHero({ f, agents, agentColors, previous, fetching 
           icon={<IconStore />}
           allLabel="All stores"
           noun={['store', 'stores']}
-          options={SALES_STORES.map((s) => ({ id: s, label: s }))}
+          options={storeNames.map((s) => ({ id: s, label: s }))}
           value={f.stores}
           onChange={f.setStores}
         />

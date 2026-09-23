@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { JWTPayload, UserRole } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
+import { UnknownStoreError } from '../services/storeService'
 import { auditMarketingAccess } from '../middleware/auditLog'
 import {
   RangeQuerySchema,
@@ -168,9 +169,11 @@ export default async function marketingRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Invalid request body', details: body.error.flatten() })
     }
     const { tenantId } = request.user as JWTPayload
-    const order = await updateDirectOrder(params.data.id, tenantId, null, body.data)
-    if (!order) return reply.code(404).send({ error: 'Order not found' })
-    return reply.send({ order })
+    try {
+      const order = await updateDirectOrder(params.data.id, tenantId, null, body.data)
+      if (!order) return reply.code(404).send({ error: 'Order not found' })
+      return reply.send({ order })
+    } catch (e) { if (e instanceof UnknownStoreError) return reply.code(400).send({ error: e.message }); throw e }
   })
 
   // DELETE /marketing/direct-orders/:id — ADMIN, any agent in tenant

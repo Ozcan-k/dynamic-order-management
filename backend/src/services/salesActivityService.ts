@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
+import { assertKnownStore } from './storeService'
 import {
   CONTENT_POST_MATRIX,
   CONTENT_SLOTS_PER_STORE_DAY,
   ContentPostType,
   LIVE_SELLING_PLATFORMS,
   SalesPlatform,
-  SALES_STORES,
   type SalesDayMetrics,
 } from '@dom/shared'
 
@@ -15,7 +15,8 @@ import {
 
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD')
 const MonthString = z.string().regex(/^\d{4}-\d{2}$/, 'Month must be YYYY-MM')
-const StoreName = z.enum(SALES_STORES as readonly [string, ...string[]])
+// Store names are validated against the managed `stores` table at write time (storeService)
+const StoreName = z.string().trim().min(1).max(120)
 
 export const ContentPostInput = z.object({
   platform: z.nativeEnum(SalesPlatform),
@@ -163,6 +164,7 @@ export async function getActivity(tenantId: string, agentId: string, date: strin
  * Replaces children atomically inside a transaction to avoid stale rows.
  */
 export async function upsertActivity(tenantId: string, agentId: string, input: UpsertActivityInput) {
+  await assertKnownStore(tenantId, input.store)
   const reportDate = toDateOnly(input.date)
 
   return prisma.$transaction(async (tx) => {

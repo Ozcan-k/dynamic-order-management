@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   SaleChannel,
   SALE_CHANNEL_LABELS,
-  SALES_STORES,
   type SalesStore,
 } from '@dom/shared'
 import PageShell from '../components/shared/PageShell'
+import StoreOptions from '../components/shared/StoreOptions'
 import DirectOrderFormModal from '../components/sales/DirectOrderFormModal'
 import { useAuthStore } from '../stores/authStore'
 import {
@@ -125,7 +125,7 @@ export default function SalesOrders() {
             className="filter-field-input"
           >
             <option value="">All stores</option>
-            {SALES_STORES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <StoreOptions all current={store} />
           </select>
         </Field>
         <Field label="Channel">

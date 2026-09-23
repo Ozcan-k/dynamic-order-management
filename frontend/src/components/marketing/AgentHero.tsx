@@ -1,4 +1,4 @@
-import { SALES_STORES } from '@dom/shared'
+import { useStores } from '../../api/stores'
 import type { AgentSummary, MarketingAgent } from '../../api/marketing'
 import { AgentAvatar } from './chartKit'
 import { longDate } from './format'
@@ -24,6 +24,7 @@ function lastActive(date: string | null, today: string): string {
 }
 
 export default function AgentHero({ f, agent, color, summary, fetching }: Props) {
+  const { names: storeNames } = useStores({ all: true })
   const quiet = summary && (summary.lastActiveDate === null || (Date.parse(`${f.today}T00:00:00Z`) - Date.parse(`${summary.lastActiveDate}T00:00:00Z`)) / 86_400_000 >= 3)
 
   return (
@@ -97,7 +98,7 @@ export default function AgentHero({ f, agent, color, summary, fetching }: Props)
           icon={<IconStore />}
           allLabel="All stores"
           noun={['store', 'stores']}
-          options={SALES_STORES.map((s) => ({ id: s, label: s }))}
+          options={storeNames.map((s) => ({ id: s, label: s }))}
           value={f.stores}
           onChange={f.setStores}
         />

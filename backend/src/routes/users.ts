@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireRole } from '../middleware/rbac'
 import { listUsers, createUser, updateUser, deleteUser, CreateUserSchema, UpdateUserSchema } from '../services/userService'
 import { JWTPayload, UserRole } from '@dom/shared'
+import { getPermissionMap } from '../services/permissionMap'
 
 export default async function userRoutes(fastify: FastifyInstance) {
   const adminOnly = [fastify.authenticate, requireRole(UserRole.ADMIN)]
@@ -12,6 +13,11 @@ export default async function userRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.user as JWTPayload
     const users = await listUsers(tenantId)
     return reply.send({ users })
+  })
+
+  // GET /users/permissions — role × route access map as enforced by requireRole (read-only)
+  fastify.get('/permissions', { preHandler: adminOnly }, async (_request, reply) => {
+    return reply.send(getPermissionMap())
   })
 
   // POST /users
