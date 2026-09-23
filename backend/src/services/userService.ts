@@ -16,6 +16,8 @@ export const UpdateUserSchema = z.object({
   role: z.nativeEnum(UserRole).optional(),
   isActive: z.boolean().optional(),
   email: z.string().email().optional().nullable(),
+  /** v2.86.0 — Employee Schedule ID to link this picker/packer to; null = unlink. */
+  employeeNo: z.number().int().min(1).max(99999).nullable().optional(),
 })
 
 export type CreateUserInput = z.infer<typeof CreateUserSchema>
@@ -32,6 +34,7 @@ export async function listUsers(tenantId: string) {
       email: true,
       createdAt: true,
       createdBy: { select: { id: true, username: true } },
+      empEmployee: { select: { empNo: true } },
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -182,15 +185,50 @@ export async function updateUser(
   }
   if ('email' in input) data.email = input.email ?? null
 
-  return prisma.user.update({
-    where: { id: userId },
-    data,
-    select: {
-      id: true,
-      username: true,
-      role: true,
-      isActive: true,
-      createdAt: true,
-    },
+  // v2.86.0 — the Employee ID sets the same EmpEmployee.userId link that the
+  // Employee Schedule "Linked system user" dropdown edits (single source of truth).
+  let linkTarget: { id: string } | null | undefined // undefined = leave link unchanged
+  if (input.employeeNo !== undefined) {
+    if (input.employeeNo === null) {
+      linkTarget = null
+    } else {
+      const role = input.role ?? user.role
+      if (role !== UserRole.PICKER && role !== UserRole.PACKER) {
+        throw new Error('Only picker and packer accounts can be linked to an employee')
+      }
+      const emp = await prisma.empEmployee.findFirst({
+        where: { tenantId, empNo: input.employeeNo },
+        select: { id: true, isActive: true, userId: true, user: { select: { username: true } } },
+      })
+      if (!emp) throw new Error(`Employee ID ${input.employeeNo} not found in Employee Schedule`)
+      if (!emp.isActive) throw new Error(`Employee ID ${input.employeeNo} is marked as left the company`)
+      if (emp.userId && emp.userId !== userId) {
+        throw new Error(`Employee ID ${input.employeeNo} is already linked to ${emp.user?.username ?? 'another user'}`)
+      }
+      linkTarget = { id: emp.id }
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    })
+    if (linkTarget !== undefined) {
+      // userId is unique on emp_employees — drop the old link before setting the new one
+      await tx.empEmployee.updateMany({
+        where: { tenantId, userId, ...(linkTarget ? { NOT: { id: linkTarget.id } } : {}) },
+        data: { userId: null },
+      })
+      if (linkTarget) await tx.empEmployee.update({ where: { id: linkTarget.id }, data: { userId } })
+    }
+    return updated
   })
 }

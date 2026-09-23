@@ -35,6 +35,7 @@ import returnRoutes from './routes/returns'
 import brandingRoutes from './routes/branding'
 import accountingRoutes from './routes/accounting'
 import employeeScheduleRoutes from './routes/employeeSchedule'
+import { migrateEmpNosToFourDigit } from './services/employeeScheduleService'
 import devTestRoutes from './routes/devTest'
 
 const fastify = Fastify({
@@ -192,6 +193,14 @@ async function start() {
       jobId: 'nightly-report-repeat',
     },
   )
+
+  // v2.86.0 — one-time (idempotent) shift of employee IDs to 4 digits
+  try {
+    const shifted = await migrateEmpNosToFourDigit()
+    if (shifted > 0) fastify.log.info(`Employee IDs migrated to 4 digits: ${shifted} row(s)`)
+  } catch (err) {
+    fastify.log.error({ err }, 'Employee ID 4-digit migration failed')
+  }
 
   // Start BullMQ workers
   escalationWorker = startSlaEscalationWorker()

@@ -92,10 +92,23 @@ function sortEmployees(list: EmpEmployeeDTO[]): EmpEmployeeDTO[] {
 async function nextEmpNo(tenantId: string): Promise<number> {
   const counter = await prisma.empCounter.upsert({
     where: { id: `${tenantId}:employee` },
-    create: { id: `${tenantId}:employee`, value: 101 },
+    create: { id: `${tenantId}:employee`, value: 1001 },
     update: { value: { increment: 1 } },
   })
   return counter.value
+}
+
+/**
+ * v2.86.0 — employee IDs are 4 digits: the old 3-digit numbers shift by 900
+ * (101 → 1001, 104 → 1004) and the counter follows. Idempotent (only rows below
+ * 1000 move), so it is safe to run on every startup.
+ */
+export async function migrateEmpNosToFourDigit(): Promise<number> {
+  const [shifted] = await prisma.$transaction([
+    prisma.$executeRaw`UPDATE emp_employees SET emp_no = emp_no + 900 WHERE emp_no < 1000`,
+    prisma.$executeRaw`UPDATE emp_counters SET value = value + 900 WHERE value < 1000`,
+  ])
+  return shifted
 }
 
 // ─── employees CRUD ─────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ async function assertLinkable(tenantId: string, userId: string | null | undefine
     select: { empNo: true, firstName: true, lastName: true },
   })
   if (other) {
-    throw new EmployeeLinkError(`This user is already linked to #${other.empNo} ${other.firstName} ${other.lastName}`, 409)
+    throw new EmployeeLinkError(`This user is already linked to employee ${other.empNo} ${other.firstName} ${other.lastName}`, 409)
   }
 }
 

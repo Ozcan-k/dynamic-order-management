@@ -91,7 +91,7 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
       doc.moveTo(left, y - 3).lineTo(left + contentW, y - 3).strokeColor(border).lineWidth(1).stroke()
 
       const rowFor = (r: EmpReportRow): string[] => [
-        `#${r.employee.empNo}`,
+        String(r.employee.empNo),
         `${r.employee.firstName} ${r.employee.lastName}`,
         fmtNum(r.present), fmtNum(r.halfDay), fmtNum(r.absent), fmtNum(r.dayOff),
         fmtNum(r.vacation), fmtNum(r.sick), fmtNum(r.maternity),

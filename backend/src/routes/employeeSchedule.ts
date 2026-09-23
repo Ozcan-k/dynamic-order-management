@@ -159,7 +159,7 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
       'Vacation', 'Sick', 'Maternity', 'OT Hours', 'Worked Days', 'Total Hours']
     const lines = [header.map(csvField).join(',')]
     const rowVals = (r: EmpReportRow) => [
-      `#${r.employee.empNo}`,
+      String(r.employee.empNo),
       `${r.employee.firstName} ${r.employee.lastName}`,
       EMP_DEPARTMENT_LABEL[r.employee.department],
       r.present, r.halfDay, r.absent, r.dayOff, r.vacation, r.sick, r.maternity,

@@ -946,7 +946,7 @@ enum AttendanceStatus {
 model EmpEmployee {
   id         String        @id @default(uuid())
   tenantId   String        @map("tenant_id")
-  empNo      Int           @map("emp_no") // displayed as #101, #102…
+  empNo      Int           @map("emp_no") // 4-digit employee ID: 1001, 1002… (v2.86.0)
   department EmpDepartment
   firstName  String        @map("first_name")
   lastName   String        @map("last_name")
@@ -1000,7 +1000,7 @@ model EmpSchedule {
 
 model EmpCounter {
   id    String @id // "{tenantId}:employee"
-  value Int    @default(100) // first employee → #101
+  value Int    @default(1000) // first employee → 1001 (4-digit IDs since v2.86.0)
 
   @@map("emp_counters")
 }

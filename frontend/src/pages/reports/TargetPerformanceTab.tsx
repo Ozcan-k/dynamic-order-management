@@ -477,7 +477,7 @@ function RankingTable({ rows, summary, target, onOpen, roleOne }: {
                       <span className="perf-person-name">{r.displayName}</span>
                       <span className="perf-person-meta">
                         {!r.linked && <span className="perf-unlinked" title="Not linked to Employee Schedule — attendance not applied" aria-label="Not linked to Employee Schedule" />}
-                        @{r.username}{r.empNo ? ` · #${r.empNo}` : ''}
+                        @{r.username}{r.empNo ? ` · ID ${r.empNo}` : ''}
                       </span>
                     </span>
                   </button>

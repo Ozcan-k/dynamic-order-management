@@ -211,7 +211,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
                     <tbody>
                       {g.rows.map((emp, i) => (
                         <tr key={emp.id} style={{ background: i % 2 === 0 ? colors.surface : colors.surfaceAlt, borderBottom: `1px solid ${colors.border}` }}>
-                          <td style={{ padding: '10px 16px', fontWeight: 700, color: ds.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>#{emp.empNo}</td>
+                          <td style={{ padding: '10px 16px', fontWeight: 700, color: ds.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{emp.empNo}</td>
                           <td style={{ padding: '10px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={avatarStyle(ds)}>{initials(emp.firstName, emp.lastName)}</span>
@@ -265,7 +265,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
                       const ds = DEPT_STYLE[emp.department]
                       return (
                         <tr key={emp.id} style={{ background: i % 2 === 0 ? colors.surface : colors.surfaceAlt, borderBottom: `1px solid ${colors.border}`, opacity: 0.92 }}>
-                          <td style={{ padding: '10px 16px', fontWeight: 700, color: colors.textMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>#{emp.empNo}</td>
+                          <td style={{ padding: '10px 16px', fontWeight: 700, color: colors.textMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{emp.empNo}</td>
                           <td style={{ padding: '10px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ ...avatarStyle(ds), filter: 'grayscale(0.5)' }}>{initials(emp.firstName, emp.lastName)}</span>
@@ -324,7 +324,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
       {toReactivate && (
         <ConfirmModal
           title="Reactivate employee?"
-          message={`Move #${toReactivate.empNo} ${toReactivate.firstName} ${toReactivate.lastName} back to the active roster?`}
+          message={`Move ${toReactivate.empNo} ${toReactivate.firstName} ${toReactivate.lastName} back to the active roster?`}
           detail="The leave date will be cleared and the employee will appear in the schedule again."
           confirmLabel="Reactivate"
           tone="primary"
@@ -338,7 +338,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
       {toDelete && (
         <ConfirmModal
           title="Delete employee?"
-          message={`Delete #${toDelete.empNo} ${toDelete.firstName} ${toDelete.lastName}?`}
+          message={`Delete ${toDelete.empNo} ${toDelete.firstName} ${toDelete.lastName}?`}
           detail="This permanently removes the employee and all of their schedule entries."
           confirmLabel="Delete"
           tone="danger"
@@ -382,7 +382,7 @@ function DeactivateModal({ employee, busy, error, onConfirm, onCancel }: {
         <div style={{ padding: '20px' }}>
           <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: colors.textPrimary }}>Set Inactive</h3>
           <p style={{ margin: '0 0 18px', fontSize: '12px', color: colors.textSecondary }}>
-            Mark <strong>#{employee.empNo} {employee.firstName} {employee.lastName}</strong> as left the company. Enter their leave date — they’ll move to the Inactive list.
+            Mark <strong>{employee.empNo} {employee.firstName} {employee.lastName}</strong> as left the company. Enter their leave date — they’ll move to the Inactive list.
           </p>
           <label style={labelStyle}>Leave Date *</label>
           <input type="date" value={leaveDate} onChange={(e) => setLeaveDate(e.target.value)} style={inputStyle} />
@@ -415,7 +415,7 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div style={{ padding: '20px', maxHeight: '82vh', overflowY: 'auto' }}>
-          <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: colors.textPrimary }}>Edit Employee #{employee.empNo}</h3>
+          <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: colors.textPrimary }}>Edit Employee {employee.empNo}</h3>
           <p style={{ margin: '0 0 18px', fontSize: '12px', color: colors.textSecondary }}>Update details, contact info, or employment status.</p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

@@ -90,7 +90,7 @@ enum AttendanceStatus {
 model EmpEmployee {
   id         String        @id @default(uuid())
   tenantId   String        @map("tenant_id")
-  empNo      Int           @map("emp_no")          // screenshot'taki #101, #102...
+  empNo      Int           @map("emp_no")          // v2.86.0: 4 haneli ID 1001, 1002... (# yok)
   department EmpDepartment
   firstName  String        @map("first_name")
   lastName   String        @map("last_name")
@@ -125,7 +125,7 @@ model EmpSchedule {
 
 model EmpCounter {
   id    String @id              // "{tenantId}:employee"
-  value Int    @default(100)    // ilk employee #101 olur (screenshot ile uyumlu)
+  value Int    @default(1000)   // v2.86.0: ilk employee 1001
   @@map("emp_counters")
 }
 ```
@@ -204,7 +204,7 @@ Yeni dosyalar:
 
 ### Sekme 1 — Schedule (grid, screenshot layout)
 - Üstte: **Week navigation** (← prev / "Week # NN · 21 May – 27 May" / next →) + "This Week" butonu.
-- Sol sabit kolon: avatar baş harfleri + `#101` + `Ad Soyad` + klok ikonu `45:00` (haftalık toplam).
+- Sol sabit kolon: avatar baş harfleri + `1001` + `Ad Soyad` + klok ikonu `45:00` (haftalık toplam).
 - Departman bölüm başlık bantları (ADMINISTRATIVE STAFF, PICKER STAFF, PACKER STAFF, LOGISTIC STAFF) — renk kodlu.
 - 7 gün sütunu (Sun→Sat, tarih etiketli). Her hücre:
   - Status `<select>` (renk-kodlu, 6 seçenek + "—").
@@ -215,7 +215,7 @@ Yeni dosyalar:
 ### Sekme 2 — Employees
 - Üstte ekleme formu (tek satır kart): **Department `<select>`** → **First Name** → **Last Name** → **Start Date** (date input) → **[+ Add Employee]**.
 - Altta departmana göre gruplu liste (her departman bir kart/section):
-  - Kolonlar: **Employee ID** (`#101`) · **Department** (Role) · **Name** · **Start Date** · **Actions [Edit] [Delete]**.
+  - Kolonlar: **Employee ID** (`1001`) · **Department** (Role) · **Name** · **Start Date** · **Actions [Edit] [Delete]**.
   - Edit → satır-içi veya modal düzenleme (`PUT`). Delete → `ConfirmModal` → `DELETE`.
 - Boş durum: "No employees yet. Add your first employee above."
 

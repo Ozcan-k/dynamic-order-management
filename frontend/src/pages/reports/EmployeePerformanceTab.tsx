@@ -175,7 +175,7 @@ function EmployeeBody({ report }: { report: PerfEmployeeReport }) {
             <div className="perf-profile-meta">
               <span className="perf-role-chip">{ROLE_LABEL[report.role].one}</span>
               <span>@{w.username}</span>
-              {w.empNo && <span>· Employee #{w.empNo}</span>}
+              {w.empNo && <span>· Employee ID {w.empNo}</span>}
               {w.rank && <span>· Rank <b style={{ color: '#0f172a' }}>#{w.rank}</b> of {report.teamSize}</span>}
               <StatusPill status={w.status} />
               {!w.linked && <span className="perf-tag perf-tag--warn" title="Link this user in Employee Schedule → Employees to apply attendance">Not linked to schedule</span>}

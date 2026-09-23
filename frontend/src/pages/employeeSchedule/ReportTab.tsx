@@ -190,7 +190,7 @@ function DeptSection({ label, ds, rows, sub, maxHours }: {
       </tr>
       {rows.map((r, i) => (
         <tr key={r.employee.id} style={{ background: i % 2 === 0 ? colors.surface : colors.surfaceAlt, borderBottom: `1px solid ${colors.border}` }}>
-          <td style={{ ...td('left'), fontWeight: 700, color: ds.accent, fontVariantNumeric: 'tabular-nums' }}>#{r.employee.empNo}</td>
+          <td style={{ ...td('left'), fontWeight: 700, color: ds.accent, fontVariantNumeric: 'tabular-nums' }}>{r.employee.empNo}</td>
           <td style={{ ...td('left'), fontWeight: 600, color: colors.textPrimary, whiteSpace: 'nowrap' }}>{r.employee.firstName} {r.employee.lastName}</td>
           <td style={{ ...td(), color: r.present ? colors.success : colors.textMuted, fontWeight: r.present ? 700 : 400 }}>{r.present}</td>
           <td style={td()}>{r.halfDay || <span style={{ color: colors.textMuted }}>0</span>}</td>

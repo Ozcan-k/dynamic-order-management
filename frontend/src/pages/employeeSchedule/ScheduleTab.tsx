@@ -220,7 +220,7 @@ export default function ScheduleTab({ readOnly = false }: { readOnly?: boolean }
                         }}>{initials(row.employee.firstName, row.employee.lastName)}</span>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: '12.5px', fontWeight: 600, color: colors.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <span style={{ color: ds.accent, fontWeight: 700, marginRight: 5 }}>#{row.employee.empNo}</span>
+                            <span style={{ color: ds.accent, fontWeight: 700, marginRight: 5 }}>{row.employee.empNo}</span>
                             {row.employee.firstName} {row.employee.lastName}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textSecondary, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>

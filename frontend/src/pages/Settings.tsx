@@ -16,7 +16,11 @@ interface AppUser {
   email?: string | null
   createdAt: string
   createdBy?: { id: string; username: string } | null
+  empEmployee?: { empNo: number } | null
 }
+
+/** Picker/packer logins can be linked to an Employee Schedule record (v2.86.0). */
+const isLinkableRole = (role: string) => role === UserRole.PICKER || role === UserRole.PACKER
 
 // ─── Role config ──────────────────────────────────────────────────────────────
 
@@ -393,6 +397,9 @@ function EditUserModal({
   const [username, setUsername] = useState(user.username)
   const [email, setEmail] = useState(user.email ?? '')
   const [newPassword, setNewPassword] = useState('')
+  const linkable = isLinkableRole(user.role)
+  const currentEmpNo = user.empEmployee?.empNo != null ? String(user.empEmployee.empNo) : ''
+  const [employeeNo, setEmployeeNo] = useState(currentEmpNo)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -405,6 +412,9 @@ function EditUserModal({
       if (username.trim() !== user.username) body.username = username.trim()
       if (cfg.hasEmail) body.email = email.trim() || null
       if (newPassword.trim().length >= 6) body.password = newPassword.trim()
+      if (linkable && employeeNo.trim() !== currentEmpNo) {
+        body.employeeNo = employeeNo.trim() === '' ? null : Number(employeeNo.trim())
+      }
       if (Object.keys(body).length === 0) { onClose(); return }
       await api.patch(`/users/${user.id}`, body)
       onSuccess()
@@ -466,6 +476,23 @@ function EditUserModal({
               style={inputStyle}
             />
           </div>
+
+          {linkable && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={labelStyle}>Employee ID</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={employeeNo}
+                onChange={(e) => setEmployeeNo(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                placeholder="e.g. 1004"
+                style={{ ...inputStyle, fontVariantNumeric: 'tabular-nums' }}
+              />
+              <div style={{ fontSize: '11px', color: colors.textSecondary }}>
+                The ID from Employee Schedule. Warehouse Report uses it to apply this person's attendance (half days, days off). Leave blank to unlink.
+              </div>
+            </div>
+          )}
 
           {cfg.hasEmail && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -687,6 +714,11 @@ function UserRoleCard({
                     <div style={{ fontSize: '11px', color: colors.textMuted }}>
                       Added {new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })}
                       {u.createdBy ? ` · by ${u.createdBy.username}` : ''}
+                      {isLinkableRole(u.role) && (
+                        u.empEmployee
+                          ? <span style={{ color: colors.textSecondary, fontWeight: 600 }}> · ID {u.empEmployee.empNo}</span>
+                          : <span style={{ color: '#b45309', fontStyle: 'italic' }}> · No employee ID</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -849,7 +881,11 @@ export default function Settings() {
         <EditUserModal
           user={editTarget}
           onClose={() => setEditTarget(null)}
-          onSuccess={() => queryClient.invalidateQueries({ queryKey: ['users'] })}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['users'] })
+            // the Employee ID edits the Employee Schedule link too
+            queryClient.invalidateQueries({ queryKey: ['emp'] })
+          }}
         />
       )}
 
