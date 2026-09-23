@@ -16,7 +16,7 @@ export const UpdateUserSchema = z.object({
   role: z.nativeEnum(UserRole).optional(),
   isActive: z.boolean().optional(),
   email: z.string().email().optional().nullable(),
-  /** v2.86.0 — Employee Schedule ID to link this picker/packer to; null = unlink. */
+  /** v2.86.0 — Employee Schedule ID to link this user to (any role since v2.87.0); null = unlink. */
   employeeNo: z.number().int().min(1).max(99999).nullable().optional(),
 })
 
@@ -192,10 +192,6 @@ export async function updateUser(
     if (input.employeeNo === null) {
       linkTarget = null
     } else {
-      const role = input.role ?? user.role
-      if (role !== UserRole.PICKER && role !== UserRole.PACKER) {
-        throw new Error('Only picker and packer accounts can be linked to an employee')
-      }
       const emp = await prisma.empEmployee.findFirst({
         where: { tenantId, empNo: input.employeeNo },
         select: { id: true, isActive: true, userId: true, user: { select: { username: true } } },

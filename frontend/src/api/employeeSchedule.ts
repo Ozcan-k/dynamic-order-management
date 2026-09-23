@@ -29,7 +29,7 @@ export interface EmployeeInput {
 export interface LinkableUser {
   id: string
   username: string
-  role: 'PICKER' | 'PACKER'
+  role: string
   linkedEmployeeId: string | null
 }
 

@@ -71,6 +71,9 @@ const LINKABLE_ROLE: Partial<Record<EmpDepartment, 'PICKER' | 'PACKER'>> = {
   [EmpDepartment.PACKER]: 'PACKER',
 }
 
+/** 'WAREHOUSE_ADMIN' → 'Warehouse Admin' */
+const roleLabel = (role: string) => role.toLowerCase().split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
+
 export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient()
   const { data: employees, isLoading } = useQuery({
@@ -407,8 +410,8 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
 }) {
   const [form, setForm] = useState<EmployeeInput>(dtoToInput(employee))
   const linkRole = LINKABLE_ROLE[form.department]
-  // same-role logins; keep the current link visible even if its role differs
-  const linkOptions = linkable.filter((u) => u.role === linkRole || u.id === form.userId)
+  // every login can be linked (v2.87.0); the department's own role is listed first
+  const linkOptions = [...linkable].sort((a, b) => Number(b.role === linkRole) - Number(a.role === linkRole))
   const canSave = !!(form.firstName?.trim() && form.lastName?.trim() && form.startDate && (form.isActive || form.leaveDate))
 
   return (
@@ -444,25 +447,24 @@ function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
               <Field label="Leave Date *"><input type="date" value={form.leaveDate ?? ''} onChange={(e) => setForm({ ...form, leaveDate: e.target.value })} style={inputStyle} /></Field>
             )}
 
-            {(linkRole || form.userId) && (
-              <Field label="Linked system user" full>
-                <select value={form.userId ?? ''} onChange={(e) => setForm({ ...form, userId: e.target.value })} style={inputStyle}>
-                  <option value="">— Not linked —</option>
-                  {linkOptions.map((u) => {
-                    const taken = !!u.linkedEmployeeId && u.linkedEmployeeId !== employee.id
-                    return (
-                      <option key={u.id} value={u.id} disabled={taken}>
-                        @{u.username} ({u.role === 'PICKER' ? 'Picker' : 'Packer'}){taken ? ' — linked to another employee' : ''}
-                      </option>
-                    )
-                  })}
-                </select>
-                <span style={{ display: 'block', marginTop: '6px', fontSize: '11.5px', color: colors.textMuted, lineHeight: 1.45 }}>
-                  The picker/packer login this employee scans with. Warehouse Report → Performance uses this link to apply the
-                  schedule (Day Off / leave days are excluded from the daily target).
-                </span>
-              </Field>
-            )}
+            <Field label="Linked system user" full>
+              <select value={form.userId ?? ''} onChange={(e) => setForm({ ...form, userId: e.target.value })} style={inputStyle}>
+                <option value="">— Not linked —</option>
+                {linkOptions.map((u) => {
+                  const taken = !!u.linkedEmployeeId && u.linkedEmployeeId !== employee.id
+                  return (
+                    <option key={u.id} value={u.id} disabled={taken}>
+                      @{u.username} ({roleLabel(u.role)}){taken ? ' — linked to another employee' : ''}
+                    </option>
+                  )
+                })}
+              </select>
+              <span style={{ display: 'block', marginTop: '6px', fontSize: '11.5px', color: colors.textMuted, lineHeight: 1.45 }}>
+                The system login of this employee (also settable from Settings → Employee ID). For pickers/packers,
+                Warehouse Report → Performance uses this link to apply the schedule (Day Off / leave days are excluded from the daily target).
+              </span>
+            </Field>
+
           </div>
 
           {error && <div style={{ fontSize: '12px', color: colors.danger, marginTop: '12px' }}>{error}</div>}

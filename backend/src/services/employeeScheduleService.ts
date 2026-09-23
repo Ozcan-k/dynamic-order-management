@@ -160,14 +160,14 @@ function buildData(input: EmployeeInput) {
   }
 }
 
-/** A link must point at a picker/packer of this tenant that no other employee already uses. */
+/** A link must point at a user of this tenant (any role since v2.87.0) that no other employee already uses. */
 async function assertLinkable(tenantId: string, userId: string | null | undefined, employeeId: string | null) {
   if (!userId) return
   const user = await prisma.user.findFirst({
-    where: { id: userId, tenantId, role: { in: [UserRole.PICKER, UserRole.PACKER] } },
+    where: { id: userId, tenantId },
     select: { id: true },
   })
-  if (!user) throw new EmployeeLinkError('Linked user must be a picker or packer account', 400)
+  if (!user) throw new EmployeeLinkError('Linked user not found', 400)
   const other = await prisma.empEmployee.findFirst({
     where: { tenantId, userId, ...(employeeId ? { NOT: { id: employeeId } } : {}) },
     select: { empNo: true, firstName: true, lastName: true },
@@ -177,17 +177,17 @@ async function assertLinkable(tenantId: string, userId: string | null | undefine
   }
 }
 
-/** Active picker/packer accounts that can be linked, with the employee they are linked to (if any). */
-export async function listLinkableUsers(tenantId: string): Promise<{ id: string; username: string; role: 'PICKER' | 'PACKER'; linkedEmployeeId: string | null }[]> {
+/** Active accounts (any role) that can be linked, with the employee they are linked to (if any). */
+export async function listLinkableUsers(tenantId: string): Promise<{ id: string; username: string; role: UserRole; linkedEmployeeId: string | null }[]> {
   const users = await prisma.user.findMany({
-    where: { tenantId, isActive: true, role: { in: [UserRole.PICKER, UserRole.PACKER] } },
+    where: { tenantId, isActive: true },
     select: { id: true, username: true, role: true, empEmployee: { select: { id: true } } },
     orderBy: [{ role: 'asc' }, { username: 'asc' }],
   })
   return users.map((u) => ({
     id: u.id,
     username: u.username,
-    role: u.role === UserRole.PICKER ? 'PICKER' : 'PACKER',
+    role: u.role as UserRole,
     linkedEmployeeId: u.empEmployee?.id ?? null,
   }))
 }
