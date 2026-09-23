@@ -635,7 +635,7 @@ export default function Reports() {
       )}
 
       {/* Live Performance Tab */}
-      {activeTab === 'live' && <LivePerformanceTab />}
+      {activeTab === 'live' && <LivePerformanceTab onOpenEmployee={openEmployee} />}
 
       {/* Order Timeline Tab */}
       {activeTab === 'timeline' && <OrderTimelineSection />}

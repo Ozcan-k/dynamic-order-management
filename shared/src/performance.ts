@@ -133,6 +133,95 @@ export interface PerfEmployeeReport {
   outcomes: { met: number; near: number; below: number; off: number }
 }
 
+// ─── Live floor (v2.85.0) ────────────────────────────────────────────────────
+
+/** Minutes without a completion before a worker who is mid-shift counts as idle. */
+export const LIVE_IDLE_MINUTES = 20
+
+/** Default shift length (hours) when a worker has no schedule entry. Present = 8h + OT, Half Day = 4h. */
+export const LIVE_DEFAULT_SHIFT_HOURS = 8
+
+/**
+ * WORKING     — completed something in the last LIVE_IDLE_MINUTES, or has work in hand
+ * IDLE        — started today, no completion for LIVE_IDLE_MINUTES+, shift not over
+ * NOT_STARTED — scheduled Present / Half Day but nothing completed yet
+ * DONE        — shift length elapsed since first completion (or any worker on a past day)
+ * OFF         — scheduled Day Off / leave / Absent and no output
+ * NO_ACTIVITY — no schedule entry and no output (e.g. not rostered today)
+ */
+export type LiveState = 'WORKING' | 'IDLE' | 'NOT_STARTED' | 'DONE' | 'OFF' | 'NO_ACTIVITY'
+
+export interface LiveWorker {
+  userId: string
+  username: string
+  displayName: string
+  empNo: number | null
+  linked: boolean
+  attendance: AttendanceStatus | null
+  /** Share of the daily target expected today: 0, 0.5 or 1. */
+  factor: number
+  target: number
+  /** Expected shift length in hours (8 + OT, 4 for Half Day, 8 when unscheduled). */
+  shiftHours: number
+  completed: number
+  /** Open assignments right now: queued (…_ASSIGNED) + in hand (PICKING / PACKING). Live only. */
+  queued: number
+  inHand: number
+  lastHour: number
+  hourly: number[]
+  firstAt: string | null
+  lastAt: string | null
+  /** Completions per hour since the first completion (min. 1h window). */
+  pacePerHour: number
+  /** Live: completed + pace × remaining shift hours. Past day: completed. */
+  projected: number
+  /** completed / target (0 when no target). */
+  progress: number
+  /** Result vs target — on projection while live, on actual output for a past day. */
+  outcome: PerfDayOutcome
+  state: LiveState
+  /** Minutes since the last completion (live only). */
+  minutesSinceLast: number | null
+}
+
+export interface LiveRoleTotals {
+  completed: number
+  target: number
+  projected: number
+  queued: number
+  inHand: number
+  lastHour: number
+  /** Team completions per hour since the first completion of the day. */
+  pacePerHour: number
+  working: number
+  idle: number
+  notStarted: number
+  done: number
+  off: number
+  noActivity: number
+  /** Expected workers (factor > 0) projected to meet / nearly meet / miss the target. */
+  onTrack: number
+  near: number
+  behind: number
+}
+
+export interface LiveRoleBoard {
+  role: PerfRole
+  dailyTarget: number
+  totals: LiveRoleTotals
+  hourly: number[]
+  workers: LiveWorker[]
+}
+
+export interface LiveBoard {
+  date: string
+  isLive: boolean
+  generatedAt: string
+  /** Manila hour 0–23 (live only). */
+  currentHour: number | null
+  roles: Record<PerfRole, LiveRoleBoard>
+}
+
 /** Active picker/packer users that can be picked in the employee report or linked to an employee. */
 export interface PerfWorkerOption {
   userId: string

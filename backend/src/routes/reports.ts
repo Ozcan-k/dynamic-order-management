@@ -8,6 +8,7 @@ import PDFDocument from 'pdfkit'
 import {
   getTeamPerformance,
   getEmployeePerformance,
+  getLiveBoard,
   listPerformanceWorkers,
   PerfRangeError,
   PerfWorkerNotFoundError,
@@ -581,6 +582,19 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
     } catch (err) {
       if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
       if (err instanceof PerfWorkerNotFoundError) return reply.code(404).send({ error: 'Active picker/packer not found' })
+      throw err
+    }
+  })
+
+  // GET /reports/live-board?date=YYYY-MM-DD — live floor (v2.85.0): both roles, per-worker
+  // state / pace / projection vs target. No date (or today) = live; a past day = replay.
+  fastify.get('/live-board', { preHandler: perfPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const q = request.query as { date?: string }
+    try {
+      return reply.send(await getLiveBoard(tenantId, q.date?.trim() || undefined))
+    } catch (err) {
+      if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
       throw err
     }
   })

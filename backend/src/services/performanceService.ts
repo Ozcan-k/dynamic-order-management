@@ -1,9 +1,17 @@
 import {
   UserRole,
+  OrderStatus,
   AttendanceStatus,
   PERF_DAILY_TARGET,
   PERF_NEAR_TARGET_RATIO,
   PERF_MAX_RANGE_DAYS,
+  LIVE_IDLE_MINUTES,
+  LIVE_DEFAULT_SHIFT_HOURS,
+  type LiveBoard,
+  type LiveRoleBoard,
+  type LiveRoleTotals,
+  type LiveState,
+  type LiveWorker,
   type PerfRole,
   type PerfDay,
   type PerfDayOutcome,
@@ -366,6 +374,278 @@ export async function getEmployeePerformance(tenantId: string, userId: string, f
     hourly,
     weekday: weekdayAgg,
     outcomes,
+  }
+}
+
+// ─── Live floor (v2.85.0) ───────────────────────────────────────────────────
+
+const HOUR_MS = 3_600_000
+
+interface LiveRaw {
+  hourly: number[]
+  lastHour: number
+  firstAt: string | null
+  lastAt: string | null
+}
+
+/** One day's completions per worker: hourly buckets, last-hour count, first/last timestamps (ISO UTC). */
+async function loadDayCompletions(role: PerfRole, userIds: string[], date: string, lastHourCut: Date): Promise<Map<string, LiveRaw>> {
+  const result = new Map<string, LiveRaw>()
+  if (userIds.length === 0) return result
+  const start = naiveUtc(getManilaStartOf(date))
+  const end = naiveUtc(new Date(getManilaStartOf(date).getTime() + DAY_MS))
+  const cut = naiveUtc(lastHourCut)
+  type Row = { userId: string; h: number; n: number; lh: number; first: string; last: string }
+  const iso = `YYYY-MM-DD"T"HH24:MI:SS.MS"Z"`
+  const rows = role === 'PICKER'
+    ? await prisma.$queryRaw<Row[]>`
+        SELECT picker_id AS "userId",
+               EXTRACT(HOUR FROM completed_at + interval '8 hours')::int AS h,
+               COUNT(*)::int AS n,
+               COUNT(*) FILTER (WHERE completed_at >= ${cut}::timestamp)::int AS lh,
+               to_char(MIN(completed_at), ${iso}) AS first,
+               to_char(MAX(completed_at), ${iso}) AS last
+        FROM picker_assignments
+        WHERE picker_id = ANY(${userIds}::text[])
+          AND completed_at >= ${start}::timestamp
+          AND completed_at < ${end}::timestamp
+        GROUP BY 1, 2`
+    : await prisma.$queryRaw<Row[]>`
+        SELECT packer_id AS "userId",
+               EXTRACT(HOUR FROM completed_at + interval '8 hours')::int AS h,
+               COUNT(*)::int AS n,
+               COUNT(*) FILTER (WHERE completed_at >= ${cut}::timestamp)::int AS lh,
+               to_char(MIN(completed_at), ${iso}) AS first,
+               to_char(MAX(completed_at), ${iso}) AS last
+        FROM packer_assignments
+        WHERE packer_id = ANY(${userIds}::text[])
+          AND completed_at >= ${start}::timestamp
+          AND completed_at < ${end}::timestamp
+        GROUP BY 1, 2`
+  for (const r of rows) {
+    let raw = result.get(r.userId)
+    if (!raw) {
+      raw = { hourly: new Array(24).fill(0), lastHour: 0, firstAt: null, lastAt: null }
+      result.set(r.userId, raw)
+    }
+    raw.hourly[Number(r.h) % 24] += Number(r.n)
+    raw.lastHour += Number(r.lh)
+    if (!raw.firstAt || r.first < raw.firstAt) raw.firstAt = r.first
+    if (!raw.lastAt || r.last > raw.lastAt) raw.lastAt = r.last
+  }
+  return result
+}
+
+/**
+ * Open assignments right now, same definition as the Picker / Packer Admin
+ * workload cards: order still in that stage (…_ASSIGNED = queued, PICKING /
+ * PACKING = in hand) and not archived.
+ */
+async function loadOpenWork(tenantId: string, role: PerfRole, userIds: string[]): Promise<Map<string, { queued: number; inHand: number }>> {
+  const result = new Map<string, { queued: number; inHand: number }>()
+  if (userIds.length === 0) return result
+  const bump = (id: string, inHand: boolean) => {
+    const cur = result.get(id) ?? { queued: 0, inHand: 0 }
+    if (inHand) cur.inHand++
+    else cur.queued++
+    result.set(id, cur)
+  }
+  if (role === 'PICKER') {
+    const rows = await prisma.pickerAssignment.findMany({
+      where: {
+        pickerId: { in: userIds },
+        completedAt: null,
+        order: { tenantId, archivedAt: null, status: { in: [OrderStatus.PICKER_ASSIGNED, OrderStatus.PICKING] } },
+      },
+      select: { pickerId: true, order: { select: { status: true } } },
+    })
+    for (const r of rows) bump(r.pickerId, r.order.status === OrderStatus.PICKING)
+  } else {
+    const rows = await prisma.packerAssignment.findMany({
+      where: {
+        packerId: { in: userIds },
+        completedAt: null,
+        order: { tenantId, archivedAt: null, status: { in: [OrderStatus.PACKER_ASSIGNED, OrderStatus.PACKING] } },
+      },
+      select: { packerId: true, order: { select: { status: true } } },
+    })
+    for (const r of rows) bump(r.packerId, r.order.status === OrderStatus.PACKING)
+  }
+  return result
+}
+
+function buildLiveWorker(
+  w: WorkerSource,
+  raw: LiveRaw | undefined,
+  open: { queued: number; inHand: number } | undefined,
+  sched: { status: AttendanceStatus; otHours: number } | undefined,
+  dailyTarget: number,
+  isLive: boolean,
+  now: Date,
+): LiveWorker {
+  const hourly = raw?.hourly ?? new Array(24).fill(0)
+  const completed = hourly.reduce((a, b) => a + b, 0)
+  const queued = isLive ? open?.queued ?? 0 : 0
+  const inHand = isLive ? open?.inHand ?? 0 : 0
+  const hasWork = queued + inHand > 0
+  const attendance = sched?.status ?? null
+
+  let factor = 0
+  let shiftHours = LIVE_DEFAULT_SHIFT_HOURS
+  if (attendance === AttendanceStatus.PRESENT) {
+    factor = 1
+    shiftHours = LIVE_DEFAULT_SHIFT_HOURS + (sched?.otHours ?? 0)
+  } else if (attendance === AttendanceStatus.HALF_DAY) {
+    factor = 0.5
+    shiftHours = LIVE_DEFAULT_SHIFT_HOURS / 2
+  } else if (attendance) {
+    factor = completed > 0 ? 1 : 0 // worked on a scheduled off day
+  } else {
+    factor = completed > 0 || hasWork ? 1 : 0
+  }
+  const target = factor * dailyTarget
+
+  const firstMs = raw?.firstAt ? new Date(raw.firstAt).getTime() : null
+  const lastMs = raw?.lastAt ? new Date(raw.lastAt).getTime() : null
+  const sinceFirstH = firstMs !== null ? (now.getTime() - firstMs) / HOUR_MS : 0
+  const minutesSinceLast = isLive && lastMs !== null ? Math.max(0, Math.floor((now.getTime() - lastMs) / 60_000)) : null
+
+  let pacePerHour = 0
+  if (completed > 0 && firstMs !== null) {
+    const spanEnd = isLive ? now.getTime() : (lastMs ?? firstMs)
+    pacePerHour = completed / Math.max(1, (spanEnd - firstMs) / HOUR_MS)
+  }
+  const projected = isLive && completed > 0
+    ? completed + pacePerHour * Math.max(0, shiftHours - sinceFirstH)
+    : completed
+
+  let state: LiveState
+  if (!isLive) {
+    state = completed > 0 ? 'DONE' : factor > 0 ? 'NOT_STARTED' : attendance ? 'OFF' : 'NO_ACTIVITY'
+  } else if (completed === 0) {
+    // work in hand = started; only queued (assigned, not picked up yet) = not started
+    state = inHand > 0 ? 'WORKING' : factor > 0 ? 'NOT_STARTED' : attendance ? 'OFF' : 'NO_ACTIVITY'
+  } else if (minutesSinceLast !== null && minutesSinceLast < LIVE_IDLE_MINUTES) {
+    state = 'WORKING'
+  } else if (hasWork && sinceFirstH < shiftHours + 1) {
+    state = inHand > 0 ? 'WORKING' : 'IDLE'
+  } else {
+    // +1h allowance for the break before calling the shift over
+    state = sinceFirstH >= shiftHours + 1 ? 'DONE' : 'IDLE'
+  }
+
+  const basis = isLive ? projected : completed
+  const outcome: PerfDayOutcome = target === 0 ? 'OFF'
+    : basis >= target ? 'MET'
+    : basis >= target * PERF_NEAR_TARGET_RATIO ? 'NEAR'
+    : 'BELOW'
+
+  return {
+    userId: w.userId,
+    username: w.username,
+    displayName: w.employee ? `${w.employee.firstName} ${w.employee.lastName}`.trim() : w.username,
+    empNo: w.employee?.empNo ?? null,
+    linked: !!w.employee,
+    attendance,
+    factor,
+    target,
+    shiftHours,
+    completed,
+    queued,
+    inHand,
+    lastHour: isLive ? raw?.lastHour ?? 0 : 0,
+    hourly,
+    firstAt: raw?.firstAt ?? null,
+    lastAt: raw?.lastAt ?? null,
+    pacePerHour: Math.round(pacePerHour * 10) / 10,
+    projected: Math.round(projected),
+    progress: target > 0 ? completed / target : 0,
+    outcome,
+    state,
+    minutesSinceLast,
+  }
+}
+
+function liveTotals(workers: LiveWorker[]): LiveRoleTotals {
+  const t: LiveRoleTotals = {
+    completed: 0, target: 0, projected: 0, queued: 0, inHand: 0, lastHour: 0, pacePerHour: 0,
+    working: 0, idle: 0, notStarted: 0, done: 0, off: 0, noActivity: 0, onTrack: 0, near: 0, behind: 0,
+  }
+  let pace = 0
+  for (const w of workers) {
+    t.completed += w.completed
+    t.target += w.target
+    t.projected += w.projected
+    t.queued += w.queued
+    t.inHand += w.inHand
+    t.lastHour += w.lastHour
+    pace += w.pacePerHour
+    if (w.state === 'WORKING') t.working++
+    else if (w.state === 'IDLE') t.idle++
+    else if (w.state === 'NOT_STARTED') t.notStarted++
+    else if (w.state === 'DONE') t.done++
+    else if (w.state === 'OFF') t.off++
+    else t.noActivity++
+    if (w.target > 0) {
+      if (w.outcome === 'MET') t.onTrack++
+      else if (w.outcome === 'NEAR') t.near++
+      else t.behind++
+    }
+  }
+  t.pacePerHour = Math.round(pace * 10) / 10
+  return t
+}
+
+/** Live floor board for both roles. `date` omitted / today = live; a past day (≤ 90 days back) = replay. */
+export async function getLiveBoard(tenantId: string, dateInput?: string): Promise<LiveBoard> {
+  const today = getManilaDateString()
+  let date = today
+  if (dateInput && dateInput !== today) {
+    if (!DATE_RE.test(dateInput)) throw new PerfRangeError('Invalid date (expected YYYY-MM-DD)')
+    if (dateInput > today) throw new PerfRangeError('Future dates are not allowed')
+    if (dateList(dateInput, today).length > 90) throw new PerfRangeError('Date out of range (max 90 days back)')
+    date = dateInput
+  }
+  const isLive = date === today
+  const now = new Date()
+  const lastHourCut = new Date(now.getTime() - HOUR_MS)
+
+  const [pickers, packers] = await Promise.all([loadWorkers(tenantId, 'PICKER'), loadWorkers(tenantId, 'PACKER')])
+  const employeeIds = [...pickers, ...packers].flatMap((w) => (w.employee ? [w.employee.id] : []))
+
+  const [pickRaw, packRaw, pickOpen, packOpen, schedRows] = await Promise.all([
+    loadDayCompletions('PICKER', pickers.map((w) => w.userId), date, lastHourCut),
+    loadDayCompletions('PACKER', packers.map((w) => w.userId), date, lastHourCut),
+    isLive ? loadOpenWork(tenantId, 'PICKER', pickers.map((w) => w.userId)) : Promise.resolve(new Map()),
+    isLive ? loadOpenWork(tenantId, 'PACKER', packers.map((w) => w.userId)) : Promise.resolve(new Map()),
+    employeeIds.length
+      ? prisma.empSchedule.findMany({
+          where: { tenantId, employeeId: { in: employeeIds }, date: new Date(`${date}T00:00:00.000Z`) },
+          select: { employeeId: true, status: true, otHours: true },
+        })
+      : Promise.resolve([]),
+  ])
+  const sched = new Map(schedRows.map((s) => [s.employeeId, { status: s.status as AttendanceStatus, otHours: s.otHours }]))
+
+  const board = (role: PerfRole, list: WorkerSource[], raw: Map<string, LiveRaw>, open: Map<string, { queued: number; inHand: number }>): LiveRoleBoard => {
+    const dailyTarget = PERF_DAILY_TARGET[role]
+    const workers = list
+      .map((w) => buildLiveWorker(w, raw.get(w.userId), open.get(w.userId), w.employee ? sched.get(w.employee.id) : undefined, dailyTarget, isLive, now))
+      .sort((a, b) => b.completed - a.completed || a.displayName.localeCompare(b.displayName))
+    const hourly = new Array(24).fill(0)
+    for (const w of workers) w.hourly.forEach((v, i) => { hourly[i] += v })
+    return { role, dailyTarget, totals: liveTotals(workers), hourly, workers }
+  }
+
+  return {
+    date,
+    isLive,
+    generatedAt: now.toISOString(),
+    currentHour: isLive ? new Date(now.getTime() + 8 * HOUR_MS).getUTCHours() : null,
+    roles: {
+      PICKER: board('PICKER', pickers, pickRaw, pickOpen),
+      PACKER: board('PACKER', packers, packRaw, packOpen),
+    },
   }
 }
 
