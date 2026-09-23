@@ -17,7 +17,9 @@ import {
   getWeek,
   setCell,
   getReport,
+  listLinkableUsers,
   EmployeeNotFoundError,
+  EmployeeLinkError,
 } from '../services/employeeScheduleService'
 import { generateScheduleReportPdf } from '../services/employeeSchedulePdfService'
 
@@ -44,6 +46,8 @@ const EmployeeBody = z.object({
   emergencyContactNumber: optStr(40),
   isActive: z.boolean().default(true),
   leaveDate: optDate,
+  // v2.84.0 system-user link — existence + picker/packer role verified in the service
+  userId: z.union([z.string().trim().min(1).max(64), z.literal(''), z.null()]).optional(),
 }).refine((d) => d.isActive || (!!d.leaveDate && DATE_RE.test(d.leaveDate)), {
   message: 'A leave date is required when the employee is inactive',
   path: ['leaveDate'],
@@ -80,7 +84,12 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
     const parsed = EmployeeBody.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid body', details: parsed.error.flatten() })
     const { tenantId } = request.user as JWTPayload
-    return reply.code(201).send(await createEmployee(tenantId, parsed.data))
+    try {
+      return reply.code(201).send(await createEmployee(tenantId, parsed.data))
+    } catch (err) {
+      if (err instanceof EmployeeLinkError) return reply.code(err.statusCode).send({ error: err.message })
+      throw err
+    }
   })
 
   fastify.put('/employees/:id', { preHandler }, async (request, reply) => {
@@ -92,8 +101,15 @@ export default async function employeeScheduleRoutes(fastify: FastifyInstance) {
       return reply.send(await updateEmployee(tenantId, id, parsed.data))
     } catch (err) {
       if (err instanceof EmployeeNotFoundError) return reply.code(404).send({ error: 'Employee not found' })
+      if (err instanceof EmployeeLinkError) return reply.code(err.statusCode).send({ error: err.message })
       throw err
     }
+  })
+
+  // Active picker/packer logins that can be linked to an employee (v2.84.0)
+  fastify.get('/linkable-users', { preHandler: readPre }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await listLinkableUsers(tenantId))
   })
 
   fastify.delete('/employees/:id', { preHandler }, async (request, reply) => {

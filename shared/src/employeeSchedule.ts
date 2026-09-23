@@ -76,6 +76,8 @@ export interface EmpEmployeeDTO {
   emergencyContactNumber: string | null
   isActive: boolean
   leaveDate: string | null // YYYY-MM-DD — set when isActive=false
+  /** Linked system (picker/packer) user — drives the Warehouse Report target report. */
+  userId: string | null
 }
 
 /** One schedule cell (a day's attendance for an employee). */

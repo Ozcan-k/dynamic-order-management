@@ -5,6 +5,13 @@ import { prisma } from '../lib/prisma'
 import { getManilaStartOfToday, getManilaDateString, getManilaStartOf } from '../lib/manila'
 import { runNightlyReport } from '../jobs/nightlyReport'
 import PDFDocument from 'pdfkit'
+import {
+  getTeamPerformance,
+  getEmployeePerformance,
+  listPerformanceWorkers,
+  PerfRangeError,
+  PerfWorkerNotFoundError,
+} from '../services/performanceService'
 
 // ─── PDF Helper ───────────────────────────────────────────────────────────────
 
@@ -541,6 +548,48 @@ export default async function reportsRoutes(fastify: FastifyInstance) {
       })
     },
   )
+
+  // ── Target performance (v2.84.0) — read-only ────────────────────────────────
+  // Same RBAC tuple as /performance. Output vs daily target (Picker 210 / Packer 280),
+  // attendance-aware through the Employee Schedule link. Inactive staff are excluded.
+  const perfPreHandler = [
+    fastify.authenticate,
+    requireRole(UserRole.ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN, UserRole.WAREHOUSE_ADMIN),
+  ]
+
+  // GET /reports/target-performance?role=PICKER|PACKER&from=YYYY-MM-DD&to=YYYY-MM-DD
+  fastify.get('/target-performance', { preHandler: perfPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const q = request.query as { role?: string; from?: string; to?: string }
+    const role = q.role === 'PACKER' ? 'PACKER' : q.role === 'PICKER' || !q.role ? 'PICKER' : null
+    if (!role) return reply.code(400).send({ error: 'role must be PICKER or PACKER' })
+    try {
+      return reply.send(await getTeamPerformance(tenantId, role, q.from, q.to))
+    } catch (err) {
+      if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
+      throw err
+    }
+  })
+
+  // GET /reports/employee-performance?userId=&from=&to=
+  fastify.get('/employee-performance', { preHandler: perfPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    const q = request.query as { userId?: string; from?: string; to?: string }
+    if (!q.userId) return reply.code(400).send({ error: 'userId is required' })
+    try {
+      return reply.send(await getEmployeePerformance(tenantId, q.userId, q.from, q.to))
+    } catch (err) {
+      if (err instanceof PerfRangeError) return reply.code(400).send({ error: err.message })
+      if (err instanceof PerfWorkerNotFoundError) return reply.code(404).send({ error: 'Active picker/packer not found' })
+      throw err
+    }
+  })
+
+  // GET /reports/performance-workers — active pickers + packers for the employee picker
+  fastify.get('/performance-workers', { preHandler: perfPreHandler }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await listPerformanceWorkers(tenantId))
+  })
 
   // GET /reports/performance/export — ADMIN, INBOUND_ADMIN, PICKER_ADMIN, PACKER_ADMIN — CSV download
   fastify.get(

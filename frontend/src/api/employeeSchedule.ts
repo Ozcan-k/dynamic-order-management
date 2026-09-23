@@ -23,6 +23,20 @@ export interface EmployeeInput {
   emergencyContactNumber?: string | null
   isActive?: boolean
   leaveDate?: string | null // YYYY-MM-DD — required when isActive=false
+  userId?: string | null // linked picker/packer login ('' / null = not linked)
+}
+
+export interface LinkableUser {
+  id: string
+  username: string
+  role: 'PICKER' | 'PACKER'
+  linkedEmployeeId: string | null
+}
+
+/** Active picker/packer logins that can be linked to an employee (v2.84.0). */
+export async function listLinkableUsers(): Promise<LinkableUser[]> {
+  const res = await api.get<LinkableUser[]>('/employee-schedule/linkable-users')
+  return res.data
 }
 
 export async function listEmployees(): Promise<EmpEmployeeDTO[]> {

@@ -9,7 +9,7 @@ import {
 import { colors, radius, shadow } from '../../theme'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import {
-  listEmployees, createEmployee, updateEmployee, deleteEmployee, type EmployeeInput,
+  listEmployees, createEmployee, updateEmployee, deleteEmployee, listLinkableUsers, type EmployeeInput, type LinkableUser,
 } from '../../api/employeeSchedule'
 import { DEPT_STYLE, initials, fullDate, todayStr } from './config'
 
@@ -60,7 +60,15 @@ function dtoToInput(e: EmpEmployeeDTO): EmployeeInput {
     emergencyContactNumber: e.emergencyContactNumber ?? '',
     isActive: e.isActive,
     leaveDate: e.leaveDate ?? '',
+    // always echo the link back so Set Inactive / Reactivate never drop it
+    userId: e.userId ?? '',
   }
+}
+
+/** Departments whose staff log in as pickers / packers. */
+const LINKABLE_ROLE: Partial<Record<EmpDepartment, 'PICKER' | 'PACKER'>> = {
+  [EmpDepartment.PICKER]: 'PICKER',
+  [EmpDepartment.PACKER]: 'PACKER',
 }
 
 export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean }) {
@@ -70,6 +78,13 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
     queryFn: listEmployees,
     staleTime: 30_000,
   })
+
+  const { data: linkable } = useQuery({
+    queryKey: ['emp', 'linkable-users'],
+    queryFn: listLinkableUsers,
+    staleTime: 60_000,
+  })
+  const usernameById = new Map((linkable ?? []).map((u) => [u.id, u.username]))
 
   const [form, setForm] = useState<EmployeeInput>(blankForm)
   const [editing, setEditing] = useState<EmpEmployeeDTO | null>(null)
@@ -82,6 +97,9 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
     qc.invalidateQueries({ queryKey: ['emp', 'employees'] })
     qc.invalidateQueries({ queryKey: ['emp', 'week'] })
     qc.invalidateQueries({ queryKey: ['emp', 'report'] })
+    qc.invalidateQueries({ queryKey: ['emp', 'linkable-users'] })
+    // the Warehouse Report target/employee reports read the link
+    qc.invalidateQueries({ queryKey: ['reports'] })
   }
 
   const createMut = useMutation({
@@ -198,6 +216,12 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={avatarStyle(ds)}>{initials(emp.firstName, emp.lastName)}</span>
                               <span style={{ fontWeight: 600, color: colors.textPrimary }}>{emp.firstName} {emp.lastName}</span>
+                              {emp.userId && usernameById.has(emp.userId) && (
+                                <span title="Linked system user — used by Warehouse Report → Performance" style={{
+                                  fontSize: '11px', fontWeight: 600, color: ds.bandText, background: ds.soft,
+                                  padding: '1px 8px', borderRadius: radius.full, whiteSpace: 'nowrap',
+                                }}>@{usernameById.get(emp.userId)}</span>
+                              )}
                             </div>
                           </td>
                           <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>{emp.contactNumber || <span style={{ color: colors.textMuted }}>—</span>}</td>
@@ -277,6 +301,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
       {editing && (
         <EditModal
           employee={editing}
+          linkable={linkable ?? []}
           busy={updateMut.isPending}
           error={error}
           onCancel={() => { setEditing(null); setError(null) }}
@@ -377,10 +402,13 @@ function DeactivateModal({ employee, busy, error, onConfirm, onCancel }: {
 }
 
 // ─── Edit modal ──────────────────────────────────────────────────────────────
-function EditModal({ employee, busy, error, onSave, onCancel }: {
-  employee: EmpEmployeeDTO; busy: boolean; error: string | null; onSave: (input: EmployeeInput) => void; onCancel: () => void
+function EditModal({ employee, linkable, busy, error, onSave, onCancel }: {
+  employee: EmpEmployeeDTO; linkable: LinkableUser[]; busy: boolean; error: string | null; onSave: (input: EmployeeInput) => void; onCancel: () => void
 }) {
   const [form, setForm] = useState<EmployeeInput>(dtoToInput(employee))
+  const linkRole = LINKABLE_ROLE[form.department]
+  // same-role logins; keep the current link visible even if its role differs
+  const linkOptions = linkable.filter((u) => u.role === linkRole || u.id === form.userId)
   const canSave = !!(form.firstName?.trim() && form.lastName?.trim() && form.startDate && (form.isActive || form.leaveDate))
 
   return (
@@ -414,6 +442,26 @@ function EditModal({ employee, busy, error, onSave, onCancel }: {
             </Field>
             {!form.isActive && (
               <Field label="Leave Date *"><input type="date" value={form.leaveDate ?? ''} onChange={(e) => setForm({ ...form, leaveDate: e.target.value })} style={inputStyle} /></Field>
+            )}
+
+            {(linkRole || form.userId) && (
+              <Field label="Linked system user" full>
+                <select value={form.userId ?? ''} onChange={(e) => setForm({ ...form, userId: e.target.value })} style={inputStyle}>
+                  <option value="">— Not linked —</option>
+                  {linkOptions.map((u) => {
+                    const taken = !!u.linkedEmployeeId && u.linkedEmployeeId !== employee.id
+                    return (
+                      <option key={u.id} value={u.id} disabled={taken}>
+                        @{u.username} ({u.role === 'PICKER' ? 'Picker' : 'Packer'}){taken ? ' — linked to another employee' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+                <span style={{ display: 'block', marginTop: '6px', fontSize: '11.5px', color: colors.textMuted, lineHeight: 1.45 }}>
+                  The picker/packer login this employee scans with. Warehouse Report → Performance uses this link to apply the
+                  schedule (Day Off / leave days are excluded from the daily target).
+                </span>
+              </Field>
             )}
           </div>
 

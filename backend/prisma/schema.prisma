@@ -182,6 +182,7 @@ model User {
   brandingUpdates      CompanyBranding[]    @relation("BrandingUpdatedBy")
   returnCancelCreated  ReturnCancelParcel[] @relation("ReturnCancelCreatedBy")
   dispatchCreated      DispatchParcel[]     @relation("DispatchCreatedBy")
+  empEmployee          EmpEmployee?         @relation("EmpEmployeeUser")
 
   @@unique([tenantId, username])
   @@map("users")
@@ -783,15 +784,15 @@ model AccSale {
 }
 
 model AccSaleAttachment {
-  id           String                 @id @default(uuid())
-  saleId       String                 @map("sale_id")
-  sale         AccSale                @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  category     AccAttachmentCategory  @default(INVOICE)
-  fileName     String                 @map("file_name")
+  id           String                @id @default(uuid())
+  saleId       String                @map("sale_id")
+  sale         AccSale               @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  category     AccAttachmentCategory @default(INVOICE)
+  fileName     String                @map("file_name")
   mime         String
-  originalName String?                @map("original_name")
-  sizeBytes    Int                    @map("size_bytes")
-  uploadedAt   DateTime               @default(now()) @map("uploaded_at")
+  originalName String?               @map("original_name")
+  sizeBytes    Int                   @map("size_bytes")
+  uploadedAt   DateTime              @default(now()) @map("uploaded_at")
 
   @@index([saleId, category])
   @@map("acc_sale_attachments")
@@ -963,9 +964,14 @@ model EmpEmployee {
   isActive  Boolean   @default(true) @map("is_active")
   leaveDate DateTime? @map("leave_date") @db.Date
 
+  // v2.84.0 — optional link to the picker/packer login, so the Warehouse Report
+  // target report can read this employee's attendance. Nullable + additive.
+  userId String? @unique @map("user_id")
+
   createdAt DateTime @default(now()) @map("created_at")
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  user     User?         @relation("EmpEmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
   schedule EmpSchedule[]
 
   @@unique([tenantId, empNo])

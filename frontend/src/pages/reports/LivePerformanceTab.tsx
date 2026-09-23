@@ -408,8 +408,9 @@ function PerWorkerHourlyChart({
   workers: WorkerRow[]
   accent: string
 }) {
-  // Only include workers with work on this date, preserving parent sort order
-  const withWork = workers.filter((w) => w.completedToday > 0)
+  // Only active workers with work on this date, preserving parent sort order.
+  // Inactive (deactivated) users are hidden — historical days used to list them.
+  const withWork = workers.filter((w) => w.isActive && w.completedToday > 0)
 
   if (withWork.length === 0) {
     return (
@@ -675,20 +676,25 @@ export default function LivePerformanceTab() {
         <PerWorkerHourlyChart workers={data.packers} accent={PACKER_COLOR} />
       </SectionCard>
 
-      {/* Per-worker tables */}
-      <SectionCard
-        title={`Pickers — ${data.isHistorical ? 'Breakdown' : 'Live'} (${data.pickers.length})`}
-        actions={<LiveSortToggle value={pickerSort} onChange={setPickerSort} isHistorical={data.isHistorical} />}
-      >
-        <WorkerTable rows={data.pickers} sort={pickerSort} accent={PICKER_COLOR} isHistorical={data.isHistorical} />
-      </SectionCard>
+      {/* Per-worker live tables — today only. The historical "Breakdown" tables were
+          removed in v2.84.0: the Performance tab (target report) replaces them. */}
+      {!data.isHistorical && (
+        <>
+          <SectionCard
+            title={`Pickers — Live (${data.pickers.length})`}
+            actions={<LiveSortToggle value={pickerSort} onChange={setPickerSort} isHistorical={false} />}
+          >
+            <WorkerTable rows={data.pickers} sort={pickerSort} accent={PICKER_COLOR} isHistorical={false} />
+          </SectionCard>
 
-      <SectionCard
-        title={`Packers — ${data.isHistorical ? 'Breakdown' : 'Live'} (${data.packers.length})`}
-        actions={<LiveSortToggle value={packerSort} onChange={setPackerSort} isHistorical={data.isHistorical} />}
-      >
-        <WorkerTable rows={data.packers} sort={packerSort} accent={PACKER_COLOR} isHistorical={data.isHistorical} />
-      </SectionCard>
+          <SectionCard
+            title={`Packers — Live (${data.packers.length})`}
+            actions={<LiveSortToggle value={packerSort} onChange={setPackerSort} isHistorical={false} />}
+          >
+            <WorkerTable rows={data.packers} sort={packerSort} accent={PACKER_COLOR} isHistorical={false} />
+          </SectionCard>
+        </>
+      )}
     </div>
   )
 }
