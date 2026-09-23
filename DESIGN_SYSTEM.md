@@ -5,6 +5,32 @@
 
 ---
 
+## Marketing Report — `.mkt-*` report kit (v2.89.0)
+
+The Marketing Report (`/marketing-report`) and agent profile (`/marketing-report/agents/:agentId`) share one namespaced partial, `frontend/src/styles/marketing.css`, and a small component kit in `frontend/src/components/marketing/`. Chrome mirrors the Warehouse Report (`.perf-*`) so the two reports feel alike; the app has no dark theme, so neither does this kit.
+
+### Colour rules (`components/marketing/palette.ts`)
+- **Categorical palette** (vivid-charts, validated for contrast + colour-blind separation on white), assigned in fixed order: blue `#3B82F6`, orange `#C2410C`, green `#16A34A`, pink `#DB2777`, purple `#4C1D95`, teal `#0E7490`, gold `#CA8A04`; a 9th+ entity folds into slate `#64748B`.
+- **Colour follows the entity, never its rank:** `buildAgentColors()` keys agents by their position in the full, unfiltered agent list sorted by username, so filtering never repaints an agent. Each metric has one hue everywhere (`METRIC_COLOR`), as do platforms (`PLATFORM_COLOR`) and sale channels (`CHANNEL_COLOR`).
+- **Sequential ramps** for heat grids only: `CONTENT_RAMP` (violet, completion 0–100 %) and `ACTIVITY_RAMP` (teal, stores reported). "No data" is an empty outlined cell, never a ramp colour.
+- **Status colours** (good `#16A34A` / warning `#F59E0B` / bad `#DC2626`) are reserved for state (On track / Behind / Off track, Quiet 3+ days) and always ship with a text label.
+
+### Components
+| Piece | File | Use |
+|---|---|---|
+| `ChartCard`, `Seg`, `Legend`, `TooltipCard`, `BarList`, `MiniStat`, `AgentAvatar`, `Empty` | `chartKit.tsx` | Card chrome, segmented control, HTML legend, recharts tooltip body, direct-labelled ranked bars, stat strips |
+| `AXIS_PROPS`, `GRID_PROPS`, `PREV_INK`, `TARGET_INK` | `chartTheme.ts` | Recessive recharts axis/grid defaults |
+| `KpiRow` + `DeltaChip` | `KpiRow.tsx` | 6 KPI tiles: value, arrow+label delta chip (never colour alone), sparkline, optional "vs team" line |
+| `TrendCard`, `ChannelDonut`, `PlatformMatrix`, `HeatGrid` | own files | Shared by report tabs and the agent profile |
+
+### Rules for new charts here
+- One y-axis per chart; compare to the previous period with a dashed slate line, not a second axis.
+- Prefer `BarList` (HTML, direct-labelled, clickable) for rankings; use recharts for time series, donut, scatter.
+- Every chart gets a tooltip via `TooltipCard`, an empty state via `Empty`, and a skeleton (`.mkt-chart-skeleton`) while loading.
+- Animations stay under ~700 ms and are disabled under `prefers-reduced-motion` in `marketing.css`.
+
+---
+
 ## Phase A — Modern Minimal Token Foundation (v2.37.0)
 
 Additive token expansion toward a Linear/Vercel modern-minimal aesthetic. **All legacy tokens below remain valid.** New tokens listed here are available for new code and future polish phases (Phase C onward). Mirrored as CSS variables in `frontend/src/styles/tokens.css`.
@@ -78,7 +104,10 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 | 3 | `layout.css` | `.app-layout`, `.sidebar*`, `.panel-*` |
 | 4 | `components.css` | All shared visual primitives (buttons, tables, cards, modals, motion classes, etc.) |
 | 5 | `sales-dashboard.css` | Sales-suite page-specific (`.sales-*`, `.section-card`, `.sales-entry-*`) |
-| 6 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` |
+| 6 | `accounting.css` | Accounting module (`.acc-*`) — added v2.51.0 |
+| 7 | `performance.css` | Warehouse Report (`.perf-*`) — added v2.84.0 |
+| 8 | `marketing.css` | Marketing Report + agent profile (`.mkt-*`) — added v2.89.0 |
+| 9 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
 
 ### Carryover defer list (no version bump required)
 These all inherit Phase C primitive polish automatically through shared classes; per-file inline-style extractions can be done incrementally:
