@@ -8,6 +8,7 @@ import AgentDayModal from '../components/marketing/AgentDayModal'
 import AgentHero from '../components/marketing/AgentHero'
 import ChannelDonut from '../components/marketing/ChannelDonut'
 import { BarList, ChartCard, Empty } from '../components/marketing/chartKit'
+import AgentTargetPanel from '../components/marketing/targets/AgentTargetPanel'
 import { formatHours, formatInt, formatPct, formatPHP, shortDate } from '../components/marketing/format'
 import KpiRow from '../components/marketing/KpiRow'
 import PlatformMatrix from '../components/marketing/PlatformMatrix'
@@ -123,6 +124,8 @@ export default function MarketingAgent() {
           team={s?.kpis.teamAverage ?? null}
           loading={loading}
         />
+
+        {agentId && <AgentTargetPanel agentId={agentId} />}
 
         <TrendCard title="Performance trend" daily={s?.daily} previousDaily={s?.previousDaily} loading={loading} />
 

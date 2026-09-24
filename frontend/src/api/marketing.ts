@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { MarketingTargetsResponse, SalesTargetMetric, TargetSettingsResponse } from '@dom/shared'
 import type {
   ActivityResponse,
   CalendarResponse,
@@ -187,5 +188,27 @@ export async function fetchActivityGrid(f: AnalyticsFilter): Promise<ActivityGri
 
 export async function fetchAgentSummary(agentId: string, f: AnalyticsFilter): Promise<AgentSummary> {
   const { data } = await api.get<AgentSummary>(`/marketing/agents/${agentId}/summary`, { params: analyticsParams(f) })
+  return data
+}
+
+// ─── Monthly targets (v2.94.0) ──────────────────────────────────────────────
+
+export async function fetchMarketingTargets(month: string, agentId?: string): Promise<MarketingTargetsResponse> {
+  const { data } = await api.get<MarketingTargetsResponse>('/marketing/targets', { params: { month, ...(agentId ? { agentId } : {}) } })
+  return data
+}
+
+export async function fetchTargetSettings(): Promise<TargetSettingsResponse> {
+  const { data } = await api.get<TargetSettingsResponse>('/marketing/targets/settings')
+  return data
+}
+
+export interface SaveTargetsPayload {
+  scope: string // 'DEFAULT' or a sales agent id
+  metrics: { metric: SalesTargetMetric; value: number | null; enabled: boolean }[]
+}
+
+export async function saveTargetSettings(payload: SaveTargetsPayload): Promise<TargetSettingsResponse> {
+  const { data } = await api.put<TargetSettingsResponse>('/marketing/targets/settings', payload)
   return data
 }

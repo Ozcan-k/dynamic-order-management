@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { JWTPayload, UserRole } from '@dom/shared'
+import { JWTPayload, SalesTargetMetric, UserRole } from '@dom/shared'
+import { getMarketingTargets, getTargetSettings, saveTargetSettings, TargetInputError } from '../services/salesTargetService'
 import { requireRole } from '../middleware/rbac'
 import { UnknownStoreError } from '../services/storeService'
 import { auditMarketingAccess } from '../middleware/auditLog'
@@ -47,6 +48,44 @@ export default async function marketingRoutes(fastify: FastifyInstance) {
     requireRole(UserRole.ADMIN),
     auditMarketingAccess,
   ]
+
+  // ── Monthly targets (v2.94.0) ─────────────────────────────────────────────
+  const MonthQuery = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), agentId: z.string().uuid().optional() })
+  const SaveTargetsBody = z.object({
+    scope: z.string().min(1).max(64),
+    metrics: z.array(z.object({
+      metric: z.nativeEnum(SalesTargetMetric),
+      value: z.number().nullable(),
+      enabled: z.boolean(),
+    })).min(1).max(6),
+  })
+
+  // GET /marketing/targets?month=YYYY-MM[&agentId=] — progress vs monthly targets (read-only)
+  fastify.get('/targets', { preHandler: marketingViewers }, async (request, reply) => {
+    const q = MonthQuery.safeParse(request.query)
+    if (!q.success) return reply.code(400).send({ error: 'Invalid query', details: q.error.flatten() })
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getMarketingTargets(tenantId, q.data.month, q.data.agentId))
+  })
+
+  // GET /marketing/targets/settings — default + per-agent targets (ADMIN)
+  fastify.get('/targets/settings', { preHandler: marketingAdmin }, async (request, reply) => {
+    const { tenantId } = request.user as JWTPayload
+    return reply.send(await getTargetSettings(tenantId))
+  })
+
+  // PUT /marketing/targets/settings — save the default set or one agent's overrides (ADMIN)
+  fastify.put('/targets/settings', { preHandler: marketingAdmin }, async (request, reply) => {
+    const body = SaveTargetsBody.safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error: 'Invalid body', details: body.error.flatten() })
+    const { tenantId, userId } = request.user as JWTPayload
+    try {
+      return reply.send(await saveTargetSettings(tenantId, userId, body.data))
+    } catch (e) {
+      if (e instanceof TargetInputError) return reply.code(400).send({ error: e.message })
+      throw e
+    }
+  })
 
   // GET /marketing/agents — list of active sales agents in this tenant
   fastify.get('/agents', { preHandler: marketingViewers }, async (request, reply) => {

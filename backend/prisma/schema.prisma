@@ -344,6 +344,23 @@ model StoreAudit {
   @@map("store_audit")
 }
 
+/// v2.94.0 — monthly sales agent targets (Marketing Report → Targets). scope = 'DEFAULT'
+/// or a sales agent's user id; value NULL on an agent row = use the default value. No rows =
+/// the shared DEFAULT_SALES_TARGETS. Never referenced by the operational sales tables.
+model SalesTarget {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  scope     String
+  metric    String
+  value     Float?
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@unique([tenantId, scope, metric])
+  @@map("sales_targets")
+}
+
 model SalesDailyActivity {
   id         String   @id @default(uuid())
   tenantId   String   @map("tenant_id")

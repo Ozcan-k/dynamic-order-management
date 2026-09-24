@@ -9,7 +9,7 @@
 > - **v2.86.0** — Employee ID'ler **4 haneli, `#`'sız** (#101 → 1001; açılışta idempotent `migrateEmpNosToFourDigit`), Settings → Edit'e **Employee ID** alanı.
 > - **v2.87.0** — Employee ID bağlantısı **tüm rollere** açık (Admin, Accountant vb.).
 > - **v2.88.0** — **Bir çalışan birden fazla login'e** bağlanabilir (örn. picker + packer hesabı): bağlantı `User.employeeId`'de; eski `EmpEmployee.userId` deprecated. Edit modal'da *Linked system logins* (çoklu).
-> - **v2.93.0 (test'te, main onay bekliyor)** — **Partial Day** (saatlik giriş) + Schedule / Employees / Report yenileme + Warehouse Report link fix. Plan: §11.
+> - **v2.93.0 (main'de LIVE — 2026-09-24; deploy öncesi/sonrası prod snapshot'ı 0 fark)** — **Partial Day** (saatlik giriş) + Schedule / Employees / Report yenileme + Warehouse Report link fix. Plan: §11.
 >
 > **Bağımsızlık:** Order pipeline'a / mevcut tablolara / mevcut raporlara **HİÇ dokunmaz**. Kendi `emp_*` tabloları, tenant-scoped, mevcut modellere FK yok. Accounting/Incident/Dispatch modüllerindeki bağımsız-modül deseninin aynısı.
 

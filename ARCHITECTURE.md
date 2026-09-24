@@ -2,7 +2,9 @@
 
 > **Version:** 2.91.0  
 > **Date:** 2026-09-24  
-> **Status:** **v2.93.0 (test)** — **Employee Schedule: Partial Day (hours) + redesigned Schedule / Employees / Report + Warehouse Report link fix.** Additive schema only: enum value `PARTIAL_DAY` + nullable `emp_schedules.worked_hours`; all existing rows compute exactly as before (verified on a copy of prod data). Bulk actions fill empty cells only, with Undo. Picker / Packer Admin → 'Open in Warehouse Report' now opens Live Performance. See §7.14 (v2.93.0).
+> **Status:** **v2.94.0 (test)** — **Marketing Report: monthly sales agent targets.** New additive table `sales_targets` (default set + per-agent overrides; no rows = shared `DEFAULT_SALES_TARGETS`: ₱300,000 sales · 150 online orders (direct + live) · 52 live hours · 30 videos (Video + Reel) · 60 photo posts · 100 inquiries). `services/salesTargetService.ts` computes monthly actuals read-only from the existing sales tables; `GET /marketing/targets?month=` (pace-to-date, month-end projection, status, team totals, 6-month history) and `GET|PUT /marketing/targets/settings` (ADMIN). UI: Marketing Report → Targets tab + ADMIN editor; agent page → This month's targets. Plan: `MARKETING_TARGETS.md`.
+>
+> **Previous status:** **v2.93.0 (LIVE on main, deployed 2026-09-24 — before/after prod snapshot identical)** — **Employee Schedule: Partial Day (hours) + redesigned Schedule / Employees / Report + Warehouse Report link fix.** Additive schema only: enum value `PARTIAL_DAY` + nullable `emp_schedules.worked_hours`; all existing rows compute exactly as before (verified on a copy of prod data). Bulk actions fill empty cells only, with Undo. Picker / Packer Admin → 'Open in Warehouse Report' now opens Live Performance. See §7.14 (v2.93.0).
 >
 > **Previous status:** **v2.92.0 (LIVE on main, deployed 2026-09-24 — verified on prod)** — **Settings rebuilt: Users / Stores / Permissions tabs; store names are now managed data.** Additive schema only: tables `stores` (seeded idempotently from the old `SALES_STORES` constant) and `store_audit`. Every store picker reads `GET /sales/stores` (any signed-in user; `?all=1` includes archived); sales activity / direct-order writes validate the name against the table. Settings → Stores (ADMIN) adds, renames (preview + one transaction over `sales_daily_activity`, `sales_direct_order`, `return_cancel_parcels`; merges blocked), archives / restores, and deletes only never-used stores; Accounting's `acc_stores` is untouched. Settings → Permissions shows the role × module access map generated from the `requireRole` rules at boot (`services/permissionMap.ts`, `GET /users/permissions`). See §7.15.
 >
@@ -1582,7 +1584,8 @@ backend/
 │   │   ├── salesDirectOrderService.ts     ← v2.28.0 — direct order edit/delete (transactional item replace, cascade delete)
 │   │   ├── marketingReportService.ts      ← v2.23.1 + v2.28.x — legacy leaderboard + comparison (UI unused since v2.89.0) + agent guard
 │   │   ├── marketingAnalytics.ts          ← v2.89.0 — pure aggregation (KPIs, daily, per-agent, breakdowns, activity grid, streaks)
-│   │   ├── marketingAnalyticsService.ts   ← v2.89.0 — Prisma loaders + range validation for the analytics endpoints
+│   │   ├── marketingAnalyticsService.ts   ← v2.89.0 — Prisma loaders + range validation for the analytics endpoint
+│   │   ├── salesTargetService.ts          ← v2.94.0 — monthly sales agent targets: settings (sales_targets) + read-only monthly actuals, pace, projections
 │   │   ├── incidentService.ts             ← v2.43.0 — CRUD, list + stats + pivot, lookup-tn, signed file persistence, remembered-name lookup; v2.91.0 person history + extended report
 │   │   ├── incidentInsights.ts            ← v2.91.0 — occurrence numbers (pure) + person mapping (linked Employee → one person)
 │   │   ├── storeService.ts                ← v2.92.0 — managed store list: seed, validation, rename (one transaction), archive, delete, audit

@@ -129,7 +129,7 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 | 5 | `sales-dashboard.css` | Sales-suite page-specific (`.sales-*`, `.section-card`, `.sales-entry-*`) |
 | 6 | `accounting.css` | Accounting module (`.acc-*`) — added v2.51.0 |
 | 7 | `performance.css` | Warehouse Report (`.perf-*`) — added v2.84.0 |
-| 8 | `marketing.css` | Marketing Report + agent profile (`.mkt-*`) — added v2.89.0 |
+| 8 | `marketing.css` | Marketing Report + agent profile (`.mkt-*`) — added v2.89.0; monthly targets (`.tg-*`: progress bar + pace tick, agent cards, history heat table, target editor) — added v2.94.0 |
 | 9 | `workload.css` | Picker / Packer Admin live workload (`.wl-*` cards + pulse, `.wp-*` assignment dropdown, `.pc-*` performance compare) — added v2.90.0 |
 | 10 | `incident.css` | Incident Report (`.inc-*`: occurrence badge, disciplinary ladder, repeat offenders, form hint, profile drawer) — added v2.91.0 |
 | 11 | `settings.css` | Settings page (`.set-*`: tabs, KPI strip, role chips + cards, stores table, rename preview modal, change history, permission matrix pips) — added v2.92.0 |

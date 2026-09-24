@@ -9,11 +9,13 @@ import KpiRow from '../components/marketing/KpiRow'
 import LiveTab from '../components/marketing/LiveTab'
 import OverviewTab from '../components/marketing/OverviewTab'
 import SalesTab from '../components/marketing/SalesTab'
+import TargetsTab from '../components/marketing/targets/TargetsTab'
 import { IconTrend } from '../components/marketing/icons'
 import { buildAgentColors } from '../components/marketing/palette'
 import { TABS, useMarketingFilters, type TabId } from '../components/marketing/useMarketingFilters'
 import { fetchActivityGrid, fetchAnalyticsOverview, fetchMarketingAgents } from '../api/marketing'
 import { useAuthStore } from '../stores/authStore'
+import { UserRole } from '@dom/shared'
 
 export default function MarketingReport() {
   const user = useAuthStore((s) => s.user)
@@ -29,6 +31,7 @@ export default function MarketingReport() {
   const overviewQuery = useQuery({
     queryKey: ['marketing-overview', f.filter],
     queryFn: () => fetchAnalyticsOverview(f.filter),
+    enabled: f.tab !== 'targets', // the Targets tab reads its own monthly data
     placeholderData: keepPreviousData,
     staleTime: f.isLive ? 10_000 : 60_000,
     refetchInterval: liveRefetch,
@@ -57,6 +60,7 @@ export default function MarketingReport() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
       <div className="mkt-root">
+        {f.tab !== 'targets' && <>
         <FilterHero
           f={f}
           agents={agents}
@@ -75,6 +79,7 @@ export default function MarketingReport() {
           daily={overview?.daily}
           loading={loading}
         />
+        </>}
 
         <TabBar tab={f.tab} onChange={f.setTab} />
 
@@ -85,6 +90,9 @@ export default function MarketingReport() {
           )}
           {f.tab === 'live' && <LiveTab {...tabProps} />}
           {f.tab === 'sales' && <SalesTab {...tabProps} />}
+          {f.tab === 'targets' && (
+            <TargetsTab agentColors={agentColors} isAdmin={user?.role === UserRole.ADMIN} agentFilter={f.agentIds} />
+          )}
           {f.tab === 'activity' && (
             <ActivityTab grid={gridQuery.data} loading={gridQuery.isLoading} agentColors={agentColors} today={f.today} onSelectAgent={openAgent} />
           )}

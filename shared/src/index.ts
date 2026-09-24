@@ -31,6 +31,7 @@ export interface StockItemSummary {
 }
 
 export * from './sales'
+export * from './salesTargets'
 export * from './accounting'
 export * from './employeeSchedule'
 export * from './performance'
