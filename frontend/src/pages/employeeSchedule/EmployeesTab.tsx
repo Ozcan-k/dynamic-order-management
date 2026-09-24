@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   EmpDepartment,
@@ -6,11 +6,13 @@ import {
   EMP_DEPARTMENT_ORDER,
   type EmpEmployeeDTO,
 } from '@dom/shared'
-import { colors, radius, shadow } from '../../theme'
+import { colors, radius } from '../../theme'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import {
-  listEmployees, createEmployee, updateEmployee, deleteEmployee, listLinkableUsers, type EmployeeInput, type LinkableUser,
+  listEmployees, createEmployee, updateEmployee, deleteEmployee, listLinkableUsers, getAttendanceSummaries, apiErrorMessage, type EmployeeInput, type LinkableUser,
 } from '../../api/employeeSchedule'
+import EmployeeProfile from './EmployeeProfile'
+import { tenure } from './scheduleUi'
 import { DEPT_STYLE, initials, fullDate, todayStr } from './config'
 
 const inputStyle: React.CSSProperties = {
@@ -74,6 +76,8 @@ const LINKABLE_ROLE: Partial<Record<EmpDepartment, 'PICKER' | 'PACKER'>> = {
 /** 'WAREHOUSE_ADMIN' → 'Warehouse Admin' */
 const roleLabel = (role: string) => role.toLowerCase().split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 
+type StatusView = 'active' | 'inactive' | 'all'
+
 export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient()
   const { data: employees, isLoading } = useQuery({
@@ -89,35 +93,49 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
   })
   const usernameById = new Map((linkable ?? []).map((u) => [u.id, u.username]))
 
+  // last-30-days attendance per employee (read-only, v2.93.0)
+  const { data: summaries } = useQuery({
+    queryKey: ['emp', 'summary', 30],
+    queryFn: () => getAttendanceSummaries(30),
+    staleTime: 60_000,
+  })
+
   const [form, setForm] = useState<EmployeeInput>(blankForm)
+  const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState<EmpEmployeeDTO | null>(null)
   const [toDelete, setToDelete] = useState<EmpEmployeeDTO | null>(null)
   const [toDeactivate, setToDeactivate] = useState<EmpEmployeeDTO | null>(null)
   const [toReactivate, setToReactivate] = useState<EmpEmployeeDTO | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [dept, setDept] = useState<EmpDepartment | 'ALL'>('ALL')
+  const [view, setView] = useState<StatusView>('active')
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['emp', 'employees'] })
     qc.invalidateQueries({ queryKey: ['emp', 'week'] })
     qc.invalidateQueries({ queryKey: ['emp', 'report'] })
     qc.invalidateQueries({ queryKey: ['emp', 'linkable-users'] })
+    qc.invalidateQueries({ queryKey: ['emp', 'history'] })
+    qc.invalidateQueries({ queryKey: ['emp', 'summary'] })
     // the Warehouse Report target/employee reports read the link
     qc.invalidateQueries({ queryKey: ['reports'] })
   }
 
   const createMut = useMutation({
     mutationFn: createEmployee,
-    onSuccess: () => { invalidate(); setForm(blankForm()); setError(null) },
-    onError: (e: any) => setError(e?.response?.data?.error ?? 'Failed to add employee'),
+    onSuccess: () => { invalidate(); setForm(blankForm()); setError(null); setShowAdd(false) },
+    onError: (e: unknown) => setError(apiErrorMessage(e, 'Failed to add employee')),
   })
   const updateMut = useMutation({
     mutationFn: ({ id, input }: { id: string; input: EmployeeInput }) => updateEmployee(id, input),
     onSuccess: () => { invalidate(); setEditing(null); setToDeactivate(null); setToReactivate(null); setError(null) },
-    onError: (e: any) => setError(e?.response?.data?.error ?? 'Failed to update employee'),
+    onError: (e: unknown) => setError(apiErrorMessage(e, 'Failed to update employee')),
   })
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteEmployee(id),
-    onSuccess: () => { invalidate(); setToDelete(null) },
+    onSuccess: () => { invalidate(); setToDelete(null); setProfileId(null) },
   })
 
   const canSubmit = !!(form.firstName?.trim() && form.lastName?.trim() && form.startDate)
@@ -128,176 +146,230 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
 
   const all = employees ?? []
   const active = all.filter((e) => e.isActive)
-  const inactive = all.filter((e) => !e.isActive).sort((a, b) => (b.leaveDate ?? '').localeCompare(a.leaveDate ?? ''))
-  const activeByDept = EMP_DEPARTMENT_ORDER.map((dept) => ({ dept, rows: active.filter((e) => e.department === dept) }))
+  const inactiveCount = all.length - active.length
+  const unlinkedFloor = active.filter((e) => LINKABLE_ROLE[e.department] && e.userIds.length === 0).length
+
+  // team attendance over the last 30 days (active staff with entries)
+  const team = useMemo(() => {
+    let worked = 0, expected = 0, absent = 0
+    for (const e of active) {
+      const s = summaries?.byEmployee[e.id]
+      if (!s) continue
+      worked += s.present + s.halfDay + s.partialDay
+      expected += s.present + s.halfDay + s.partialDay + s.absent
+      absent += s.absent
+    }
+    return { rate: expected ? worked / expected : null, absent }
+  }, [active, summaries])
+
+  const needle = search.trim().toLowerCase()
+  const rows = all
+    .filter((e) => view === 'all' || (view === 'active') === e.isActive)
+    .filter((e) => dept === 'ALL' || e.department === dept)
+    .filter((e) => !needle || `${e.empNo} ${e.firstName} ${e.lastName} ${e.contactNumber ?? ''} ${e.email ?? ''} ${e.userIds.map((id) => usernameById.get(id) ?? '').join(' ')}`.toLowerCase().includes(needle))
+  const byDept = EMP_DEPARTMENT_ORDER
+    .map((d) => ({ dept: d, rows: rows.filter((e) => e.department === d) }))
+    .filter((g) => g.rows.length > 0)
+  const deptCount = (d: EmpDepartment) => all.filter((e) => e.department === d && (view === 'all' || (view === 'active') === e.isActive)).length
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* ── Add form (hidden for read-only roles) ── */}
-      {!readOnly && (
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.xl, boxShadow: shadow.card, padding: '20px' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: 700, color: colors.textPrimary }}>Add Employee</h2>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
-          <Field label="Department">
-            <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value as EmpDepartment })} style={inputStyle}>
-              {EMP_DEPARTMENT_ORDER.map((d) => <option key={d} value={d}>{EMP_DEPARTMENT_LABEL[d]}</option>)}
-            </select>
-          </Field>
-          <Field label="First Name *">
-            <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="First name" style={inputStyle} />
-          </Field>
-          <Field label="Last Name *">
-            <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Last name" style={inputStyle} />
-          </Field>
-          <Field label="Start Date *">
-            <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} style={inputStyle} />
-          </Field>
-          <Field label="Contact Number">
-            <input value={form.contactNumber ?? ''} onChange={(e) => setForm({ ...form, contactNumber: e.target.value })} placeholder="e.g. +63 …" style={inputStyle} />
-          </Field>
-          <Field label="Email Address">
-            <input type="email" value={form.email ?? ''} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@email.com" style={inputStyle} />
-          </Field>
-          <Field label="Birthday">
-            <input type="date" value={form.birthday ?? ''} onChange={(e) => setForm({ ...form, birthday: e.target.value })} style={inputStyle} />
-          </Field>
-          <Field label="Emergency Contact Name">
-            <input value={form.emergencyContactName ?? ''} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} placeholder="Full name" style={inputStyle} />
-          </Field>
-          <Field label="Emergency Contact Number">
-            <input value={form.emergencyContactNumber ?? ''} onChange={(e) => setForm({ ...form, emergencyContactNumber: e.target.value })} placeholder="e.g. +63 …" style={inputStyle} />
-          </Field>
-          <Field label="Address" full>
-            <input value={form.address ?? ''} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Home address" style={inputStyle} />
-          </Field>
+    <div className="es-root">
+      {/* ── Summary ── */}
+      <div className="ee-stats">
+        <div className="ee-stat ee-stat--blue"><span>Active employees</span><b>{active.length}</b><small>{EMP_DEPARTMENT_ORDER.map((d) => [d, active.filter((e) => e.department === d).length] as const).filter(([, n]) => n > 0).map(([d, n]) => `${n} ${EMP_DEPARTMENT_LABEL[d].replace(' Staff', '').toLowerCase()}`).join(' · ') || 'no active staff'}</small></div>
+        <div className={`ee-stat ee-stat--${team.rate == null ? 'slate' : team.rate >= 0.95 ? 'green' : team.rate >= 0.85 ? 'amber' : 'red'}`}>
+          <span>Attendance · 30 days</span><b>{team.rate == null ? '—' : `${Math.round(team.rate * 100)}%`}</b><small>{team.absent} absence{team.absent === 1 ? '' : 's'} across the team</small>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '16px', flexWrap: 'wrap' }}>
-          <button onClick={handleAdd} disabled={!canSubmit || createMut.isPending} style={{
-            padding: '9px 22px', borderRadius: radius.md, border: 'none',
-            background: canSubmit ? colors.primary : colors.border, color: canSubmit ? '#fff' : colors.textMuted,
-            fontSize: '13px', fontWeight: 600, cursor: canSubmit ? 'pointer' : 'not-allowed',
-          }}>{createMut.isPending ? 'Adding…' : '+ Add Employee'}</button>
-          <span style={{ fontSize: '11px', color: colors.textMuted }}>* required · new employees are added as Active</span>
-          {error && !editing && !toDeactivate && <span style={{ fontSize: '12px', color: colors.danger }}>{error}</span>}
-        </div>
+        <button type="button" className={`ee-stat ee-stat--${unlinkedFloor ? 'amber' : 'green'}`} onClick={() => { setView('active'); setDept('ALL') }} title="Pickers / packers without a system login can't get their schedule applied in the Warehouse Report">
+          <span>Floor staff without login</span><b>{unlinkedFloor}</b><small>pickers / packers not linked</small>
+        </button>
+        <button type="button" className="ee-stat ee-stat--slate" onClick={() => setView('inactive')} disabled={!inactiveCount}>
+          <span>Former employees</span><b>{inactiveCount}</b><small>inactive · history kept</small>
+        </button>
       </div>
+
+      {/* ── Toolbar ── */}
+      <div className="es-filters">
+        <label className="es-search">
+          <SearchIcon />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, ID, phone, login" aria-label="Search employees" />
+        </label>
+        <div className="es-seg" role="group" aria-label="Department">
+          <button type="button" className={dept === 'ALL' ? 'is-on' : ''} aria-pressed={dept === 'ALL'} onClick={() => setDept('ALL')}>All</button>
+          {EMP_DEPARTMENT_ORDER.map((d) => (
+            <button key={d} type="button" className={dept === d ? 'is-on' : ''} aria-pressed={dept === d} onClick={() => setDept(d)}>
+              <i style={{ background: DEPT_STYLE[d].accent }} aria-hidden="true" />{EMP_DEPARTMENT_LABEL[d].replace(' Staff', '')} <b>{deptCount(d)}</b>
+            </button>
+          ))}
+        </div>
+        <div className="es-seg" role="group" aria-label="Status">
+          {(['active', 'inactive', 'all'] as StatusView[]).map((v) => (
+            <button key={v} type="button" className={view === v ? 'is-on' : ''} aria-pressed={view === v} onClick={() => setView(v)}>
+              {v === 'active' ? 'Active' : v === 'inactive' ? 'Former' : 'All'}
+            </button>
+          ))}
+        </div>
+        {!readOnly && (
+          <button type="button" className="es-btn es-btn--primary ee-add-btn" onClick={() => { setShowAdd((s) => !s); setError(null) }} aria-expanded={showAdd}>
+            {showAdd ? 'Close form' : '+ Add employee'}
+          </button>
+        )}
+      </div>
+
+      {/* ── Add form (same fields as before; hidden for read-only roles) ── */}
+      {!readOnly && showAdd && (
+        <div className="ee-card ee-add">
+          <h2>Add employee</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
+            <Field label="Department">
+              <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value as EmpDepartment })} style={inputStyle}>
+                {EMP_DEPARTMENT_ORDER.map((d) => <option key={d} value={d}>{EMP_DEPARTMENT_LABEL[d]}</option>)}
+              </select>
+            </Field>
+            <Field label="First Name *">
+              <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="First name" style={inputStyle} autoFocus />
+            </Field>
+            <Field label="Last Name *">
+              <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Last name" style={inputStyle} />
+            </Field>
+            <Field label="Start Date *">
+              <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} style={inputStyle} />
+            </Field>
+            <Field label="Contact Number">
+              <input value={form.contactNumber ?? ''} onChange={(e) => setForm({ ...form, contactNumber: e.target.value })} placeholder="e.g. +63 …" style={inputStyle} />
+            </Field>
+            <Field label="Email Address">
+              <input type="email" value={form.email ?? ''} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@email.com" style={inputStyle} />
+            </Field>
+            <Field label="Birthday">
+              <input type="date" value={form.birthday ?? ''} onChange={(e) => setForm({ ...form, birthday: e.target.value })} style={inputStyle} />
+            </Field>
+            <Field label="Emergency Contact Name">
+              <input value={form.emergencyContactName ?? ''} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} placeholder="Full name" style={inputStyle} />
+            </Field>
+            <Field label="Emergency Contact Number">
+              <input value={form.emergencyContactNumber ?? ''} onChange={(e) => setForm({ ...form, emergencyContactNumber: e.target.value })} placeholder="e.g. +63 …" style={inputStyle} />
+            </Field>
+            <Field label="Address" full>
+              <input value={form.address ?? ''} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Home address" style={inputStyle} />
+            </Field>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '16px', flexWrap: 'wrap' }}>
+            <button type="button" className="es-btn es-btn--primary" onClick={handleAdd} disabled={!canSubmit || createMut.isPending}>
+              {createMut.isPending ? 'Adding…' : '+ Add Employee'}
+            </button>
+            <span style={{ fontSize: '11px', color: colors.textMuted }}>* required · the ID is assigned automatically · new employees start as Active</span>
+            {error && !editing && !toDeactivate && <span style={{ fontSize: '12px', color: colors.danger }}>{error}</span>}
+          </div>
+        </div>
       )}
 
+      {/* ── List ── */}
       {isLoading ? (
-        <div style={{ textAlign: 'center', padding: '48px', color: colors.textSecondary }}>Loading employees…</div>
+        <div className="es-empty">Loading employees…</div>
       ) : all.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '48px', color: colors.textSecondary, background: colors.surface, border: `1px dashed ${colors.borderStrong}`, borderRadius: radius.xl }}>
-          No employees yet. Add your first employee above.
-        </div>
+        <div className="es-empty">No employees yet.{readOnly ? '' : ' Use “+ Add employee” to add the first one.'}</div>
+      ) : rows.length === 0 ? (
+        <div className="es-empty">No employee matches these filters.</div>
       ) : (
-        <>
-          {/* ── Active employees (grouped by department) ── */}
-          {activeByDept.filter((g) => g.rows.length > 0).map((g) => {
-            const ds = DEPT_STYLE[g.dept]
-            return (
-              <div key={g.dept} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.xl, boxShadow: shadow.card, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', background: ds.band, borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: ds.bandText, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{EMP_DEPARTMENT_LABEL[g.dept]}</span>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: ds.bandText, opacity: 0.8 }}>{g.rows.length} {g.rows.length === 1 ? 'employee' : 'employees'}</span>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: `2px solid ${colors.border}` }}>
-                        {[...['Employee ID', 'Name', 'Contact', 'Start Date'], ...(readOnly ? [] : ['Actions'])].map((h, i, arr) => (
-                          <th key={h} style={thStyle(!readOnly && i === arr.length - 1 ? 'right' : 'left')}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {g.rows.map((emp, i) => (
-                        <tr key={emp.id} style={{ background: i % 2 === 0 ? colors.surface : colors.surfaceAlt, borderBottom: `1px solid ${colors.border}` }}>
-                          <td style={{ padding: '10px 16px', fontWeight: 700, color: ds.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{emp.empNo}</td>
-                          <td style={{ padding: '10px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={avatarStyle(ds)}>{initials(emp.firstName, emp.lastName)}</span>
-                              <span style={{ fontWeight: 600, color: colors.textPrimary }}>{emp.firstName} {emp.lastName}</span>
-                              {emp.userIds.filter((id) => usernameById.has(id)).map((id) => (
-                                <span key={id} title="Linked system login — used by Warehouse Report → Performance" style={{
-                                  fontSize: '11px', fontWeight: 600, color: ds.bandText, background: ds.soft,
-                                  padding: '1px 8px', borderRadius: radius.full, whiteSpace: 'nowrap',
-                                }}>@{usernameById.get(id)}</span>
-                              ))}
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap' }}>{emp.contactNumber || <span style={{ color: colors.textMuted }}>—</span>}</td>
-                          <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fullDate(emp.startDate)}</td>
-                          {!readOnly && (
-                          <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <button onClick={() => { setEditing(emp); setError(null) }} style={actionBtn(colors.info, colors.infoLight)}>Edit</button>
-                            <button onClick={() => { setToDeactivate(emp); setError(null) }} style={{ ...actionBtn('#b45309', '#fffbeb'), marginLeft: 8 }}>Set Inactive</button>
-                            <button onClick={() => setToDelete(emp)} style={{ ...actionBtn(colors.danger, colors.dangerLight), marginLeft: 8 }}>Delete</button>
-                          </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )
-          })}
-
-          {/* ── Inactive / former employees ── */}
-          {inactive.length > 0 && (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.xl, boxShadow: shadow.card, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', background: '#f1f5f9', borderBottom: `1px solid ${colors.border}` }}>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Inactive / Former Employees
-                </span>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: colors.textMuted }}>{inactive.length} {inactive.length === 1 ? 'employee' : 'employees'}</span>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `2px solid ${colors.border}` }}>
-                      {[...['Employee ID', 'Name', 'Department', 'Start Date', 'Leave Date'], ...(readOnly ? [] : ['Actions'])].map((h, i, arr) => (
-                        <th key={h} style={thStyle(!readOnly && i === arr.length - 1 ? 'right' : 'left')}>{h}</th>
-                      ))}
+        <div className="ee-card ee-list-wrap">
+          <table className="ee-list">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Employee</th>
+                <th>Contact</th>
+                <th>With us</th>
+                <th title="Last 30 days">Attendance · 30d</th>
+                {!readOnly && <th className="act"><span className="sr-only">Actions</span></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {byDept.map((g) => {
+                const ds = DEPT_STYLE[g.dept]
+                return (
+                  <Fragment key={g.dept}>
+                    <tr className="ee-band" style={{ ['--dept-bg' as string]: ds.band, ['--dept-ink' as string]: ds.bandText }}>
+                      <th colSpan={readOnly ? 5 : 6} scope="rowgroup">{EMP_DEPARTMENT_LABEL[g.dept]} <em>{g.rows.length}</em></th>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {inactive.map((emp, i) => {
-                      const ds = DEPT_STYLE[emp.department]
+                    {g.rows.map((emp) => {
+                      const s = summaries?.byEmployee[emp.id]
+                      const rate = s?.attendanceRate
                       return (
-                        <tr key={emp.id} style={{ background: i % 2 === 0 ? colors.surface : colors.surfaceAlt, borderBottom: `1px solid ${colors.border}`, opacity: 0.92 }}>
-                          <td style={{ padding: '10px 16px', fontWeight: 700, color: colors.textMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{emp.empNo}</td>
-                          <td style={{ padding: '10px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={{ ...avatarStyle(ds), filter: 'grayscale(0.5)' }}>{initials(emp.firstName, emp.lastName)}</span>
-                              <span style={{ fontWeight: 600, color: colors.textSecondary }}>{emp.firstName} {emp.lastName}</span>
-                            </div>
+                        <tr key={emp.id} className={emp.isActive ? '' : 'is-former'}>
+                          <td className="ee-id" style={{ color: emp.isActive ? ds.accent : colors.textMuted }}>{emp.empNo}</td>
+                          <td>
+                            <button type="button" className="ee-name" onClick={() => setProfileId(emp.id)} title="Open profile">
+                              <span style={avatarStyle(ds)}>{initials(emp.firstName, emp.lastName)}</span>
+                              <span className="ee-name-main">
+                                <b>{emp.firstName} {emp.lastName}</b>
+                                <span className="ee-name-sub">
+                                  {emp.userIds.filter((id) => usernameById.has(id)).map((id) => (
+                                    <em key={id} title="Linked system login — used by Warehouse Report" style={{ background: ds.soft, color: ds.bandText }}>@{usernameById.get(id)}</em>
+                                  ))}
+                                  {LINKABLE_ROLE[emp.department] && emp.userIds.length === 0 && emp.isActive && <em className="ee-warn">no login linked</em>}
+                                  {!emp.isActive && <em className="ee-left">Left {emp.leaveDate ? fullDate(emp.leaveDate) : ''}</em>}
+                                </span>
+                              </span>
+                            </button>
                           </td>
-                          <td style={{ padding: '10px 16px', color: colors.textSecondary }}>{EMP_DEPARTMENT_LABEL[emp.department]}</td>
-                          <td style={{ padding: '10px 16px', color: colors.textSecondary, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fullDate(emp.startDate)}</td>
-                          <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                            <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: radius.full, background: '#fef2f2', color: '#b91c1c', fontWeight: 600, fontSize: '12px' }}>
-                              {emp.leaveDate ? fullDate(emp.leaveDate) : '—'}
-                            </span>
+                          <td className="ee-contact">
+                            {emp.contactNumber || emp.email ? (
+                              <>
+                                {emp.contactNumber && <span>{emp.contactNumber}</span>}
+                                {emp.email && <small>{emp.email}</small>}
+                              </>
+                            ) : <span className="ee-muted">—</span>}
+                          </td>
+                          <td className="ee-tenure">
+                            <span>{tenure(emp.startDate, emp.isActive ? null : emp.leaveDate)}</span>
+                            <small>since {fullDate(emp.startDate)}</small>
+                          </td>
+                          <td className="ee-att">
+                            {s ? (
+                              <div className="ee-att-cell">
+                                <span className="ee-att-bar" aria-hidden="true">
+                                  <i style={{ width: `${Math.round((rate ?? 0) * 100)}%`, background: rate == null ? '#cbd5e1' : rate >= 0.95 ? '#16a34a' : rate >= 0.85 ? '#f59e0b' : '#dc2626' }} />
+                                </span>
+                                <span className="ee-att-text">
+                                  <b>{rate == null ? '—' : `${Math.round(rate * 100)}%`}</b>
+                                  <small>{fmtDays(s.workedDays)} worked{s.absent ? ` · ${s.absent} absent` : ''}</small>
+                                </span>
+                              </div>
+                            ) : <span className="ee-muted">No entries</span>}
                           </td>
                           {!readOnly && (
-                          <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <button onClick={() => { setEditing(emp); setError(null) }} style={actionBtn(colors.info, colors.infoLight)}>Edit</button>
-                            <button onClick={() => setToReactivate(emp)} style={{ ...actionBtn(colors.success, '#ecfdf5'), marginLeft: 8 }}>Reactivate</button>
-                            <button onClick={() => setToDelete(emp)} style={{ ...actionBtn(colors.danger, colors.dangerLight), marginLeft: 8 }}>Delete</button>
-                          </td>
+                            <td className="act">
+                              <div className="ee-actions">
+                                <button type="button" className="es-btn ee-act" onClick={() => { setEditing(emp); setError(null) }}>Edit</button>
+                                {emp.isActive
+                                  ? <button type="button" className="es-btn ee-act ee-act--warn" onClick={() => { setToDeactivate(emp); setError(null) }}>Set inactive</button>
+                                  : <button type="button" className="es-btn ee-act ee-act--ok" onClick={() => setToReactivate(emp)}>Reactivate</button>}
+                                <button type="button" className="es-icon-btn ee-act--del" onClick={() => setToDelete(emp)} aria-label={`Delete ${emp.firstName} ${emp.lastName}`} title="Delete permanently">
+                                  <TrashIcon />
+                                </button>
+                              </div>
+                            </td>
                           )}
                         </tr>
                       )
                     })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </>
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {profileId && (
+        <EmployeeProfile
+          employeeId={profileId}
+          usernameById={usernameById}
+          readOnly={readOnly}
+          onEdit={(emp) => { setEditing(emp); setError(null) }}
+          onClose={() => setProfileId(null)}
+        />
       )}
 
       {/* ── Edit modal ── */}
@@ -342,7 +414,7 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
         <ConfirmModal
           title="Delete employee?"
           message={`Delete ${toDelete.empNo} ${toDelete.firstName} ${toDelete.lastName}?`}
-          detail="This permanently removes the employee and all of their schedule entries."
+          detail="This permanently removes the employee and all of their schedule entries. To keep their history, use “Set inactive” instead."
           confirmLabel="Delete"
           tone="danger"
           busy={deleteMut.isPending}
@@ -354,6 +426,17 @@ export default function EmployeesTab({ readOnly = false }: { readOnly?: boolean 
   )
 }
 
+function fmtDays(n: number): string {
+  return `${Number.isInteger(n) ? n : n.toFixed(1)} day${n === 1 ? '' : 's'}`
+}
+
+const SearchIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+)
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+)
+
 // ─── small bits ──────────────────────────────────────────────────────────────
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return <div style={full ? { gridColumn: '1 / -1' } : undefined}><label style={labelStyle}>{label}</label>{children}</div>
@@ -363,15 +446,6 @@ function avatarStyle(ds: typeof DEPT_STYLE[keyof typeof DEPT_STYLE]): React.CSSP
     width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: ds.soft, color: ds.bandText,
     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700,
   }
-}
-function thStyle(align: 'left' | 'right'): React.CSSProperties {
-  return {
-    padding: '10px 16px', textAlign: align, fontSize: '11px', fontWeight: 700, color: colors.textSecondary,
-    textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
-  }
-}
-function actionBtn(color: string, bg: string): React.CSSProperties {
-  return { padding: '5px 12px', fontSize: '12px', fontWeight: 600, borderRadius: radius.sm, border: `1.5px solid ${color}33`, background: bg, color, cursor: 'pointer' }
 }
 
 // ─── Set-inactive modal (leave date) ─────────────────────────────────────────

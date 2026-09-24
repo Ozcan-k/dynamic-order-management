@@ -7,6 +7,7 @@ import {
   PERF_MAX_RANGE_DAYS,
   LIVE_IDLE_MINUTES,
   LIVE_DEFAULT_SHIFT_HOURS,
+  cellDayFactor,
   type LiveBoard,
   type LiveRoleBoard,
   type LiveRoleSnapshot,
@@ -159,9 +160,11 @@ async function loadHourly(role: PerfRole, userId: string, from: string, to: stri
   return hourly
 }
 
-/** employeeId → (date → attendance status). */
-async function loadSchedule(tenantId: string, employeeIds: string[], from: string, to: string): Promise<Map<string, Map<string, AttendanceStatus>>> {
-  const result = new Map<string, Map<string, AttendanceStatus>>()
+interface SchedDay { status: AttendanceStatus; workedHours: number | null }
+
+/** employeeId → (date → attendance status + Partial Day hours). */
+async function loadSchedule(tenantId: string, employeeIds: string[], from: string, to: string): Promise<Map<string, Map<string, SchedDay>>> {
+  const result = new Map<string, Map<string, SchedDay>>()
   if (employeeIds.length === 0) return result
   const entries = await prisma.empSchedule.findMany({
     where: {
@@ -169,11 +172,11 @@ async function loadSchedule(tenantId: string, employeeIds: string[], from: strin
       employeeId: { in: employeeIds },
       date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) },
     },
-    select: { employeeId: true, date: true, status: true },
+    select: { employeeId: true, date: true, status: true, workedHours: true },
   })
   for (const e of entries) {
     if (!result.has(e.employeeId)) result.set(e.employeeId, new Map())
-    result.get(e.employeeId)!.set(e.date.toISOString().slice(0, 10), e.status as AttendanceStatus)
+    result.get(e.employeeId)!.set(e.date.toISOString().slice(0, 10), { status: e.status as AttendanceStatus, workedHours: e.workedHours })
   }
   return result
 }
@@ -187,11 +190,13 @@ function statusOf(activeDays: number, achievement: number): PerfStatus {
   return 'BELOW_TARGET'
 }
 
-function buildDay(date: string, output: number, attendance: AttendanceStatus | null, linked: boolean, dailyTarget: number, today: string): PerfDay {
+function buildDay(date: string, output: number, attendance: AttendanceStatus | null, linked: boolean, dailyTarget: number, today: string, workedHours: number | null = null): PerfDay {
   let factor = 0
   let flag: PerfDay['flag'] = null
   if (attendance === AttendanceStatus.PRESENT) factor = 1
   else if (attendance === AttendanceStatus.HALF_DAY) factor = 0.5
+  // v2.93.0: target scales with the hours actually scheduled (3 h → 3/8 of the day)
+  else if (attendance === AttendanceStatus.PARTIAL_DAY) factor = cellDayFactor(attendance, workedHours)
   else if (attendance) {
     // Scheduled off / leave / absent: excluded — unless they actually produced output.
     if (output > 0) { factor = 1; flag = 'WORKED_ON_LEAVE' }
@@ -298,7 +303,7 @@ export async function getTeamPerformance(tenantId: string, role: PerfRole, fromI
     const userCounts = counts.get(w.userId)
     const empSchedule = w.employee ? schedule.get(w.employee.id) : undefined
     const days = dates.map((date) =>
-      buildDay(date, userCounts?.get(date) ?? 0, empSchedule?.get(date) ?? null, !!w.employee, dailyTarget, today))
+      buildDay(date, userCounts?.get(date) ?? 0, empSchedule?.get(date)?.status ?? null, !!w.employee, dailyTarget, today, empSchedule?.get(date)?.workedHours ?? null))
     return buildRow(w, days)
   }))
 
@@ -479,7 +484,7 @@ function buildLiveWorker(
   w: WorkerSource,
   raw: LiveRaw | undefined,
   open: { queued: number; inHand: number } | undefined,
-  sched: { status: AttendanceStatus; otHours: number } | undefined,
+  sched: { status: AttendanceStatus; otHours: number; workedHours: number | null } | undefined,
   dailyTarget: number,
   isLive: boolean,
   now: Date,
@@ -499,6 +504,9 @@ function buildLiveWorker(
   } else if (attendance === AttendanceStatus.HALF_DAY) {
     factor = 0.5
     shiftHours = LIVE_DEFAULT_SHIFT_HOURS / 2
+  } else if (attendance === AttendanceStatus.PARTIAL_DAY) {
+    factor = cellDayFactor(attendance, sched?.workedHours)
+    shiftHours = sched?.workedHours ?? 0
   } else if (attendance) {
     factor = completed > 0 ? 1 : 0 // worked on a scheduled off day
   } else {
@@ -631,11 +639,11 @@ async function loadLiveRoles(tenantId: string, dateInput: string | undefined, ro
     employeeIds.length
       ? prisma.empSchedule.findMany({
           where: { tenantId, employeeId: { in: employeeIds }, date: new Date(`${date}T00:00:00.000Z`) },
-          select: { employeeId: true, status: true, otHours: true },
+          select: { employeeId: true, status: true, otHours: true, workedHours: true },
         })
       : Promise.resolve([]),
   ])
-  const sched = new Map(schedRows.map((s) => [s.employeeId, { status: s.status as AttendanceStatus, otHours: s.otHours }]))
+  const sched = new Map(schedRows.map((s) => [s.employeeId, { status: s.status as AttendanceStatus, otHours: s.otHours, workedHours: s.workedHours }]))
 
   const board = (role: PerfRole, list: WorkerSource[], raw: Map<string, LiveRaw>, open: Map<string, { queued: number; inHand: number }>): LiveRoleBoard => {
     const dailyTarget = PERF_DAILY_TARGET[role]

@@ -15,7 +15,7 @@ const border = '#e2e8f0'
 // column layout (x offsets within the content area), landscape A4
 const COLS = [
   { key: 'id', label: 'ID', w: 38, align: 'left' as const },
-  { key: 'name', label: 'Name', w: 150, align: 'left' as const },
+  { key: 'name', label: 'Name', w: 136, align: 'left' as const },
   { key: 'present', label: 'Present', w: 50, align: 'right' as const },
   { key: 'halfDay', label: 'Half Day', w: 52, align: 'right' as const },
   { key: 'absent', label: 'Absent', w: 48, align: 'right' as const },
@@ -23,10 +23,13 @@ const COLS = [
   { key: 'vacation', label: 'Vacation', w: 55, align: 'right' as const },
   { key: 'sick', label: 'Sick', w: 42, align: 'right' as const },
   { key: 'maternity', label: 'Maternity', w: 60, align: 'right' as const },
+  { key: 'partialHours', label: 'Partial (h)', w: 52, align: 'right' as const }, // v2.93.0
   { key: 'otHours', label: 'OT (h)', w: 46, align: 'right' as const },
   { key: 'workedDays', label: 'Worked Days', w: 74, align: 'right' as const },
   { key: 'totalHours', label: 'Total Hrs', w: 58, align: 'right' as const },
 ]
+
+const COL = (key: string) => COLS.findIndex((c) => c.key === key)
 
 function fmtNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
@@ -47,7 +50,7 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
       // ── Header ──
       doc.fontSize(18).fillColor(navy).font('Helvetica-Bold').text('Employee Schedule Report', left, 40)
       doc.fontSize(11).fillColor(gray).font('Helvetica')
-        .text(`${report.period === 'month' ? 'Monthly' : 'Weekly'} · ${report.label}`, left, doc.y + 2)
+        .text(`${report.period === 'month' ? 'Monthly' : report.period === 'range' ? 'Custom range' : 'Weekly'} · ${report.label}`, left, doc.y + 2)
       doc.moveDown(0.5)
 
       // ── Summary line ──
@@ -95,6 +98,7 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
         `${r.employee.firstName} ${r.employee.lastName}`,
         fmtNum(r.present), fmtNum(r.halfDay), fmtNum(r.absent), fmtNum(r.dayOff),
         fmtNum(r.vacation), fmtNum(r.sick), fmtNum(r.maternity),
+        r.partialDay ? `${fmtNum(r.partialHours)} (${r.partialDay}d)` : '0',
         fmtNum(r.otHours), fmtNum(r.workedDays), fmtNum(r.totalHours),
       ]
 
@@ -109,11 +113,11 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
           .text(EMP_DEPARTMENT_LABEL[dept as EmpDepartment].toUpperCase(), xs[0] + 2, y, { width: contentW - 4, lineBreak: false })
         y += rowH
 
-        let dWorked = 0, dHours = 0, dOt = 0
+        let dWorked = 0, dHours = 0, dOt = 0, dPartial = 0
         deptRows.forEach((r, idx) => {
           ensureSpace(rowH)
           drawRow(rowFor(r), y, { band: idx % 2 === 1 ? '#f8fafc' : undefined })
-          dWorked += r.workedDays; dHours += r.totalHours; dOt += r.otHours
+          dWorked += r.workedDays; dHours += r.totalHours; dOt += r.otHours; dPartial += r.partialHours
           y += rowH
         })
 
@@ -121,9 +125,10 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
         ensureSpace(rowH)
         const sub: string[] = new Array(COLS.length).fill('')
         sub[1] = 'Subtotal'
-        sub[9] = fmtNum(dOt)
-        sub[10] = fmtNum(dWorked)
-        sub[11] = fmtNum(dHours)
+        sub[COL('partialHours')] = fmtNum(dPartial)
+        sub[COL('otHours')] = fmtNum(dOt)
+        sub[COL('workedDays')] = fmtNum(dWorked)
+        sub[COL('totalHours')] = fmtNum(dHours)
         drawRow(sub, y, { bold: true, band: '#eef2ff' })
         y += rowH + 4
       }
@@ -133,14 +138,15 @@ export function generateScheduleReportPdf(report: EmpReportResponse): Promise<Bu
       doc.moveTo(left, y - 3).lineTo(left + contentW, y - 3).strokeColor(navy).lineWidth(1.2).stroke()
       const gt: string[] = new Array(COLS.length).fill('')
       gt[1] = 'GRAND TOTAL'
-      gt[9] = fmtNum(report.totals.otHours)
-      gt[10] = fmtNum(report.totals.workedDays)
-      gt[11] = fmtNum(report.totals.totalHours)
+      gt[COL('partialHours')] = fmtNum(report.rows.reduce((s, r) => s + r.partialHours, 0))
+      gt[COL('otHours')] = fmtNum(report.totals.otHours)
+      gt[COL('workedDays')] = fmtNum(report.totals.workedDays)
+      gt[COL('totalHours')] = fmtNum(report.totals.totalHours)
       drawRow(gt, y + 2, { bold: true })
 
       // footer
       doc.fontSize(7).fillColor(gray).font('Helvetica')
-        .text('Worked Days = Present + 0.5 × Half Day   ·   Total Hours = 8 × Present + 4 × Half Day + OT',
+        .text('Worked Days = Present + 0.5 × Half Day + Partial hours ÷ 8   ·   Total Hours = 8 × Present + 4 × Half Day + Partial hours + OT',
           left, doc.page.height - doc.page.margins.bottom - 10, { width: contentW, align: 'center' })
 
       doc.end()

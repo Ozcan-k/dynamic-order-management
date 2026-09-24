@@ -14,6 +14,7 @@ const ATTENDANCE_BADGE: Partial<Record<AttendanceStatus, string>> = {
   [AttendanceStatus.VACATION_LEAVE]: 'Vacation leave',
   [AttendanceStatus.SICK_LEAVE]: 'Sick leave',
   [AttendanceStatus.MATERNITY_LEAVE]: 'Maternity leave',
+  [AttendanceStatus.PARTIAL_DAY]: 'Partial day',
 }
 
 function initials(name: string): string {

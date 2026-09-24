@@ -996,6 +996,7 @@ enum AttendanceStatus {
   SICK_LEAVE
   HALF_DAY
   MATERNITY_LEAVE
+  PARTIAL_DAY // v2.93.0 — worked only some hours; hours in emp_schedules.worked_hours
 }
 
 model EmpEmployee {
@@ -1044,6 +1045,9 @@ model EmpSchedule {
   date       DateTime         @db.Date // Manila calendar day
   status     AttendanceStatus
   otHours    Float            @default(0) @map("ot_hours") // 0–5 (decimals allowed, e.g. 1.5), only meaningful for PRESENT
+  // v2.93.0 — hours worked on a PARTIAL_DAY (0.5–7.5). NULL for every other status and
+  // for every row saved before v2.93.0, so their hours are computed exactly as before.
+  workedHours Float?          @map("worked_hours")
   createdAt  DateTime         @default(now()) @map("created_at")
   updatedAt  DateTime         @updatedAt @map("updated_at")
 

@@ -143,7 +143,13 @@ export default function PerformanceCompare({ role, live, today }: Props) {
   }, [preset, live, data, metric, text.many])
 
   const loading = preset === 'today' ? !live : report.isLoading || (!data && report.isFetching)
-  const reportHref = `/reports?tab=performance&role=${role}&from=${range.from}&to=${range.to}`
+  // Today → the live board; Yesterday → the live board replaying that day; longer ranges →
+  // the Performance tab (the live board shows one day at a time). Role is carried over.
+  const reportHref = preset === 'today'
+    ? `/reports?tab=live&role=${role}`
+    : preset === 'yesterday'
+      ? `/reports?tab=live&role=${role}&date=${range.from}`
+      : `/reports?tab=performance&role=${role}&from=${range.from}&to=${range.to}`
   const rangeText = preset === 'today' ? `Today · live` : preset === 'yesterday' ? `Yesterday · ${longDate(range.to)}` : rangeLabel(range.from, range.to)
   const note = preset === 'last7' ? 'Complete days only — ends yesterday.' : preset === 'thisMonth' && range.to === today ? 'Today is shown in the Warehouse Report but excluded from totals.' : null
 

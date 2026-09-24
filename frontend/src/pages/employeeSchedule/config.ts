@@ -11,6 +11,7 @@ export const STATUS_STYLE: Record<AttendanceStatus, StatusStyle> = {
   [AttendanceStatus.VACATION_LEAVE]:  { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', dot: '#3b82f6' },
   [AttendanceStatus.SICK_LEAVE]:      { bg: '#fffbeb', text: '#b45309', border: '#fde68a', dot: '#f59e0b' },
   [AttendanceStatus.MATERNITY_LEAVE]: { bg: '#fdf4ff', text: '#a21caf', border: '#f5d0fe', dot: '#d946ef' },
+  [AttendanceStatus.PARTIAL_DAY]:     { bg: '#f7fee7', text: '#4d7c0f', border: '#d9f99d', dot: '#84cc16' },
 }
 
 /** The blank "—" (unscheduled) cell style. */

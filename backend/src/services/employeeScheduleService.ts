@@ -2,19 +2,30 @@ import {
   UserRole,
   EmpDepartment,
   AttendanceStatus,
-  ATTENDANCE_BASE_HOURS,
   EMP_DEPARTMENT_ORDER,
+  FULL_DAY_HOURS,
+  MAX_OT_HOURS,
+  cellWorkedHours,
+  isValidPartialHours,
   type EmpEmployeeDTO,
   type EmpWeekResponse,
   type EmpWeekRow,
   type EmpScheduleCell,
   type EmpReportResponse,
   type EmpReportRow,
+  type EmpAttendanceSummary,
+  type EmpHistoryResponse,
+  type EmpAnalyticsResponse,
+  type EmpAnalyticsTotals,
+  type EmpAnalyticsDay,
+  type EmpAnalyticsDept,
 } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 
 // ─── errors ─────────────────────────────────────────────────────────────────
 export class EmployeeNotFoundError extends Error {}
+/** Invalid schedule cell (e.g. Partial Day without valid hours) — v2.93.0. */
+export class ScheduleCellError extends Error {}
 /** Invalid or conflicting system-user link (v2.84.0). */
 export class EmployeeLinkError extends Error {
   constructor(message: string, public readonly statusCode: 400 | 409) { super(message) }
@@ -243,10 +254,8 @@ export async function deleteEmployee(tenantId: string, id: string): Promise<bool
 }
 
 // ─── schedule (weekly grid) ──────────────────────────────────────────────────
-function cellHours(status: AttendanceStatus, otHours: number): number {
-  const base = ATTENDANCE_BASE_HOURS[status] ?? 0
-  const ot = status === AttendanceStatus.PRESENT ? otHours : 0
-  return base + ot
+function cellHours(status: AttendanceStatus, otHours: number, workedHours: number | null): number {
+  return cellWorkedHours(status, otHours, workedHours)
 }
 
 export async function getWeek(tenantId: string, weekStartInput?: string): Promise<EmpWeekResponse> {
@@ -266,14 +275,14 @@ export async function getWeek(tenantId: string, weekStartInput?: string): Promis
   const byEmp = new Map<string, Record<string, EmpScheduleCell>>()
   for (const e of entries) {
     const dateStr = fmt(e.date)
-    const cell: EmpScheduleCell = { date: dateStr, status: e.status as AttendanceStatus, otHours: e.otHours }
+    const cell: EmpScheduleCell = { date: dateStr, status: e.status as AttendanceStatus, otHours: e.otHours, workedHours: e.workedHours }
     if (!byEmp.has(e.employeeId)) byEmp.set(e.employeeId, {})
     byEmp.get(e.employeeId)![dateStr] = cell
   }
 
   const rows: EmpWeekRow[] = employees.map((emp) => {
     const cells = byEmp.get(emp.id) ?? {}
-    const weekHours = Object.values(cells).reduce((sum, c) => sum + cellHours(c.status, c.otHours), 0)
+    const weekHours = Object.values(cells).reduce((sum, c) => sum + cellHours(c.status, c.otHours, c.workedHours), 0)
     return { employee: emp, cells, weekHours }
   })
 
@@ -282,7 +291,7 @@ export async function getWeek(tenantId: string, weekStartInput?: string): Promis
 
 /** Upsert one cell. status === null clears (deletes) the cell. */
 export async function setCell(tenantId: string, input: {
-  employeeId: string; date: string; status: AttendanceStatus | null; otHours: number
+  employeeId: string; date: string; status: AttendanceStatus | null; otHours: number; workedHours?: number | null
 }): Promise<EmpScheduleCell | null> {
   const employee = await prisma.empEmployee.findFirst({ where: { id: input.employeeId, tenantId } })
   if (!employee) throw new EmployeeNotFoundError()
@@ -295,14 +304,277 @@ export async function setCell(tenantId: string, input: {
     return null
   }
 
-  const otHours = input.status === AttendanceStatus.PRESENT ? Math.max(0, Math.min(5, input.otHours || 0)) : 0
+  const otHours = input.status === AttendanceStatus.PRESENT ? Math.max(0, Math.min(MAX_OT_HOURS, input.otHours || 0)) : 0
+  // Partial Day must carry its hours; every other status stores NULL (hours come from the status)
+  let workedHours: number | null = null
+  if (input.status === AttendanceStatus.PARTIAL_DAY) {
+    if (!isValidPartialHours(input.workedHours)) {
+      throw new ScheduleCellError('Partial Day needs the hours worked: 0.5 to 7.5, in half-hour steps')
+    }
+    workedHours = input.workedHours
+  }
 
   const saved = await prisma.empSchedule.upsert({
     where: { tenantId_employeeId_date: { tenantId, employeeId: input.employeeId, date } },
-    create: { tenantId, employeeId: input.employeeId, date, status: input.status, otHours },
-    update: { status: input.status, otHours },
+    create: { tenantId, employeeId: input.employeeId, date, status: input.status, otHours, workedHours },
+    update: { status: input.status, otHours, workedHours },
   })
-  return { date: fmt(saved.date), status: saved.status as AttendanceStatus, otHours: saved.otHours }
+  return { date: fmt(saved.date), status: saved.status as AttendanceStatus, otHours: saved.otHours, workedHours: saved.workedHours }
+}
+
+// ─── bulk fill (v2.93.0) — only ever fills EMPTY cells ───────────────────────
+export interface BulkCellInput {
+  employeeId: string
+  date: string
+  status: AttendanceStatus
+  otHours?: number
+  workedHours?: number | null
+}
+
+export interface BulkFillResult {
+  /** Cells actually written (were empty). Returned so the UI can offer an exact Undo. */
+  created: EmpScheduleCellWithEmployee[]
+  /** Cells left alone because they already had an entry (or the employee is inactive). */
+  skipped: number
+}
+
+export interface EmpScheduleCellWithEmployee extends EmpScheduleCell {
+  employeeId: string
+}
+
+/**
+ * Writes the given cells **only where no entry exists yet**. Existing entries are never
+ * touched: rows are inserted with `skipDuplicates` on the (tenant, employee, date) unique
+ * key, so even a concurrent edit cannot be overwritten. Inactive / foreign employees are
+ * skipped. Partial Day cells must carry valid hours.
+ */
+export async function fillEmptyCells(tenantId: string, cells: BulkCellInput[]): Promise<BulkFillResult> {
+  if (cells.length === 0) return { created: [], skipped: 0 }
+  const employeeIds = [...new Set(cells.map((c) => c.employeeId))]
+  const active = new Set((await prisma.empEmployee.findMany({
+    where: { tenantId, id: { in: employeeIds }, isActive: true },
+    select: { id: true },
+  })).map((e) => e.id))
+
+  const rows = []
+  for (const c of cells) {
+    if (!active.has(c.employeeId)) continue
+    let workedHours: number | null = null
+    if (c.status === AttendanceStatus.PARTIAL_DAY) {
+      if (!isValidPartialHours(c.workedHours)) throw new ScheduleCellError('Partial Day needs the hours worked: 0.5 to 7.5, in half-hour steps')
+      workedHours = c.workedHours
+    }
+    const otHours = c.status === AttendanceStatus.PRESENT ? Math.max(0, Math.min(MAX_OT_HOURS, c.otHours || 0)) : 0
+    rows.push({ tenantId, employeeId: c.employeeId, date: dateOnly(c.date), status: c.status, otHours, workedHours })
+  }
+
+  // which of them are empty right now (for the exact created list)
+  const existing = await prisma.empSchedule.findMany({
+    where: { tenantId, OR: rows.map((r) => ({ employeeId: r.employeeId, date: r.date })) },
+    select: { employeeId: true, date: true },
+  })
+  const taken = new Set(existing.map((e) => `${e.employeeId}|${fmt(e.date)}`))
+  const toCreate = rows.filter((r) => !taken.has(`${r.employeeId}|${fmt(r.date)}`))
+  if (toCreate.length > 0) {
+    await prisma.empSchedule.createMany({ data: toCreate, skipDuplicates: true })
+  }
+  return {
+    created: toCreate.map((r) => ({ employeeId: r.employeeId, date: fmt(r.date), status: r.status, otHours: r.otHours, workedHours: r.workedHours })),
+    skipped: cells.length - toCreate.length,
+  }
+}
+
+/** Copy the previous week's entries into this week's EMPTY cells (active employees only). */
+export async function copyPreviousWeek(tenantId: string, weekStartInput: string): Promise<BulkFillResult> {
+  const weekStart = sundayOf(weekStartInput)
+  const prevStart = addDays(weekStart, -7)
+  const prev = await prisma.empSchedule.findMany({
+    where: {
+      tenantId,
+      date: { gte: dateOnly(prevStart), lte: dateOnly(addDays(prevStart, 6)) },
+      employee: { isActive: true },
+    },
+  })
+  return fillEmptyCells(tenantId, prev.map((e) => ({
+    employeeId: e.employeeId,
+    date: addDays(fmt(e.date), 7),
+    status: e.status as AttendanceStatus,
+    otHours: e.otHours,
+    workedHours: e.workedHours,
+  })))
+}
+
+/**
+ * Undo of a bulk fill: deletes exactly the listed cells, and only while each one still
+ * holds the status it was created with (a cell edited since then is kept).
+ */
+export async function undoBulkFill(tenantId: string, cells: { employeeId: string; date: string; status: AttendanceStatus }[]): Promise<number> {
+  if (cells.length === 0) return 0
+  const res = await prisma.empSchedule.deleteMany({
+    where: { tenantId, OR: cells.map((c) => ({ employeeId: c.employeeId, date: dateOnly(c.date), status: c.status })) },
+  })
+  return res.count
+}
+
+// ─── attendance summaries (v2.93.0 — Employees tab + profile; read-only) ─────
+type SummaryEntry = { date: Date; status: string; otHours: number; workedHours: number | null }
+
+function summarize(entries: SummaryEntry[]): EmpAttendanceSummary {
+  const s: EmpAttendanceSummary = {
+    scheduledDays: entries.length, workedDays: 0, hours: 0, otHours: 0,
+    present: 0, halfDay: 0, partialDay: 0, absent: 0, dayOff: 0, leave: 0,
+    attendanceRate: null, lastEntry: null,
+  }
+  let partialHours = 0
+  for (const e of entries) {
+    const st = e.status as AttendanceStatus
+    if (st === AttendanceStatus.PRESENT) { s.present++; s.otHours += e.otHours }
+    else if (st === AttendanceStatus.HALF_DAY) s.halfDay++
+    else if (st === AttendanceStatus.PARTIAL_DAY) { s.partialDay++; partialHours += e.workedHours ?? 0 }
+    else if (st === AttendanceStatus.ABSENT) s.absent++
+    else if (st === AttendanceStatus.DAY_OFF) s.dayOff++
+    else s.leave++
+    s.hours += cellWorkedHours(st, e.otHours, e.workedHours)
+    const d = fmt(e.date)
+    if (!s.lastEntry || d > s.lastEntry) s.lastEntry = d
+  }
+  // same formulas as the report (Worked Days / Total Hours)
+  s.workedDays = s.present + 0.5 * s.halfDay + partialHours / FULL_DAY_HOURS
+  const expected = s.present + s.halfDay + s.partialDay + s.absent
+  s.attendanceRate = expected > 0 ? (s.present + s.halfDay + s.partialDay) / expected : null
+  return s
+}
+
+/** The last `days` Manila days ending today (inclusive). */
+function windowOf(days: number): { from: string; to: string } {
+  const to = fmt(new Date(Date.now() + 8 * 3600_000))
+  return { from: addDays(to, -(days - 1)), to }
+}
+
+/** Per-employee attendance summary for the last `days` days (Employees list). */
+export async function getAttendanceSummaries(tenantId: string, days: number): Promise<{ from: string; to: string; byEmployee: Record<string, EmpAttendanceSummary> }> {
+  const { from, to } = windowOf(days)
+  const entries = await prisma.empSchedule.findMany({
+    where: { tenantId, date: { gte: dateOnly(from), lte: dateOnly(to) } },
+    select: { employeeId: true, date: true, status: true, otHours: true, workedHours: true },
+  })
+  const grouped = new Map<string, SummaryEntry[]>()
+  for (const e of entries) {
+    if (!grouped.has(e.employeeId)) grouped.set(e.employeeId, [])
+    grouped.get(e.employeeId)!.push(e)
+  }
+  const byEmployee: Record<string, EmpAttendanceSummary> = {}
+  for (const [id, list] of grouped) byEmployee[id] = summarize(list)
+  return { from, to, byEmployee }
+}
+
+/** One employee's cells + summary for the last `days` days (profile panel). */
+export async function getEmployeeHistory(tenantId: string, employeeId: string, days: number): Promise<EmpHistoryResponse> {
+  const row = await prisma.empEmployee.findFirst({ where: { id: employeeId, tenantId }, include: WITH_USERS })
+  if (!row) throw new EmployeeNotFoundError()
+  const { from, to } = windowOf(days)
+  const entries = await prisma.empSchedule.findMany({
+    where: { tenantId, employeeId, date: { gte: dateOnly(from), lte: dateOnly(to) } },
+    orderBy: { date: 'asc' },
+    select: { date: true, status: true, otHours: true, workedHours: true },
+  })
+  return {
+    employee: serEmployee(row),
+    from,
+    to,
+    days: dayRange(from, days),
+    cells: entries.map((e) => ({ date: fmt(e.date), status: e.status as AttendanceStatus, otHours: e.otHours, workedHours: e.workedHours })),
+    summary: summarize(entries),
+  }
+}
+
+// ─── report analytics (v2.93.0, read-only) ───────────────────────────────────
+export class RangeError400 extends Error {}
+export const MAX_ANALYTICS_DAYS = 186
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((dateOnly(to).getTime() - dateOnly(from).getTime()) / 86_400_000) + 1
+}
+
+export async function getReportAnalytics(tenantId: string, from: string, to: string, department?: EmpDepartment): Promise<EmpAnalyticsResponse> {
+  if (from > to) throw new RangeError400('"from" must be on or before "to"')
+  const n = daysBetween(from, to)
+  if (n > MAX_ANALYTICS_DAYS) throw new RangeError400(`Pick at most ${MAX_ANALYTICS_DAYS} days`)
+  const prevTo = addDays(from, -1)
+  const prevFrom = addDays(prevTo, -(n - 1))
+  const days = dayRange(from, n)
+  const today = fmt(new Date(Date.now() + 8 * 3600_000))
+
+  const [empRows, entries] = await Promise.all([
+    prisma.empEmployee.findMany({ where: { tenantId, ...(department ? { department } : {}) }, include: WITH_USERS }),
+    prisma.empSchedule.findMany({
+      where: { tenantId, date: { gte: dateOnly(prevFrom), lte: dateOnly(to) }, ...(department ? { employee: { department } } : {}) },
+      select: { employeeId: true, date: true, status: true, otHours: true, workedHours: true },
+    }),
+  ])
+  const employees = sortEmployees(empRows.map(serEmployee))
+  const cur = entries.filter((e) => fmt(e.date) >= from)
+  const prev = entries.filter((e) => fmt(e.date) < from)
+
+  const byEmp = new Map<string, typeof cur>()
+  for (const e of cur) {
+    if (!byEmp.has(e.employeeId)) byEmp.set(e.employeeId, [])
+    byEmp.get(e.employeeId)!.push(e)
+  }
+  const rows = employees
+    .filter((emp) => emp.isActive || byEmp.has(emp.id))
+    .map((emp) => ({ employee: emp, summary: summarize(byEmp.get(emp.id) ?? []) }))
+
+  // missing = active employees' past days (from their start date) with no entry
+  let missing = 0
+  for (const emp of employees) {
+    if (!emp.isActive) continue
+    const have = new Set((byEmp.get(emp.id) ?? []).map((e) => fmt(e.date)))
+    for (const d of days) if (d <= today && d >= emp.startDate && !have.has(d)) missing++
+  }
+  const totalsOf = (list: typeof cur, extraMissing: number): EmpAnalyticsTotals => ({
+    ...summarize(list),
+    employees: new Set(list.map((e) => e.employeeId)).size,
+    missing: extraMissing,
+  })
+
+  const dayIdx = new Map(days.map((d, i) => [d, i]))
+  const daily: EmpAnalyticsDay[] = days.map((d) => ({ date: d, present: 0, halfDay: 0, partialDay: 0, absent: 0, dayOff: 0, leave: 0, hours: 0 }))
+  for (const e of cur) {
+    const day = daily[dayIdx.get(fmt(e.date))!]
+    const st = e.status as AttendanceStatus
+    if (st === AttendanceStatus.PRESENT) day.present++
+    else if (st === AttendanceStatus.HALF_DAY) day.halfDay++
+    else if (st === AttendanceStatus.PARTIAL_DAY) day.partialDay++
+    else if (st === AttendanceStatus.ABSENT) day.absent++
+    else if (st === AttendanceStatus.DAY_OFF) day.dayOff++
+    else day.leave++
+    day.hours += cellWorkedHours(st, e.otHours, e.workedHours)
+  }
+
+  const deptOf = new Map(employees.map((e) => [e.id, e.department]))
+  const byDept: EmpAnalyticsDept[] = EMP_DEPARTMENT_ORDER.map((dept) => {
+    const list = cur.filter((e) => deptOf.get(e.employeeId) === dept)
+    const s = summarize(list)
+    return {
+      department: dept,
+      employees: new Set(list.map((e) => e.employeeId)).size,
+      hours: s.hours, otHours: s.otHours, workedDays: s.workedDays, absent: s.absent, attendanceRate: s.attendanceRate,
+    }
+  }).filter((d) => d.employees > 0)
+
+  let grid: EmpAnalyticsResponse['grid'] = null
+  if (n <= 62) {
+    grid = {}
+    for (const e of cur) (grid[e.employeeId] ??= {})[fmt(e.date)] = e.status as AttendanceStatus
+  }
+
+  return {
+    from, to, prevFrom, prevTo, days,
+    totals: totalsOf(cur, missing),
+    previous: totalsOf(prev, 0),
+    daily, byDept, rows, grid,
+  }
 }
 
 // ─── report (weekly / monthly aggregation) ───────────────────────────────────
@@ -310,8 +582,14 @@ function emptyAgg(employee: EmpEmployeeDTO): EmpReportRow {
   return {
     employee,
     present: 0, halfDay: 0, absent: 0, dayOff: 0, vacation: 0, sick: 0, maternity: 0,
+    partialDay: 0, partialHours: 0,
     otHours: 0, workedDays: 0, totalHours: 0,
   }
+}
+
+/** Report for a custom from/to range (v2.93.0) — same aggregation as the week / month report. */
+export async function getReportForRange(tenantId: string, from: string, to: string): Promise<EmpReportResponse> {
+  return buildReport(tenantId, 'range', from, to, `${shortDate(from)} – ${shortDate(to)}`)
 }
 
 export async function getReport(tenantId: string, period: 'week' | 'month', dateInput?: string): Promise<EmpReportResponse> {
@@ -332,7 +610,10 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
     to = addDays(from, 6)
     label = `${shortDate(from)} – ${shortDate(to)}`
   }
+  return buildReport(tenantId, period, from, to, label)
+}
 
+async function buildReport(tenantId: string, period: EmpReportResponse['period'], from: string, to: string, label: string): Promise<EmpReportResponse> {
   const employees = sortEmployees((await prisma.empEmployee.findMany({ where: { tenantId } })).map(serEmployee))
   const entries = await prisma.empSchedule.findMany({
     where: { tenantId, date: { gte: dateOnly(from), lte: dateOnly(to) } },
@@ -357,6 +638,7 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
       case AttendanceStatus.VACATION_LEAVE: agg.vacation++; break
       case AttendanceStatus.SICK_LEAVE: agg.sick++; break
       case AttendanceStatus.MATERNITY_LEAVE: agg.maternity++; break
+      case AttendanceStatus.PARTIAL_DAY: agg.partialDay++; agg.partialHours += e.workedHours ?? 0; break
     }
     if (status === AttendanceStatus.PRESENT) agg.otHours += e.otHours
   }
@@ -365,8 +647,10 @@ export async function getReport(tenantId: string, period: 'week' | 'month', date
     .filter((emp) => emp.isActive || withEntries.has(emp.id))
     .map((emp) => {
       const agg = aggByEmp.get(emp.id)!
-      agg.workedDays = agg.present + 0.5 * agg.halfDay
-      agg.totalHours = 8 * agg.present + 4 * agg.halfDay + agg.otHours
+      // Partial Day adds its own hours (and hours / 8 of a day); rows without Partial Day
+      // compute exactly as before v2.93.0.
+      agg.workedDays = agg.present + 0.5 * agg.halfDay + agg.partialHours / FULL_DAY_HOURS
+      agg.totalHours = 8 * agg.present + 4 * agg.halfDay + agg.partialHours + agg.otHours
       return agg
     })
 

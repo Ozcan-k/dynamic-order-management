@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { LIVE_IDLE_MINUTES, type LiveBoard, type LiveRoleBoard, type LiveState, type LiveWorker, type PerfRole } from '@dom/shared'
+import { AttendanceStatus, LIVE_IDLE_MINUTES, type LiveBoard, type LiveRoleBoard, type LiveState, type LiveWorker, type PerfRole } from '@dom/shared'
 import { getLiveBoard } from '../../api/performance'
 import { addDays } from '../../components/shared/DateNavigator'
 import { getManilaDateString } from '../../lib/manila'
@@ -33,6 +33,7 @@ import {
   initialsOf,
   longDate,
   relDelta,
+  scheduledHoursLabel,
 } from './perf/perfUi'
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -85,14 +86,20 @@ function hourWindow(hourly: number[], currentHour: number | null): number[] {
   return Array.from({ length: to - from + 1 }, (_, i) => from + i)
 }
 
-export default function LivePerformanceTab({ onOpenEmployee }: { onOpenEmployee?: (userId: string) => void }) {
+export default function LivePerformanceTab({ onOpenEmployee, initialRole, initialDate }: {
+  onOpenEmployee?: (userId: string) => void
+  /** Deep link (v2.93.0, from Picker / Packer Admin): open on this role … */
+  initialRole?: PerfRole
+  /** … and this past day ('' / undefined = today, live). */
+  initialDate?: string
+}) {
   const queryClient = useQueryClient()
   const todayStr = getManilaDateString()
   const yesterdayStr = addDays(todayStr, -1)
-  const [selectedDate, setSelectedDate] = useState<string>('') // '' = today (live)
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate ?? '') // '' = today (live)
   const [customMode, setCustomMode] = useState(false)
   const [socketConnected, setSocketConnected] = useState<boolean>(() => getSocket()?.connected ?? false)
-  const [role, setRole] = useState<PerfRole>('PICKER')
+  const [role, setRole] = useState<PerfRole>(initialRole ?? 'PICKER')
   const [filter, setFilter] = useState<Filter>('ALL')
   const [tick, setTick] = useState(0) // re-renders "x min ago" between polls
 
@@ -593,7 +600,9 @@ function LeaderRow({ w, rank, isLive, drift, maxHour, onOpen, role }: {
   // bar scale: 0…120% of target so the 100% tick sits at 5/6 of the track
   const scale = (v: number) => `${(Math.min(1.2, hasTarget ? v / w.target : 0) / 1.2) * 100}%`
   const detail = [
-    w.attendance ? `Schedule: ${ATTENDANCE_TEXT[w.attendance]}${w.factor === 0.5 ? ' (half target)' : ''}` : w.linked ? 'No schedule entry today' : 'Not linked to Employee Schedule',
+    w.attendance
+      ? `Schedule: ${ATTENDANCE_TEXT[w.attendance]}${w.factor === 0.5 ? ' (half target)' : w.attendance === AttendanceStatus.PARTIAL_DAY ? ` (${scheduledHoursLabel(w.factor)} · ${Math.round(w.factor * 100)}% target)` : ''}`
+      : w.linked ? 'No schedule entry today' : 'Not linked to Employee Schedule',
     w.firstAt ? `first ${clockOf(w.firstAt)} · last ${clockOf(w.lastAt)}` : null,
     isLive && w.completed > 0 ? `projection assumes a ${w.shiftHours}h shift from the first scan` : null,
   ].filter(Boolean).join(' · ')

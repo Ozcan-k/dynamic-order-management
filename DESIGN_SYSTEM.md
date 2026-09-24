@@ -133,7 +133,8 @@ A global `@media (prefers-reduced-motion: reduce)` rule in `index.css` neutralis
 | 9 | `workload.css` | Picker / Packer Admin live workload (`.wl-*` cards + pulse, `.wp-*` assignment dropdown, `.pc-*` performance compare) — added v2.90.0 |
 | 10 | `incident.css` | Incident Report (`.inc-*`: occurrence badge, disciplinary ladder, repeat offenders, form hint, profile drawer) — added v2.91.0 |
 | 11 | `settings.css` | Settings page (`.set-*`: tabs, KPI strip, role chips + cards, stores table, rename preview modal, change history, permission matrix pips) — added v2.92.0 |
-| 12 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
+| 12 | `employeeSchedule.css` | Employee Schedule (`.es-*` schedule grid, cell editor, bulk-fill toast; `.ee-*` employees list + profile drawer; `.er-*` report controls, attendance map, sortable table) — added v2.93.0 |
+| 13 | `utilities.css` | `.tabular-nums`, `.truncate`, `.sr-only` — always last |
 
 ### Carryover defer list (no version bump required)
 These all inherit Phase C primitive polish automatically through shared classes; per-file inline-style extractions can be done incrementally:

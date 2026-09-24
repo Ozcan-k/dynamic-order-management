@@ -54,6 +54,7 @@ import {
   shortDate,
   weekdayOf,
   type PerfRange,
+  scheduledHoursLabel,
 } from './perf/perfUi'
 
 interface Props {
@@ -561,6 +562,9 @@ function DailyLog({ report }: { report: PerfEmployeeReport }) {
                 <td className="l">
                   {d.attendance ? ATTENDANCE_TEXT[d.attendance] : <span className="perf-muted">—</span>}
                   {d.factor === 0.5 && <span className="perf-tag" style={{ marginLeft: 6 }}>½ target</span>}
+                  {d.attendance === AttendanceStatus.PARTIAL_DAY && d.factor > 0 && (
+                    <span className="perf-tag" style={{ marginLeft: 6 }}>{scheduledHoursLabel(d.factor)} · {Math.round(d.factor * 100)}% target</span>
+                  )}
                 </td>
                 <td className="perf-strong">{d.output > 0 ? fmtInt(d.output) : <span className="perf-muted">0</span>}</td>
                 <td className="perf-muted">{d.factor > 0 ? fmtInt(d.target) : '—'}</td>

@@ -24,6 +24,13 @@ function PageContent({ children }: { children: ReactNode }) {
 function AppLayoutInner({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const { isOpen, close } = useMobileSidebar()
+  const { pathname } = useLocation()
+
+  // v2.93.0: a new page opens at the top (in-app links used to keep the previous page's
+  // scroll position). Query-only changes such as ?tab= keep the position.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
 
   useEffect(() => {
     if (!user) return

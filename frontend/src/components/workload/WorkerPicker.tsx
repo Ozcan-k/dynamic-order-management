@@ -162,6 +162,7 @@ export default function WorkerPicker({ role, workers, views, value, onChange, in
                   <span className="wp-opt-sub">
                     {meta && <><i style={{ background: meta.color }} />{v?.state === 'IDLE' && v.live?.minutesSinceLast != null ? `Idle ${v.live.minutesSinceLast}m` : meta.label}</>}
                     {v?.live?.attendance === 'HALF_DAY' && <> · Half day</>}
+                    {v?.live?.attendance === 'PARTIAL_DAY' && <> · Partial day</>}
                     {clears && <> · {clears}</>}
                   </span>
                 </span>

@@ -9,6 +9,7 @@
 > - **v2.86.0** — Employee ID'ler **4 haneli, `#`'sız** (#101 → 1001; açılışta idempotent `migrateEmpNosToFourDigit`), Settings → Edit'e **Employee ID** alanı.
 > - **v2.87.0** — Employee ID bağlantısı **tüm rollere** açık (Admin, Accountant vb.).
 > - **v2.88.0** — **Bir çalışan birden fazla login'e** bağlanabilir (örn. picker + packer hesabı): bağlantı `User.employeeId`'de; eski `EmpEmployee.userId` deprecated. Edit modal'da *Linked system logins* (çoklu).
+> - **v2.93.0 (test'te, main onay bekliyor)** — **Partial Day** (saatlik giriş) + Schedule / Employees / Report yenileme + Warehouse Report link fix. Plan: §11.
 >
 > **Bağımsızlık:** Order pipeline'a / mevcut tablolara / mevcut raporlara **HİÇ dokunmaz**. Kendi `emp_*` tabloları, tenant-scoped, mevcut modellere FK yok. Accounting/Incident/Dispatch modüllerindeki bağımsız-modül deseninin aynısı.
 
@@ -269,3 +270,39 @@ Tüm UI metinleri **İngilizce** (proje kuralı).
 2. ✅ Employee delete = **hard delete (cascade)**.
 3. ✅ Hafta başlangıcı **Pazar** (Sunday→Saturday).
 4. ✅ Report **CSV + PDF export ilk sürümde** dahil.
+
+---
+
+## 11. v2.93.0 planı — Partial Day + 3 sekme yenileme (2026-09-24)
+
+> **Durum:** 🚧 DEVAM EDİYOR — **E1–E4 ✅** (2026-09-24) — hepsi lokal test edildi (servis + Playwright desktop/mobil), `v2.93.0-test` olarak test'e push; main kullanıcı onayı bekliyor. Kullanıcı önerilen tüm kararları onayladı (2026-09-24).
+> **Kesin kural (kullanıcı):** geçmiş veri **kesinlikle** kaybolmayacak — yalnız additive şema, mevcut satırlara backfill / yeniden hesap / üzerine yazma YOK.
+
+### 11.1 Bulgular (prod, salt-okunur sorgu, 2026-09-24)
+- `emp_schedules`: **3 299** satır (2026-06-01 → 2026-09-25, 57 çalışan) — PRESENT 2 171 · DAY_OFF 784 · **HALF_DAY 205** · ABSENT 92 · VACATION 22 · SICK 16 · MATERNITY 9. OT girilen 81 gün (0.5–4 h).
+- `emp_employees`: 40 aktif (Admin 10, Picker 12, Packer 12, Logistic 6) + 17 pasif; 45 login bağlı (`User.employeeId`).
+- **Sorun:** saat sabit — Present 8 h, Half Day 4 h. 3 saat çalışan Half Day girildiğinden rapora 4 h yazılıyor; Warehouse Report'ta hedef yarıya iniyor (210 → 105) → olması gerekenden yüksek.
+- Schedule: hücre başına 7 seçenekli `<select>` (40 × 7 = 280 dropdown), toplu işlem yok, kayıt hatası sessizce geri alınıyor. Employees: arama/filtre yok, çalışan geçmişi tek yerde yok. Report: yalnız tablo + 4 sayı; grafik, önceki dönem kıyası, çalışan detayı yok.
+
+### 11.2 Kararlar (kullanıcı onayı)
+1. **Yeni durum `PARTIAL_DAY` + saat kutusu** (0.5–7.5 h, 0.5 adım). Half Day 4 h, Present 8 h + OT **aynen** kalır.
+2. **Warehouse Report hedefi saatle orantılı:** Partial Day faktörü = saat / 8 (3 h → 210 × 3/8 ≈ 79); canlı panoda vardiya = girilen saat.
+3. **Eski 205 Half Day kaydına dokunulmaz** (4 h kalır); bilen kullanıcı tek tek düzenler.
+
+### 11.3 Aşamalar
+| # | İçerik |
+|---|---|
+| E1 ✅ | Şema: enum `AttendanceStatus` + `PARTIAL_DAY`, `emp_schedules.worked_hours Float?` (nullable, yalnız PARTIAL_DAY'de dolu). Backend doğrulama (PARTIAL_DAY → saat zorunlu 0.5–7.5), hafta / rapor / CSV / PDF hesapları, Warehouse Report faktörü + canlı vardiya. Schedule hücresine Partial seçeneği + saat kutusu. Eski dönem rapor toplamları eski/yeni motorla birebir karşılaştırılır. |
+| E2 ✅ | Schedule: hücreye tıkla → renkli seçim paneli (kısayol P/H/R/A/O…, Partial + OT saat kutusu aynı panelde); toplu: gün sütununu Present yap, geçen haftayı kopyala, satırı doldur — **yalnız boş hücreler**; gün altı sayaçlar + "X kişinin girişi yok"; arama + departman filtresi; kayıt durumu (Saving / Saved / hata). |
+| E3 ✅ | Employees: arama, departman + aktif/pasif filtresi, yenilenmiş liste (kıdem, bağlı login, iletişim); çalışan profili (sağ panel): son 30/90 gün devam, saat, OT, devamsızlık/izin, mini takvim. |
+| E4 ✅ | Report: Hafta / Ay / Özel aralık; Δ'lı KPI'lar (devam oranı, toplam saat, OT, devamsızlık, izin); günlük devam yığılmış grafiği, departman saat/OT, en çok devamsızlık / OT, çalışan × gün devam haritası; sıralanabilir tablo + devam % + satır → profil; CSV/PDF'e Partial sütunu (mevcut sütunlar korunur). dataviz + vivid-charts. |
+| + | **Ek fix (kullanıcı isteği):** Picker / Packer Admin → karşılaştırmalı performans → 'Open in Warehouse Report' Today'de Performance sekmesine gidiyordu → artık **Live Performance** (doğru rol seçili; Yesterday = o günün replay'i; 7 gün / ay = Performance). Uygulama geneli: sayfa değişince en üstten açılır (önceden eski scroll pozisyonu kalıyordu). |
+
+Hepsi bitince `v2.93.0-test`; main yalnız kullanıcı onayıyla.
+
+### 11.4 Veri güvenliği kontrol listesi
+- [x] Şema diff SQL'i yalnız `ALTER TYPE "AttendanceStatus" ADD VALUE 'PARTIAL_DAY'` + `ALTER TABLE "emp_schedules" ADD COLUMN "worked_hours" DOUBLE PRECISION` (nullable) — doğrulandı.
+- [x] Mevcut satırlar değişmiyor: prod'un 3 299 satırı (yalnız id/tarih/durum/OT, isim yok) izole lokal tenant'a yüklendi → yeni kod Haziran–Eylül 4 ay (190 çalışan satırı, tüm alanlar + toplamlar) ve 17 hafta (hücreler + haftalık saat) için prod'da deploy'dan önce alınan snapshot ile **birebir aynı**.
+- [x] Toplu işlemler dolu hücrenin üzerine asla yazmıyor: backend `fillEmptyCells` yalnız boş hücreleri yazar (`createMany skipDuplicates` + önceden boş kontrolü), Undo yalnız o işlemin yarattığı ve o zamandan beri değişmemiş hücreleri siler — servis testi + UI testi geçti.
+- [ ] Warehouse Report: Partial Day dışındaki günlerin hedefleri değişmiyor — kod yolu aynı; deploy sonrası prod snapshot'ı (3 306 gün-hedef kaydı, `es_before.json`) ile karşılaştırılacak. Partial 3 h → faktör 0.375, hedef 78.75 lokal doğrulandı.
+- [ ] Main merge öncesi manuel prod yedeği; deploy sonrası `emp_schedules` ≥ 3 299 ve eski ay toplamları aynı.

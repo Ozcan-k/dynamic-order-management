@@ -537,6 +537,16 @@ export default function Reports() {
     return t === 'performance' || t === 'employee' || t === 'live' || t === 'sla' || t === 'timeline' ? t : 'live'
   })
 
+  // Live tab deep link (v2.93.0): ?tab=live&role=PACKER&date=YYYY-MM-DD (date = a past day to replay)
+  const [liveRole] = useState<PerfRole | undefined>(() => {
+    const r = sp.get('role')
+    return r === 'PICKER' || r === 'PACKER' ? r : undefined
+  })
+  const [liveDate] = useState<string | undefined>(() => {
+    const d = sp.get('date')
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < getManilaDateString() ? d : undefined
+  })
+
   // Shared by the Performance + Employee Report tabs so switching keeps the period.
   const [today] = useState(() => getManilaDateString())
   const [perfRange, setPerfRange] = useState<PerfRange>(() => {
@@ -649,7 +659,7 @@ export default function Reports() {
       )}
 
       {/* Live Performance Tab */}
-      {activeTab === 'live' && <LivePerformanceTab onOpenEmployee={openEmployee} />}
+      {activeTab === 'live' && <LivePerformanceTab onOpenEmployee={openEmployee} initialRole={liveRole} initialDate={liveDate} />}
 
       {/* Order Timeline Tab */}
       {activeTab === 'timeline' && <OrderTimelineSection />}

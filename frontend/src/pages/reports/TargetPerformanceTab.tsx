@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { PERF_STATUS_LABEL, type PerfDay, type PerfRole, type PerfStatus, type PerfTeamReport, type PerfWorkerRow } from '@dom/shared'
+import { AttendanceStatus, PERF_STATUS_LABEL, type PerfDay, type PerfRole, type PerfStatus, type PerfTeamReport, type PerfWorkerRow } from '@dom/shared'
 import { getTargetPerformance } from '../../api/performance'
 import {
   ATTENDANCE_SHORT,
@@ -47,6 +47,7 @@ import {
   shortDate,
   weekdayOf,
   type PerfRange,
+  scheduledHoursLabel,
 } from './perf/perfUi'
 import { exportTargetXlsx } from './perf/exportTargetXlsx'
 
@@ -549,6 +550,9 @@ function MatrixCell({ name, d }: { name: string; d: PerfDay }) {
   return (
     <td className={cls} title={cellTitle(name, d)}>
       {d.factor === 0.5 && <span className="half" aria-label="half day">½</span>}
+      {d.attendance === AttendanceStatus.PARTIAL_DAY && d.factor > 0 && (
+        <span className="half" aria-label={`partial day, ${scheduledHoursLabel(d.factor)} scheduled`}>{scheduledHoursLabel(d.factor)}</span>
+      )}
       {d.flag && <span className="flag" aria-hidden="true" />}
       {content}
     </td>

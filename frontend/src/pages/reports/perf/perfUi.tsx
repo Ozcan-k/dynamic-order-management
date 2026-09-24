@@ -51,6 +51,7 @@ export const ATTENDANCE_SHORT: Record<AttendanceStatus, string> = {
   [AttendanceStatus.VACATION_LEAVE]: 'VL',
   [AttendanceStatus.SICK_LEAVE]: 'SL',
   [AttendanceStatus.MATERNITY_LEAVE]: 'ML',
+  [AttendanceStatus.PARTIAL_DAY]: 'PD',
 }
 
 export const ATTENDANCE_TEXT: Record<AttendanceStatus, string> = {
@@ -61,6 +62,13 @@ export const ATTENDANCE_TEXT: Record<AttendanceStatus, string> = {
   [AttendanceStatus.VACATION_LEAVE]: 'Vacation Leave',
   [AttendanceStatus.SICK_LEAVE]: 'Sick Leave',
   [AttendanceStatus.MATERNITY_LEAVE]: 'Maternity Leave',
+  [AttendanceStatus.PARTIAL_DAY]: 'Partial Day',
+}
+
+/** Scheduled hours behind a reduced-target day, e.g. factor 0.375 → "3h" (v2.93.0 Partial Day). */
+export function scheduledHoursLabel(factor: number): string {
+  const h = Math.round(factor * 8 * 10) / 10
+  return `${h}h`
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
