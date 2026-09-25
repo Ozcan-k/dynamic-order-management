@@ -1,5 +1,4 @@
-import { colors, radius, font } from '../theme'
-import SectionHeader from './shared/SectionHeader'
+import NumberTicker from './shared/NumberTicker'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,119 +41,99 @@ const SLA_BADGE: Record<SlaKey, string> = {
   d0: 'D0', d1: 'D1', d2: 'D2', d3: 'D3', d4: 'D4',
 }
 
+const SIZE = 168
+const STROKE = 18
+const R = (SIZE - STROKE) / 2
+const CIRC = 2 * Math.PI * R
+const GAP = 2 // px gap between segments
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function SlaSummaryCard({ slaSummary, loading = false }: SlaSummaryCardProps) {
   const slaTotal = SLA_KEYS.reduce((s, k) => s + slaSummary[k], 0)
   const escalatedToday = slaSummary.escalatedToday ?? 0
+  const onTimePct = slaTotal > 0 ? Math.round((slaSummary.d0 / slaTotal) * 100) : 0
+  const peak = Math.max(1, ...SLA_KEYS.map((k) => slaSummary[k]))
+
+  // Donut segments — each one starts where the previous ended.
+  const visible = SLA_KEYS.filter((k) => slaSummary[k] > 0)
+  let offset = 0
+  const segments = visible.map((key) => {
+    const len = (slaSummary[key] / slaTotal) * CIRC
+    const dash = Math.max(0, len - (visible.length > 1 ? GAP : 0))
+    const seg = { key, dash, offset }
+    offset += len
+    return seg
+  })
 
   return (
-    <div style={{
-      background: colors.surface,
-      border: `1px solid ${colors.border}`,
-      borderRadius: radius.xl,
-      padding: '20px 24px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-    }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-        <SectionHeader title="SLA Breakdown" count={slaTotal} />
+    <div className="db-card" style={{ height: '100%', boxSizing: 'border-box' }}>
+      <div className="db-card-head">
+        <div>
+          <h3 className="db-card-title">SLA Breakdown</h3>
+          <p className="db-card-sub">Open orders by delay level</p>
+        </div>
         {escalatedToday > 0 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            background: '#fff7ed',
-            border: '1px solid #fed7aa',
-            borderRadius: radius.full,
-            padding: '3px 10px',
-            fontSize: font.xs,
-            fontWeight: 600,
-            color: '#c2410c',
-          }}>
-            <span style={{ fontSize: '10px' }}>▲</span>
+          <span className="db-pill db-pill--warn">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
             {loading ? '—' : escalatedToday} escalated today
-          </div>
+          </span>
         )}
       </div>
 
-      {/* Segmented bar */}
-      <div style={{ marginBottom: '18px' }}>
-        <div style={{
-          display: 'flex', height: '18px',
-          borderRadius: radius.full, overflow: 'hidden',
-          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)',
-          background: colors.border,
-        }}>
-          {slaTotal > 0
-            ? SLA_KEYS.map((key) => {
-                const pct = (slaSummary[key] / slaTotal) * 100
-                if (pct === 0) return null
-                return (
-                  <div
-                    key={key}
-                    title={`${SLA_BADGE[key]} (${SLA_LABEL[key]}): ${slaSummary[key]} orders — ${pct.toFixed(1)}%`}
-                    style={{
-                      width: `${pct}%`,
-                      background: SLA_COLOR[key],
-                      transition: 'width 0.4s ease',
-                      cursor: 'default',
-                    }}
-                  />
-                )
-              })
-            : null
-          }
+      <div className="db-sla">
+        {/* Donut */}
+        <div className="db-donut" role="img" aria-label={`${slaTotal} open orders, ${onTimePct}% on time`}>
+          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+            <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke="#eef2f7" strokeWidth={STROKE} />
+            {!loading && segments.map((s) => (
+              <circle
+                key={s.key}
+                cx={SIZE / 2} cy={SIZE / 2} r={R}
+                fill="none"
+                stroke={SLA_COLOR[s.key]}
+                strokeWidth={STROKE}
+                strokeDasharray={`${s.dash} ${CIRC}`}
+                strokeDashoffset={-s.offset}
+              >
+                <title>{`${SLA_BADGE[s.key]} (${SLA_LABEL[s.key]}): ${slaSummary[s.key]} orders`}</title>
+              </circle>
+            ))}
+          </svg>
+          <div className="db-donut-center">
+            <div className="db-donut-value">{loading ? '—' : <NumberTicker value={slaTotal} />}</div>
+            <div className="db-donut-label">open orders</div>
+            {!loading && slaTotal > 0 && (
+              <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: SLA_COLOR.d0 }}>
+                {onTimePct}% on time
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* SLA legend cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-        gap: '10px',
-      }}>
-        {SLA_KEYS.map((key) => {
-          const count = slaSummary[key]
-          const pct = slaTotal > 0 ? ((count / slaTotal) * 100).toFixed(1) : '0.0'
-          const isD4 = key === 'd4'
-          return (
-            <div key={key} style={{
-              background: isD4 && count > 0 ? '#fff5f5' : colors.surfaceAlt,
-              border: `1px solid ${isD4 && count > 0 ? '#fecaca' : colors.border}`,
-              borderRadius: radius.md,
-              padding: '12px 14px',
-              borderLeft: `3px solid ${SLA_COLOR[key]}`,
-            }}>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', marginBottom: '6px',
-              }}>
-                <span style={{
-                  fontSize: font.sm, color: SLA_COLOR[key],
-                  fontWeight: 700, letterSpacing: '0.03em',
-                }}>
+        {/* Rows */}
+        <div className="db-sla-list">
+          {SLA_KEYS.map((key) => {
+            const count = slaSummary[key]
+            const pct = slaTotal > 0 ? ((count / slaTotal) * 100).toFixed(1) : '0.0'
+            const alert = key === 'd4' && count > 0
+            return (
+              <div key={key} className={`db-sla-row${alert ? ' db-sla-row--alert' : ''}`}>
+                <span className="db-sla-badge" style={{ color: SLA_COLOR[key], background: `${SLA_COLOR[key]}1a` }}>
                   {SLA_BADGE[key]}
                 </span>
-                <span style={{
-                  fontSize: font.xs, color: colors.textMuted,
-                  background: colors.border, borderRadius: radius.full,
-                  padding: '1px 7px', fontWeight: 600,
-                }}>
-                  {loading ? '—' : `${pct}%`}
+                <span className="db-sla-label">{SLA_LABEL[key]}</span>
+                <span className="db-floor-track">
+                  <span style={{ width: `${loading ? 0 : (count / peak) * 100}%`, background: SLA_COLOR[key] }} />
                 </span>
+                <span className="db-num" style={alert ? { color: '#dc2626' } : undefined}>
+                  {loading ? '—' : count}
+                </span>
+                <span className="db-sla-pct">{loading ? '—' : `${pct}%`}</span>
               </div>
-              <div style={{
-                fontSize: '22px', fontWeight: 800,
-                color: isD4 && count > 0 ? colors.danger : colors.textPrimary,
-                fontVariantNumeric: 'tabular-nums',
-              }}>
-                {loading ? '—' : count}
-              </div>
-              <div style={{ fontSize: font.xs, color: colors.textSecondary, marginTop: '3px' }}>
-                {SLA_LABEL[key]}
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )

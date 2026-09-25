@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
-import { colors, radius, shadow, font } from '../theme'
 import PageShell from '../components/shared/PageShell'
-import SectionHeader from '../components/shared/SectionHeader'
 import NumberTicker from '../components/shared/NumberTicker'
 import OrderPipelineFunnel from '../components/shared/OrderPipelineFunnel'
 import { getSocket } from '../lib/socket'
@@ -31,16 +29,31 @@ interface RangeTotals {
   outboundTotal: number
 }
 
+interface OutboundStats {
+  dispatchedToday: number
+  outboundTotal: number
+  missingCount: number
+  d4Count: number
+  pipeline: {
+    inboundQueue: number
+    pickerActive: number
+    pickerComplete: number
+    dispatched: number
+  }
+}
+
 type PresetKey = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'custom'
 
 const PRESET_LABELS: Record<PresetKey, string> = {
   today: 'Today',
   yesterday: 'Yesterday',
-  '7d': 'Last 7 days',
-  '30d': 'Last 30 days',
+  '7d': '7 days',
+  '30d': '30 days',
   month: 'This month',
   custom: 'Custom',
 }
+
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function getGreeting(now: Date): string {
   const h = Number(now.toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Manila' }).slice(0, 2))
@@ -74,122 +87,162 @@ function formatShort(d: string): string {
   })
 }
 
-interface OutboundStats {
-  dispatchedToday: number
-  outboundTotal: number
-  missingCount: number
-  d4Count: number
-  pipeline: {
-    inboundQueue: number
-    pickerActive: number
-    pickerComplete: number
-    dispatched: number
-  }
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
+const svgProps = {
+  viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+  strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
 const DashboardIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="20" height="20" {...svgProps}>
     <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
     <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
   </svg>
 )
-
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div style={{
-      background: colors.surface,
-      border: `1px solid ${colors.border}`,
-      borderRadius: radius.xl,
-      boxShadow: shadow.card,
-      ...style,
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function MetricCard({
-  label, value, color, subtitle, animate,
-}: {
-  label: string; value: number | string; color: string; subtitle?: string; animate?: boolean
-}) {
-  const isNumeric = typeof value === 'number'
-  return (
-    <div style={{
-      background: colors.surfaceAlt,
-      border: `1px solid ${colors.border}`,
-      borderRadius: radius.lg,
-      padding: '14px 16px',
-      borderLeft: `3px solid ${color}`,
-    }}>
-      <div style={{
-        fontSize: '26px', fontWeight: 700, color,
-        fontVariantNumeric: 'tabular-nums', lineHeight: 1.1,
-      }}>
-        {animate && isNumeric ? <NumberTicker value={value as number} /> : value}
-      </div>
-      <div style={{ fontSize: font.md, color: colors.textSecondary, marginTop: '5px', fontWeight: 500 }}>
-        {label}
-      </div>
-      {subtitle && (
-        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '2px' }}>
-          {subtitle}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Order Summary tiles ──────────────────────────────────────────────────────
-
 const PipelineGlyph = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-  </svg>
+  <svg width="18" height="18" {...svgProps}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
 )
 const AlertGlyph = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="18" height="18" {...svgProps}>
     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
     <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
   </svg>
 )
 const CarryoverGlyph = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 2v6h6" /><path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+  <svg width="18" height="18" {...svgProps}><path d="M3 2v6h6" /><path d="M3 13a9 9 0 1 0 3-7.7L3 8" /></svg>
+)
+const BoxGlyph = (
+  <svg width="16" height="16" {...svgProps}>
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" />
   </svg>
 )
+const ClockGlyph = (
+  <svg width="16" height="16" {...svgProps}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+)
+const TrendGlyph = (
+  <svg width="16" height="16" {...svgProps}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+)
+const InGlyph = (
+  <svg width="14" height="14" {...svgProps}><polyline points="8 17 12 21 16 17" /><line x1="12" y1="12" x2="12" y2="21" /><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29" /></svg>
+)
+const OutGlyph = (
+  <svg width="14" height="14" {...svgProps}><polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></svg>
+)
 
-function SummaryTile({
-  label, value, color, subtitle, icon,
-}: {
-  label: string; value: number | string; color: string; subtitle?: string; icon: React.ReactNode
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function HeroStat({ icon, tint, value, label, loading }: {
+  icon: React.ReactNode; tint: string; value: string | number; label: string; loading: boolean
 }) {
-  const isNumeric = typeof value === 'number'
   return (
-    <div style={{
-      position: 'relative', overflow: 'hidden',
-      background: `linear-gradient(180deg, ${color}0d 0%, ${colors.surface} 60%)`,
-      border: `1px solid ${colors.border}`,
-      borderRadius: radius.xl,
-      padding: '18px 20px',
-    }}>
-      {/* accent rail */}
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: color }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <span style={{
-          width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: `${color}1a`, color,
-        }}>{icon}</span>
-        <span style={{ fontSize: font.md, color: colors.textSecondary, fontWeight: 600 }}>{label}</span>
+    <div className="db-hero-stat">
+      <span className="db-hero-stat-icon" style={{ background: `${tint}2e`, color: tint }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div className="db-hero-stat-value">
+          {loading ? '—' : typeof value === 'number' ? <NumberTicker value={value} /> : value}
+        </div>
+        <div className="db-hero-stat-label">{label}</div>
       </div>
-      <div style={{ fontSize: '34px', fontWeight: 800, color, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-        {isNumeric ? <NumberTicker value={value as number} /> : value}
+    </div>
+  )
+}
+
+function KpiTile({ label, value, color, subtitle, icon, loading, alert, tag }: {
+  label: string; value: number; color: string; subtitle: string; icon: React.ReactNode
+  loading: boolean; alert?: boolean; tag?: { text: string; tone: 'ok' | 'danger' | 'warn' }
+}) {
+  return (
+    <div className={`db-kpi${alert ? ' db-kpi--alert' : ''}`} style={{ '--kpi': color } as React.CSSProperties}>
+      <div className="db-kpi-top">
+        <span className="db-kpi-label">
+          <span className="db-kpi-icon">{icon}</span>
+          {label}
+        </span>
+        {tag && !loading && <span className={`db-tag db-tag--${tag.tone}`}>{tag.text}</span>}
       </div>
-      {subtitle && (
-        <div style={{ fontSize: font.xs, color: colors.textMuted, marginTop: '6px' }}>{subtitle}</div>
+      <div className="db-kpi-value">{loading ? '—' : <NumberTicker value={value} />}</div>
+      <div className="db-kpi-sub">{subtitle}</div>
+    </div>
+  )
+}
+
+type FloorKey = 'queue' | 'pAssigned' | 'picking' | 'waiting' | 'kAssigned' | 'packing'
+interface FloorRow { key: FloorKey; label: string; color: string }
+
+const FLOOR_GROUPS: { title: string; rows: FloorRow[] }[] = [
+  {
+    title: 'Picking',
+    rows: [
+      { key: 'queue',     label: 'In queue',        color: '#93c5fd' },
+      { key: 'pAssigned', label: 'Assigned',        color: '#3b82f6' },
+      { key: 'picking',   label: 'Picking',         color: '#1d4ed8' },
+    ],
+  },
+  {
+    title: 'Packing',
+    rows: [
+      { key: 'waiting',   label: 'Waiting to pack', color: '#c4b5fd' },
+      { key: 'kAssigned', label: 'Assigned',        color: '#8b5cf6' },
+      { key: 'packing',   label: 'Packing',         color: '#6d28d9' },
+    ],
+  },
+]
+
+function LiveFloorCard({ stats, loading }: { stats: DashboardStats; loading: boolean }) {
+  const values: Record<FloorKey, number> = {
+    queue: stats.pickerSummary.inbound,
+    pAssigned: stats.pickerSummary.assigned,
+    picking: stats.pickerSummary.inProgress,
+    waiting: stats.packerSummary.unassigned,
+    kAssigned: stats.packerSummary.assigned,
+    packing: stats.packerSummary.inProgress,
+  }
+  const all = FLOOR_GROUPS.flatMap((g) => g.rows)
+  const total = all.reduce((s, r) => s + values[r.key], 0)
+  const peak = Math.max(1, ...all.map((r) => values[r.key]))
+
+  return (
+    <div className="db-card" style={{ height: '100%', boxSizing: 'border-box' }}>
+      <div className="db-card-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h3 className="db-card-title">Live Floor</h3>
+          <p className="db-card-sub">Where open orders are right now</p>
+        </div>
+        <span className="db-pill">{loading ? '—' : total} on floor</span>
+      </div>
+
+      <div className="db-floor-bar" aria-hidden="true">
+        {!loading && total > 0 && all.map((r) => (
+          values[r.key] > 0 && (
+            <span key={r.key} title={`${r.label}: ${values[r.key]}`}
+              style={{ width: `${(values[r.key] / total) * 100}%`, background: r.color }} />
+          )
+        ))}
+      </div>
+
+      {!loading && total === 0 ? (
+        <div className="db-empty">Floor is clear — nothing in picking or packing.</div>
+      ) : (
+        FLOOR_GROUPS.map((g) => (
+          <div key={g.title} className="db-floor-group">
+            <div className="db-floor-group-title">
+              <span>{g.title}</span>
+              <b>{loading ? '—' : g.rows.reduce((s, r) => s + values[r.key], 0)}</b>
+            </div>
+            {g.rows.map((r) => (
+              <div key={r.key} className="db-floor-row">
+                <span className="db-dot" style={{ background: r.color }} />
+                <span>{r.label}</span>
+                <span className="db-floor-track">
+                  <span style={{ width: `${loading ? 0 : (values[r.key] / peak) * 100}%`, background: r.color }} />
+                </span>
+                <span className="db-num">{loading ? '—' : values[r.key]}</span>
+              </div>
+            ))}
+          </div>
+        ))
       )}
     </div>
   )
@@ -309,7 +362,14 @@ export default function Dashboard() {
     ? new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
     : '—'
 
-  const dash = (loading: boolean, v: number) => (loading ? '—' : v)
+  const sla = stats.slaSummary
+  const slaTotal = sla.d0 + sla.d1 + sla.d2 + sla.d3 + sla.d4
+  const onTimePct = slaTotal > 0 ? Math.round((sla.d0 / slaTotal) * 100) : 100
+
+  const volIn = rangeData?.inboundTotal ?? 0
+  const volOut = rangeData?.outboundTotal ?? 0
+  const volPeak = Math.max(1, volIn, volOut)
+  const perDay = (v: number) => (rangeDays > 1 ? `${Math.round(v / rangeDays).toLocaleString('en-US')} / day avg` : 'Single day')
 
   return (
     <PageShell
@@ -318,22 +378,17 @@ export default function Dashboard() {
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
     >
 
-      {/* ── Hero banner (clock + greeting) ──────────────────────────── */}
+      {/* ── Hero: greeting + clock + live pulse ─────────────────────── */}
       <div className="dashboard-hero">
         <div className="dashboard-hero-bg" aria-hidden="true" />
         <div className="dashboard-hero-inner">
-          {/* Left: greeting */}
           <div className="dashboard-hero-greeting">
             <span className="dashboard-hero-eyebrow">{getGreeting(now)}</span>
             <h2 className="dashboard-hero-name">{user?.username ?? 'Admin'}</h2>
             <span className="dashboard-hero-subtitle">{weekday} · {dateStr}</span>
           </div>
 
-          {/* Right: live clock */}
           <div className="dashboard-hero-clock">
-            {/* Phase D v2.38.1: clock now uses Inter Variable with tabular-nums
-                (already on .dashboard-hero-time in components.css) — Linear-style
-                cleaner than the SF Mono fallback that was here. */}
             <div className="dashboard-hero-time">
               {hh}
               <span className={`dashboard-hero-colon${colon ? '' : ' dashboard-hero-colon--off'}`}>:</span>
@@ -347,6 +402,31 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        <div className="db-hero-pulse">
+          <HeroStat icon={BoxGlyph} tint="#60a5fa" value={stats.remainingCount} label="Active orders in warehouse" loading={isLoading} />
+          <HeroStat icon={ClockGlyph} tint="#34d399" value={`${onTimePct}%`} label="Open orders on time (D0)" loading={isLoading} />
+          <HeroStat icon={TrendGlyph} tint="#fbbf24" value={sla.escalatedToday} label="SLA escalations today" loading={isLoading} />
+        </div>
+      </div>
+
+      {/* ── Order Summary ───────────────────────────────────────────── */}
+      <div className="db-kpis">
+        <KpiTile
+          label="In Pipeline" value={outbound.missingCount} color="#2563eb"
+          subtitle="Not yet dispatched" icon={PipelineGlyph} loading={outboundLoading}
+        />
+        <KpiTile
+          label="D4 — Not Shipped" value={outbound.d4Count} color="#dc2626"
+          subtitle="Urgent dispatch needed" icon={AlertGlyph} loading={outboundLoading}
+          alert={outbound.d4Count > 0}
+          tag={outbound.d4Count > 0 ? { text: 'Act now', tone: 'danger' } : { text: 'All clear', tone: 'ok' }}
+        />
+        <KpiTile
+          label="Carryover Active" value={stats.carryoverCount} color="#d97706"
+          subtitle="From previous days" icon={CarryoverGlyph} loading={isLoading}
+          tag={stats.carryoverCount > 0 ? { text: 'Backlog', tone: 'warn' } : undefined}
+        />
       </div>
 
       {/* ── Order Pipeline (identical to the Outbound Report funnel) ── */}
@@ -357,101 +437,71 @@ export default function Dashboard() {
         caption="Inbound → Packer Complete are warehouse milestones (distinct orders that reached each stage today). Outbound counts only parcels actually scanned out today; of those, old orders were packed earlier and shipped now (backlog)."
       />
 
-      {/* ── Order Summary ─────────────────────────────────────────── */}
-      <Card style={{ padding: '20px 24px', marginBottom: '20px' }}>
-        <SectionHeader title="Order Summary" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-          <SummaryTile
-            label="In Pipeline" value={dash(outboundLoading, outbound.missingCount)}
-            color={colors.primary} subtitle="Not yet dispatched" icon={PipelineGlyph}
-          />
-          <SummaryTile
-            label="D4 — Not Shipped" value={dash(outboundLoading, outbound.d4Count)}
-            color={colors.danger} subtitle="Urgent dispatch needed" icon={AlertGlyph}
-          />
-          <SummaryTile
-            label="Carryover Active" value={dash(isLoading, stats.carryoverCount)}
-            color="#d97706" subtitle="From previous days" icon={CarryoverGlyph}
-          />
+      {/* ── Live floor + SLA ────────────────────────────────────────── */}
+      <div className="db-grid">
+        <div className="db-span-5">
+          <LiveFloorCard stats={stats} loading={isLoading} />
         </div>
-      </Card>
+        <div className="db-span-7">
+          <SlaSummaryCard slaSummary={stats.slaSummary} loading={isLoading} />
+        </div>
+      </div>
 
-      {/* ── SLA Breakdown ─────────────────────────────────────────── */}
-      <SlaSummaryCard slaSummary={stats.slaSummary} loading={isLoading} />
-
-      {/* ── Volume Report ─────────────────────────────────────────── */}
-      <Card style={{ padding: '20px 24px', marginTop: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+      {/* ── Volume Report ───────────────────────────────────────────── */}
+      <div className="db-card">
+        <div className="db-card-head">
           <div>
-            <SectionHeader title="Volume Report" />
-            <div style={{ fontSize: 12, color: colors.textMuted, marginTop: -4 }}>
+            <h3 className="db-card-title">Volume Report</h3>
+            <p className="db-card-sub">
               {formatShort(rangeStart)} → {formatShort(rangeEnd)} · {rangeDays} day{rangeDays === 1 ? '' : 's'}
-            </div>
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(['today','yesterday','7d','30d','month','custom'] as PresetKey[]).map((k) => {
-              const active = preset === k
-              return (
-                <button
-                  key={k}
-                  onClick={() => applyPreset(k)}
-                  style={{
-                    padding: '6px 12px',
-                    border: `1px solid ${active ? colors.primary : colors.border}`,
-                    borderRadius: 8,
-                    background: active ? colors.primary : '#fff',
-                    color: active ? '#fff' : colors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: active ? 700 : 500,
-                    cursor: 'pointer',
-                    transition: 'background 0.12s, color 0.12s, border-color 0.12s',
-                  }}
-                >
-                  {PRESET_LABELS[k]}
-                </button>
-              )
-            })}
+          <div className="db-seg" role="group" aria-label="Date range">
+            {(['today', 'yesterday', '7d', '30d', 'month', 'custom'] as PresetKey[]).map((k) => (
+              <button key={k} type="button" aria-pressed={preset === k} onClick={() => applyPreset(k)}>
+                {PRESET_LABELS[k]}
+              </button>
+            ))}
           </div>
         </div>
 
         {preset === 'custom' && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-            marginBottom: 14, padding: '10px 12px',
-            background: colors.surfaceAlt, border: `1px solid ${colors.border}`, borderRadius: 8,
-          }}>
-            <label style={{ fontSize: 12, color: colors.textSecondary }}>From</label>
-            <input
-              type="date"
-              value={rangeStart}
-              max={todayStr}
-              onChange={(e) => onStartChange(e.target.value)}
-              style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
-            />
-            <label style={{ fontSize: 12, color: colors.textSecondary }}>To</label>
-            <input
-              type="date"
-              value={rangeEnd}
-              max={todayStr}
-              onChange={(e) => onEndChange(e.target.value)}
-              style={{ padding: '6px 10px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13 }}
-            />
+          <div className="db-range">
+            <label htmlFor="db-from">From</label>
+            <input id="db-from" type="date" value={rangeStart} max={todayStr} onChange={(e) => onStartChange(e.target.value)} />
+            <label htmlFor="db-to">To</label>
+            <input id="db-to" type="date" value={rangeEnd} max={todayStr} onChange={(e) => onEndChange(e.target.value)} />
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <MetricCard
-            label="Total Inbound" value={dash(rangeLoading, rangeData?.inboundTotal ?? 0)}
-            color={colors.primary} subtitle={`${rangeStart} → ${rangeEnd}`}
-            animate
-          />
-          <MetricCard
-            label="Total Outbound" value={dash(rangeLoading, rangeData?.outboundTotal ?? 0)}
-            color={colors.success} subtitle={`${rangeStart} → ${rangeEnd}`}
-            animate
-          />
+        <div className="db-vol">
+          <div className="db-vol-item" style={{ '--vol': '#2563eb' } as React.CSSProperties}>
+            <div className="db-vol-head">{InGlyph} Total Inbound</div>
+            <div className="db-vol-value">{rangeLoading ? '—' : <NumberTicker value={volIn} />}</div>
+            <div className="db-vol-sub">{rangeLoading ? '—' : perDay(volIn)}</div>
+          </div>
+          <div className="db-vol-item" style={{ '--vol': '#16a34a' } as React.CSSProperties}>
+            <div className="db-vol-head">{OutGlyph} Total Outbound</div>
+            <div className="db-vol-value">{rangeLoading ? '—' : <NumberTicker value={volOut} />}</div>
+            <div className="db-vol-sub">{rangeLoading ? '—' : perDay(volOut)}</div>
+          </div>
+          <div className="db-vol-item db-vol-compare" style={{ '--vol': '#64748b' } as React.CSSProperties}>
+            <div className="db-vol-head">Inbound vs Outbound</div>
+            <div className="db-vol-compare-rows">
+              <div className="db-vol-compare-row">
+                <span>Inbound</span>
+                <span className="db-floor-track"><span style={{ width: `${rangeLoading ? 0 : (volIn / volPeak) * 100}%`, background: '#2563eb' }} /></span>
+                <span className="db-num">{rangeLoading ? '—' : volIn.toLocaleString('en-US')}</span>
+              </div>
+              <div className="db-vol-compare-row">
+                <span>Outbound</span>
+                <span className="db-floor-track"><span style={{ width: `${rangeLoading ? 0 : (volOut / volPeak) * 100}%`, background: '#16a34a' }} /></span>
+                <span className="db-num">{rangeLoading ? '—' : volOut.toLocaleString('en-US')}</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </Card>
+      </div>
 
     </PageShell>
   )
