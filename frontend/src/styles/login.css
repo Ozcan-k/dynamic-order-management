@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Login — split layout: dark brand panel (left) + form panel (right).
    Mobile (<960px): brand panel collapses to a compact header band.
-   Used only by pages/Login.tsx (.login-*, .shimmer-btn*).
+   Used by pages/Login.tsx + pages/ScanLogin.tsx and
+   components/auth/LoginBrandPanel.tsx (.login-*, .shimmer-btn*).
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .login-root {
@@ -597,6 +598,32 @@
   color: #94a3b8;
 }
 
+/* Inline error (ScanLogin — stays in view above the keyboard on handhelds) */
+.login-inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #dc2626;
+  font-weight: 500;
+  animation: login-valid-pop-in 200ms ease-out;
+}
+
+.login-inline-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+@keyframes login-valid-pop-in {
+  from { transform: translateY(-4px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
 /* ─── Error toast (top center) ──────────────────────────────────────────── */
 
 .login-toast {
@@ -705,6 +732,18 @@
   }
 }
 
+/* Short handhelds (e.g. 360×640 scanners): keep Sign In above the fold */
+@media (max-width: 960px) and (max-height: 740px) {
+  .login-brand { padding: 16px 16px 18px; }
+  .login-brand-body { margin-top: 12px; }
+  .login-brand-headline { font-size: 21px; margin-bottom: 0; }
+  .login-flow { display: none; }
+  .login-panel { padding-top: 16px; }
+  .login-card-heading { margin-bottom: 18px; }
+  .login-eyebrow { margin-bottom: 10px; }
+  .login-form { gap: 12px; }
+}
+
 @media (max-width: 480px) {
   .login-card {
     padding: 28px 22px 22px;
@@ -714,6 +753,9 @@
   .login-card-heading h2 {
     font-size: 24px;
   }
+
+  /* 16px prevents iOS Safari from zooming into the field on focus */
+  .login-input-wrap input { font-size: 16px; }
 
   .login-brand-name { font-size: 14px; }
 }
