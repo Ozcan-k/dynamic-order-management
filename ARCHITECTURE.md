@@ -2,7 +2,9 @@
 
 > **Version:** 2.91.0  
 > **Date:** 2026-09-24  
-> **Status:** **v2.94.0 (test)** — **Marketing Report: monthly sales agent targets.** New additive table `sales_targets` (default set + per-agent overrides; no rows = shared `DEFAULT_SALES_TARGETS`: ₱300,000 sales · 150 online orders (direct + live) · 52 live hours · 30 videos (Video + Reel) · 60 photo posts · 100 inquiries). `services/salesTargetService.ts` computes monthly actuals read-only from the existing sales tables; `GET /marketing/targets?month=` (pace-to-date, month-end projection, status, team totals, 6-month history) and `GET|PUT /marketing/targets/settings` (ADMIN). UI: Marketing Report → Targets tab + ADMIN editor; agent page → This month's targets. Plan: `MARKETING_TARGETS.md`.
+> **Status:** **v2.98.0 (test)** — **Outbound → Order History + Shopee Instant fix + Outbound redesign.** The Warehouse Report "Order Timeline" tab and `GET /reports/order-timeline` are gone; their replacement is `/outbound/history` backed by read-only `GET /dispatch/order-history?trackingNumber=` (`getOrderHistory`): Inbound (scanned by) → Picker → Packer (worker, assigned by, started, completed, duration, re-assignments) → Outbound (scanned out by, courier, source) plus the full timed event log; case-insensitive, archived orders included, external dispatch-only parcels answered too. **Bug:** the Outbound scanner mapped an order carrier of `SHOPEE_INSTANT` to `SPX` (substring "SHOPEE"), so Shopee Instant never appeared on the Outbound board/report. Fixed at the scanner (exact enum match) and in `createDispatchParcel` (in-house takes the order's carrier). History is corrected **at read time** without rewriting rows: `withEffectiveCarrier` re-labels SPX in-house parcels whose order is `SHOPEE_INSTANT` (board, report, list, history). **Access:** the Outbound GETs (board, stats, report, pipeline, old orders, order history) are now viewable by WAREHOUSE/INBOUND/PICKER/PACKER_ADMIN (`viewGuard`); scan, lookup, POST, list and DELETE stay ADMIN + OUTBOUND_ADMIN. New `styles/outbound.css` (`.ob-*`, `.oh-*`). No schema change.
+
+> **Previous status:** **v2.94.0 (test)** — **Marketing Report: monthly sales agent targets.** New additive table `sales_targets` (default set + per-agent overrides; no rows = shared `DEFAULT_SALES_TARGETS`: ₱300,000 sales · 150 online orders (direct + live) · 52 live hours · 30 videos (Video + Reel) · 60 photo posts · 100 inquiries). `services/salesTargetService.ts` computes monthly actuals read-only from the existing sales tables; `GET /marketing/targets?month=` (pace-to-date, month-end projection, status, team totals, 6-month history) and `GET|PUT /marketing/targets/settings` (ADMIN). UI: Marketing Report → Targets tab + ADMIN editor; agent page → This month's targets. Plan: `MARKETING_TARGETS.md`.
 >
 > **Previous status:** **v2.93.0 (LIVE on main, deployed 2026-09-24 — before/after prod snapshot identical)** — **Employee Schedule: Partial Day (hours) + redesigned Schedule / Employees / Report + Warehouse Report link fix.** Additive schema only: enum value `PARTIAL_DAY` + nullable `emp_schedules.worked_hours`; all existing rows compute exactly as before (verified on a copy of prod data). Bulk actions fill empty cells only, with Undo. Picker / Packer Admin → 'Open in Warehouse Report' now opens Live Performance. See §7.14 (v2.93.0).
 >
@@ -1445,7 +1447,7 @@ frontend/
 │   │   ├── PackerMobile.tsx       ← /packer — v2.29.0 own PACKER_ASSIGNED list + scan complete (green theme)
 │   │   ├── Outbound.tsx           ← /outbound — Phase 8 (dispatch queue, comparison report, stuck orders)
 │   │   ├── Archive.tsx            ← /archive — v2.2.0 (stats, filters, expiry badges, bulk delete, manual trigger)
-│   │   ├── Reports.tsx            ← /reports — Live Performance, Performance, Employee Report, SLA Analytics, Order Timeline (v2.90.0: ?tab=&role=&from=&to=&userId= deep link)
+│   │   ├── Reports.tsx            ← /reports — Live Performance, Performance, Employee Report, SLA Analytics (v2.90.0: ?tab=&role=&from=&to=&userId= deep link; Order Timeline moved to /outbound/history in v2.98.0)
 │   │   ├── Settings.tsx           ← v2.92.0 tabbed: Users · Stores · Permissions (components/settings/*)
 │   │   ├── Users.tsx              ← legacy placeholder (Settings replaced most functionality)
 │   │   ├── SalesDashboard.tsx     ← /sales — v2.23.1 agent calendar dashboard
@@ -1545,7 +1547,7 @@ backend/
 │   │   ├── packer.ts              ← PACKER handheld endpoints (own assigned orders, complete)
 │   │   ├── outbound.ts            ← dispatch single + bulk, stats, stuck list
 │   │   ├── users.ts
-│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance, /reports/order-timeline (+ PDF/CSV); v2.84+ target/employee/live-board; v2.90.0 /live-workers
+│   │   ├── reports.ts             ← /reports/dashboard, /reports/sla, /reports/performance, /reports/live-performance (+ PDF/CSV; /reports/order-timeline removed in v2.98.0 → /dispatch/order-history); v2.84+ target/employee/live-board; v2.90.0 /live-workers
 │   │   ├── archive.ts             ← GET /archive, GET /archive/stats, POST /archive/trigger, POST /archive/bulk-delete
 │   │   ├── products.ts            ← v2.31.0 — Product + Category CRUD (admin + read for STOCK_KEEPER)
 │   │   ├── warehouses.ts          ← v2.31.0 — Warehouse CRUD (admin + read for STOCK_KEEPER)
@@ -1704,12 +1706,12 @@ Future multi-tenant onboarding: Admin creates a new tenant record → system is 
 | **Target Performance** (v2.84.0) — picker/packer output vs daily target (210 / 280): KPI tiles, avg-per-active-day ranking chart, status mix, team-average-by-day chart, Excel-style ranking table, colour-coded daily matrix, `.xlsx` export | Warehouse Report → Performance tab | 7D / 14D / 30D (end yesterday), This Month, Last Month, Custom (≤ 92 days) |
 | **Employee Report** (v2.84.0) — one picker/packer: profile + achievement ring, KPIs vs target and team, daily output vs target (7-day avg + team avg lines), day-outcome ring, hour-of-day rhythm, weekday averages, daily log | Warehouse Report → Employee Report tab | Same range picker as Performance |
 | SLA analytics (D-level distribution donut, D4 unresolved list, PDF export) | Warehouse Report → SLA Analytics tab | Last 7/14/30 days |
-| Order Timeline (full per-order lifecycle audit — all status changes, picker/packer assignments, inter-event durations) | Warehouse Report → Order Timeline tab | Per tracking number (on-demand) |
+| Order History (full per-order lifecycle — inbound scan, picker/packer with times, outbound scan by whom, inter-event durations) | Outbound → Order History (`/outbound/history`, v2.98.0; was Warehouse Report → Order Timeline) | Per tracking number (on-demand) |
 | Inbound vs Outbound | Outbound Panel | Live |
 | Stuck orders (with D-level) | Outbound Panel | Live |
 | SLA escalation history (per order) | Any panel with order detail | On-demand |
 
-**Warehouse Report access:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `WAREHOUSE_ADMIN` — all see the same 5 tabs. Tab order: **Live Performance** (default) → Performance → Employee Report → SLA Analytics → Order Timeline. (The old 7/14/30-day Performance table + its CSV/PDF export were replaced in v2.84.0; `GET /reports/performance*` endpoints are still served but no longer used by the UI.)
+**Warehouse Report access:** `ADMIN`, `INBOUND_ADMIN`, `PICKER_ADMIN`, `PACKER_ADMIN`, `WAREHOUSE_ADMIN` — all see the same 4 tabs. Tab order: **Live Performance** (default) → Performance → Employee Report → SLA Analytics. (Order Timeline moved to Outbound → Order History in v2.98.0; the same roles can open it there read-only.) (The old 7/14/30-day Performance table + its CSV/PDF export were replaced in v2.84.0; `GET /reports/performance*` endpoints are still served but no longer used by the UI.)
 
 #### Live Performance tab — data model
 - Endpoint: `GET /reports/live-performance?date=YYYY-MM-DD` (same RBAC tuple as `/reports/performance`)

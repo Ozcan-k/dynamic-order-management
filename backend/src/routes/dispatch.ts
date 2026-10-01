@@ -10,6 +10,7 @@ import {
   getDispatchReport,
   getOrderPipeline,
   getOldOrdersList,
+  getOrderHistory,
   listDispatch,
   deleteDispatch,
   DuplicateDispatchError,
@@ -19,8 +20,14 @@ import {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-// Outbound module — Admin + Outbound Admin only (the scan screen too).
+// Outbound module — Admin + Outbound Admin own it (scan, record, delete).
 const guard = () => requireRole(UserRole.ADMIN, UserRole.OUTBOUND_ADMIN)
+// v2.98.0 — the warehouse admins can VIEW the Outbound board, report and order
+// history (read-only GETs). Scanning / recording / deleting stays with guard().
+const viewGuard = () => requireRole(
+  UserRole.ADMIN, UserRole.OUTBOUND_ADMIN,
+  UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN,
+)
 
 const CreateBodySchema = z.object({
   trackingNumber: z.string().min(1).max(80),
@@ -41,11 +48,11 @@ const ListQuerySchema = z.object({
 
 export default async function dispatchRoutes(fastify: FastifyInstance) {
   const preHandler = [fastify.authenticate, guard()]
+  const viewPre = [fastify.authenticate, viewGuard()]
   // The order-pipeline funnel is also rendered on the Dashboard, so its GET is
   // readable by the warehouse-admin roles that can see the Dashboard (read-only).
-  const pipelinePre = [fastify.authenticate, requireRole(
-    UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.INBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN,
-  )]
+  // (v2.98.0: same set as viewPre, which also covers Picker/Packer Admin.)
+  const pipelinePre = viewPre
 
   // GET /dispatch/lookup?trackingNumber= — read-only in-house order lookup
   fastify.get('/lookup', { preHandler }, async (request, reply) => {
@@ -90,7 +97,7 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
   })
 
   // GET /dispatch/grouped?date= — carrier → shop for a single Manila day
-  fastify.get('/grouped', { preHandler }, async (request, reply) => {
+  fastify.get('/grouped', { preHandler: viewPre }, async (request, reply) => {
     const { date } = request.query as { date?: string }
     const validDate = date && DATE_RE.test(date) ? date : undefined
     const { tenantId } = request.user as JWTPayload
@@ -98,7 +105,7 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
   })
 
   // GET /dispatch/stats?date= — header counts (total / in-house / external)
-  fastify.get('/stats', { preHandler }, async (request, reply) => {
+  fastify.get('/stats', { preHandler: viewPre }, async (request, reply) => {
     const { date } = request.query as { date?: string }
     const validDate = date && DATE_RE.test(date) ? date : undefined
     const { tenantId } = request.user as JWTPayload
@@ -106,7 +113,7 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
   })
 
   // GET /dispatch/report?from=&to= — per-carrier totals across a range
-  fastify.get('/report', { preHandler }, async (request, reply) => {
+  fastify.get('/report', { preHandler: viewPre }, async (request, reply) => {
     const { from, to } = request.query as { from?: string; to?: string }
     const validFrom = from && DATE_RE.test(from) ? from : undefined
     const validTo = to && DATE_RE.test(to) ? to : undefined
@@ -124,12 +131,24 @@ export default async function dispatchRoutes(fastify: FastifyInstance) {
   })
 
   // GET /dispatch/old-orders?from=&to= — backlog drill-down (funnel "old orders" badge)
-  fastify.get('/old-orders', { preHandler }, async (request, reply) => {
+  fastify.get('/old-orders', { preHandler: viewPre }, async (request, reply) => {
     const { from, to } = request.query as { from?: string; to?: string }
     const validFrom = from && DATE_RE.test(from) ? from : undefined
     const validTo = to && DATE_RE.test(to) ? to : undefined
     const { tenantId } = request.user as JWTPayload
     return reply.send(await getOldOrdersList(tenantId, validFrom, validTo))
+  })
+
+  // GET /dispatch/order-history?trackingNumber= — full lifecycle of one waybill
+  fastify.get('/order-history', { preHandler: viewPre }, async (request, reply) => {
+    const { trackingNumber } = request.query as { trackingNumber?: string }
+    if (!trackingNumber || !trackingNumber.trim() || trackingNumber.length > 80) {
+      return reply.code(400).send({ error: 'trackingNumber is required' })
+    }
+    const { tenantId } = request.user as JWTPayload
+    const history = await getOrderHistory(tenantId, trackingNumber)
+    if (!history) return reply.code(404).send({ error: 'No order or outbound record found for this tracking number' })
+    return reply.send(history)
   })
 
   // GET /dispatch — paginated list (admin corrections)

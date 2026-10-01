@@ -31,28 +31,7 @@ interface SlaData {
   }[]
 }
 
-interface TimelineEvent {
-  type: string
-  timestamp: string
-  actor: string
-  label: string
-  durationFromPrevMs: number | null
-}
-
-interface TimelineData {
-  order: {
-    id: string
-    trackingNumber: string
-    status: string
-    delayLevel: number
-    slaStartedAt: string
-    slaCompletedAt: string | null
-    totalDurationMs: number
-  }
-  timeline: TimelineEvent[]
-}
-
-type ActiveTab = 'performance' | 'employee' | 'live' | 'sla' | 'timeline'
+type ActiveTab = 'performance' | 'employee' | 'live' | 'sla'
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
@@ -173,7 +152,6 @@ function ExportPdfButton({ type, days, variant }: { type?: 'picker' | 'packer'; 
 // ─── SLA Distribution Bar ─────────────────────────────────────────────────────
 
 const D_COLORS = ['#64748b', '#eab308', '#f97316', '#ef4444', '#991b1b']
-const D_BG    = ['#e5e7eb', '#fef9c3', '#fed7aa', '#fecaca', '#fca5a5']
 const D_LABELS = ['D0', 'D1', 'D2', 'D3', 'D4']
 
 function SlaDistributionBar({ dist }: { dist: SlaData['distribution'] }) {
@@ -306,225 +284,6 @@ function SlaAnalyticsSection({ days }: { days: number }) {
   )
 }
 
-// ─── Order Timeline Section ───────────────────────────────────────────────────
-
-const EVENT_COLORS: Record<string, string> = {
-  status_change:   '#3b82f6',
-  picker_assigned: '#8b5cf6',
-  picker_complete: '#10b981',
-  packer_assigned: '#f59e0b',
-  packer_complete: '#22c55e',
-}
-
-function OrderTimelineSection() {
-  const [inputVal, setInputVal] = useState('')
-  const [searchedTn, setSearchedTn] = useState('')
-
-  const { data, isLoading, isError, error } = useQuery<TimelineData>({
-    queryKey: ['reports', 'order-timeline', searchedTn],
-    queryFn: () => api.get(`/reports/order-timeline?trackingNumber=${encodeURIComponent(searchedTn)}`).then((r) => r.data),
-    enabled: !!searchedTn,
-    retry: false,
-    staleTime: 30_000,
-  })
-
-  function handleSearch() {
-    const tn = inputVal.trim()
-    if (tn) setSearchedTn(tn)
-  }
-
-  const is404 = isError && (error as any)?.response?.status === 404
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Search bar */}
-      <div style={{
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.xl,
-        boxShadow: shadow.card,
-        padding: '20px',
-        display: 'flex',
-        gap: '10px',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-      }}>
-        <div style={{ flex: '1 1 260px', display: 'flex', gap: '8px' }}>
-          <input
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Enter tracking number..."
-            style={{
-              flex: 1,
-              padding: '8px 14px',
-              borderRadius: radius.md,
-              border: `1.5px solid ${colors.border}`,
-              fontSize: '13px',
-              color: colors.textPrimary,
-              outline: 'none',
-              fontFamily: 'monospace',
-              background: colors.surface,
-            }}
-          />
-          <button
-            onClick={handleSearch}
-            disabled={!inputVal.trim()}
-            style={{
-              padding: '8px 18px',
-              borderRadius: radius.md,
-              border: 'none',
-              background: inputVal.trim() ? colors.primary : colors.border,
-              color: inputVal.trim() ? '#fff' : colors.textMuted,
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: inputVal.trim() ? 'pointer' : 'not-allowed',
-              transition: 'all 0.15s',
-              flexShrink: 0,
-            }}
-          >
-            Search
-          </button>
-        </div>
-        <span style={{ fontSize: '12px', color: colors.textMuted }}>
-          Search by tracking number to view the full order lifecycle
-        </span>
-      </div>
-
-      {/* Loading */}
-      {isLoading && (
-        <div style={{ textAlign: 'center', padding: '60px', color: colors.textSecondary }}>
-          Loading timeline...
-        </div>
-      )}
-
-      {/* 404 */}
-      {is404 && (
-        <div style={{
-          textAlign: 'center', padding: '32px',
-          background: '#fef2f2', border: '1px solid #fecaca',
-          borderRadius: radius.lg, color: '#991b1b',
-        }}>
-          Order not found for tracking number <strong style={{ fontFamily: 'monospace' }}>{searchedTn}</strong>
-        </div>
-      )}
-
-      {/* Other error */}
-      {isError && !is404 && (
-        <div style={{ textAlign: 'center', padding: '32px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: radius.lg, color: '#991b1b' }}>
-          Failed to load order timeline. Please try again.
-        </div>
-      )}
-
-      {/* Timeline */}
-      {data && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Order summary */}
-          <div style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: radius.xl,
-            boxShadow: shadow.card,
-            padding: '18px 20px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '16px',
-            alignItems: 'center',
-          }}>
-            <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '16px', color: colors.textPrimary }}>
-              {data.order.trackingNumber}
-            </div>
-            <div style={{
-              padding: '3px 10px', borderRadius: '9999px', fontSize: '12px', fontWeight: 600,
-              background: colors.primaryLight, color: colors.primary,
-            }}>
-              {data.order.status.replace(/_/g, ' ')}
-            </div>
-            <div style={{
-              padding: '3px 10px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
-              background: D_BG[data.order.delayLevel], color: D_COLORS[data.order.delayLevel],
-            }}>
-              {D_LABELS[data.order.delayLevel]}
-            </div>
-            <div style={{ fontSize: '13px', color: colors.textSecondary }}>
-              SLA started: <span style={{ color: colors.textPrimary, fontWeight: 600 }}>{formatManila(data.order.slaStartedAt)}</span>
-            </div>
-            {data.order.slaCompletedAt && (
-              <div style={{ fontSize: '13px', color: colors.textSecondary }}>
-                Completed in: <span style={{ color: colors.success, fontWeight: 700 }}>{durationLabel(data.order.totalDurationMs)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Events */}
-          <SectionCard title={`Order Timeline — ${data.timeline.length} events`}>
-            <div style={{ padding: '20px' }}>
-              {data.timeline.length === 0 ? (
-                <div style={{ textAlign: 'center', color: colors.textMuted, padding: '24px 0' }}>No events recorded.</div>
-              ) : (
-                <div>
-                  {data.timeline.map((event, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '14px', marginBottom: i < data.timeline.length - 1 ? '0' : '0' }}>
-                      {/* Dot + line */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                        <div style={{
-                          width: '12px', height: '12px', borderRadius: '50%',
-                          background: EVENT_COLORS[event.type] ?? colors.primary,
-                          border: `2px solid ${colors.surface}`,
-                          boxShadow: `0 0 0 2px ${EVENT_COLORS[event.type] ?? colors.primary}`,
-                          marginTop: '4px',
-                          flexShrink: 0,
-                        }} />
-                        {i < data.timeline.length - 1 && (
-                          <div style={{ width: '2px', flex: 1, background: colors.border, minHeight: '28px', margin: '4px 0' }} />
-                        )}
-                      </div>
-
-                      {/* Content */}
-                      <div style={{ paddingBottom: i < data.timeline.length - 1 ? '20px' : '0', flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 600, fontSize: font.sm, color: colors.textPrimary }}>{event.label}</span>
-                          <span style={{ fontSize: font.xs, color: colors.textSecondary }}>by {event.actor}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '3px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: font.xs, color: colors.textMuted }}>{formatManila(event.timestamp)}</span>
-                          {event.durationFromPrevMs != null && (
-                            <span style={{
-                              fontSize: font.xs, fontWeight: 600,
-                              color: colors.textSecondary,
-                              background: colors.surfaceAlt,
-                              border: `1px solid ${colors.border}`,
-                              borderRadius: radius.sm,
-                              padding: '1px 7px',
-                            }}>
-                              +{durationLabel(event.durationFromPrevMs)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Total duration footer */}
-                  {data.order.totalDurationMs > 0 && (
-                    <div style={{
-                      marginTop: '16px', paddingTop: '16px', borderTop: `1px solid ${colors.border}`,
-                      display: 'flex', justifyContent: 'flex-end',
-                      fontSize: font.sm, color: colors.textSecondary,
-                    }}>
-                      Total time: <strong style={{ color: colors.textPrimary, marginLeft: '6px' }}>{durationLabel(data.order.totalDurationMs)}</strong>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </SectionCard>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Reports() {
@@ -534,7 +293,7 @@ export default function Reports() {
   const [sp] = useSearchParams()
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const t = sp.get('tab')
-    return t === 'performance' || t === 'employee' || t === 'live' || t === 'sla' || t === 'timeline' ? t : 'live'
+    return t === 'performance' || t === 'employee' || t === 'live' || t === 'sla' ? t : 'live'
   })
 
   // Live tab deep link (v2.93.0): ?tab=live&role=PACKER&date=YYYY-MM-DD (date = a past day to replay)
@@ -571,13 +330,12 @@ export default function Reports() {
     { key: 'performance', label: 'Performance' },
     { key: 'employee', label: 'Employee Report' },
     { key: 'sla', label: 'SLA Analytics' },
-    { key: 'timeline', label: 'Order Timeline' },
   ]
 
   return (
     <PageShell
       title="Warehouse Report"
-      subtitle="Performance analytics, SLA tracking, and order lifecycle"
+      subtitle="Performance analytics and SLA tracking"
       icon={<ReportsIcon />}
       stats={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -661,8 +419,6 @@ export default function Reports() {
       {/* Live Performance Tab */}
       {activeTab === 'live' && <LivePerformanceTab onOpenEmployee={openEmployee} initialRole={liveRole} initialDate={liveDate} />}
 
-      {/* Order Timeline Tab */}
-      {activeTab === 'timeline' && <OrderTimelineSection />}
     </PageShell>
   )
 }

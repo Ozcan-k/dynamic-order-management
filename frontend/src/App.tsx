@@ -15,6 +15,7 @@ import PackedReport from './pages/PackedReport'
 import OutboundBoard from './pages/OutboundBoard'
 import OutboundReport from './pages/OutboundReport'
 import OldOrdersReport from './pages/OldOrdersReport'
+import OrderHistory from './pages/OrderHistory'
 import OutboundScan from './pages/OutboundScan'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
@@ -47,6 +48,13 @@ import PurchaseForm from './pages/accounting/PurchaseForm'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
 import { useAuthStore } from './stores/authStore'
+
+// Outbound board / report / order history are viewable by the warehouse admins too
+// (v2.98.0); the handheld scan screen stays Admin + Outbound Admin.
+const OUTBOUND_VIEW_ROLES = [
+  UserRole.ADMIN, UserRole.OUTBOUND_ADMIN,
+  UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN,
+]
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,11 +160,12 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          {/* Independent Outbound module — Admin + Outbound Admin only */}
+          {/* Independent Outbound module — Admin + Outbound Admin own it; the warehouse
+              admins can view the board, report and order history (v2.98.0). */}
           <Route
             path="/outbound"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={OUTBOUND_VIEW_ROLES}>
                 <AppLayout><OutboundBoard /></AppLayout>
               </ProtectedRoute>
             }
@@ -164,15 +173,23 @@ export default function App() {
           <Route
             path="/outbound/report"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={OUTBOUND_VIEW_ROLES}>
                 <AppLayout><OutboundReport /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/outbound/history"
+            element={
+              <ProtectedRoute allowedRoles={OUTBOUND_VIEW_ROLES}>
+                <AppLayout><OrderHistory /></AppLayout>
               </ProtectedRoute>
             }
           />
           <Route
             path="/outbound/report/old-orders"
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.OUTBOUND_ADMIN]}>
+              <ProtectedRoute allowedRoles={OUTBOUND_VIEW_ROLES}>
                 <AppLayout><OldOrdersReport /></AppLayout>
               </ProtectedRoute>
             }

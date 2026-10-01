@@ -225,10 +225,12 @@ const NAV_ITEMS: NavItem[] = [
     path: '/outbound',
     label: 'Outbound',
     icon: <OutboundIcon />,
-    roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN],
+    // v2.98.0 — warehouse admins view Outbound read-only (board, report, order history).
+    roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN],
     children: [
-      { path: '/outbound', label: 'Outbound', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN] },
-      { path: '/outbound/report', label: 'Report', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN] },
+      { path: '/outbound', label: 'Outbound', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN] },
+      { path: '/outbound/report', label: 'Report', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN] },
+      { path: '/outbound/history', label: 'Order History', icon: <OutboundIcon />, roles: [UserRole.ADMIN, UserRole.OUTBOUND_ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INBOUND_ADMIN, UserRole.PICKER_ADMIN, UserRole.PACKER_ADMIN] },
     ],
   },
   {

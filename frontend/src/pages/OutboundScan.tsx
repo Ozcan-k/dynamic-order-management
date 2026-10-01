@@ -65,8 +65,14 @@ function vibrate(pattern: number | number[]) {
 // Resolve a Carrier enum from the order's free-text carrier name, falling back
 // to the platform-based suggestion when it can't be matched.
 function resolveCarrier(lookup: OrderLookupResult): Carrier {
-  const raw = (lookup.carrierName ?? '').toUpperCase().replace(/[^A-Z]/g, '')
+  // Inbound stores the Carrier enum value — use it as-is. Without this exact match
+  // "SHOPEE_INSTANT" fell through to the "SHOPEE" substring check below and was
+  // recorded as SPX (v2.98.0 fix; the backend also enforces the order's carrier).
+  const exact = (lookup.carrierName ?? '').trim().toUpperCase()
+  if ((CARRIERS as string[]).includes(exact)) return exact as Carrier
+  const raw = exact.replace(/[^A-Z]/g, '')
   if (raw) {
+    if (raw.includes('INSTANT')) return Carrier.SHOPEE_INSTANT
     if (raw.includes('JT') || raw.includes('JANDT') || raw.includes('JANDTEXPRESS')) return Carrier.JT_EXPRESS
     if (raw.includes('NINJA')) return Carrier.NINJA_VAN
     if (raw.includes('FLASH')) return Carrier.FLASH

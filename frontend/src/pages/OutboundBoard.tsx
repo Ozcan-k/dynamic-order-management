@@ -1,71 +1,50 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
-import { colors } from '../theme'
 import { getManilaDateString } from '../lib/manila'
 import { addDays } from '../components/shared/DateNavigator'
 import PageShell from '../components/shared/PageShell'
-import StatCard from '../components/shared/StatCard'
 import { getDispatchGrouped, getDispatchStats, type CarrierGroup } from '../api/dispatch'
 import { getCarrierStyle, getCarrierLabel } from '../components/shared/carrierStyle'
+import {
+  OutboundIcon, TruckIcon, HouseIcon, ExternalIcon, BoxesIcon, TrophyIcon, KpiTile,
+} from '../components/outbound/obUi'
+import { pct } from '../components/outbound/obFormat'
 
-const OutboundIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="1" y="3" width="15" height="13" rx="2" />
-    <path d="M16 8h4l3 5v3h-7V8z" />
-    <circle cx="5.5" cy="18.5" r="2.5" />
-    <circle cx="18.5" cy="18.5" r="2.5" />
-  </svg>
-)
-
-const TruckIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="1" y="3" width="15" height="13" rx="2" />
-    <path d="M16 8h4l3 5v3h-7V8z" />
-    <circle cx="5.5" cy="18.5" r="2.5" />
-    <circle cx="18.5" cy="18.5" r="2.5" />
-  </svg>
-)
-
-const ShopIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
-    <line x1="3" y1="6" x2="21" y2="6"/>
-    <path d="M16 10a4 4 0 0 1-8 0"/>
-  </svg>
-)
-
-function CarrierCard({ group }: { group: CarrierGroup }) {
+function CarrierLane({ group, dayTotal, index }: { group: CarrierGroup; dayTotal: number; index: number }) {
   const style = getCarrierStyle(group.carrierName)
   const label = getCarrierLabel(group.carrierName)
+  const topShop = group.shops[0]?.count ?? 0
   return (
-    <div style={{ background: '#fff', border: `1px solid ${style.border}`, borderRadius: '14px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-      <div style={{ background: style.headerBg, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: 32, height: 32, background: 'rgba(255,255,255,0.18)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: style.headerText, flexShrink: 0 }}>
+    <article className="ob-lane" style={{ animationDelay: `${Math.min(index, 8) * 0.04}s` }}>
+      <div className="ob-lane-stripe" style={{ background: style.headerBg }} />
+      <div className="ob-lane-head">
+        <div className="ob-lane-name">
+          <div className="ob-lane-icon" style={{ background: style.badgeBg, color: style.headerBg }}>
             <TruckIcon />
           </div>
-          <span style={{ fontWeight: 700, fontSize: '14px', color: style.headerText, letterSpacing: '-0.2px' }}>{label}</span>
-        </div>
-        <div style={{ background: 'rgba(255,255,255,0.22)', borderRadius: '20px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: style.headerText, lineHeight: 1 }}>{group.totalOrders}</span>
-          <span style={{ fontSize: '11px', color: `${style.headerText}cc`, fontWeight: 500 }}>parcels</span>
-        </div>
-      </div>
-      <div style={{ padding: '10px 0' }}>
-        {group.shops.map((shop, i) => (
-          <div key={shop.shopName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 18px', borderBottom: i < group.shops.length - 1 ? `1px solid #f1f5f9` : 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#94a3b8', display: 'flex' }}><ShopIcon /></span>
-              <span style={{ fontSize: '13px', fontWeight: 500, color: colors.textPrimary }}>{shop.shopName.replace(/_/g, ' ')}</span>
-            </div>
-            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, height: 22, background: style.badgeBg, color: style.badgeText, borderRadius: '20px', fontSize: '12px', fontWeight: 700, padding: '0 8px' }}>
-              {shop.count}
-            </span>
+          <div style={{ minWidth: 0 }}>
+            <div className="ob-lane-label">{label}</div>
+            <div className="ob-lane-meta">{group.shops.length} {group.shops.length === 1 ? 'shop' : 'shops'}</div>
           </div>
-        ))}
+        </div>
+        <div className="ob-lane-count">
+          <div className="ob-lane-count-num">{group.totalOrders}</div>
+          <div className="ob-lane-count-pct">{pct(group.totalOrders, dayTotal)} of day</div>
+        </div>
       </div>
-    </div>
+      <ul className="ob-lane-shops">
+        {group.shops.map((shop) => (
+          <li key={shop.shopName} className="ob-shop">
+            <span className="ob-shop-name" title={shop.shopName.replace(/_/g, ' ')}>{shop.shopName.replace(/_/g, ' ')}</span>
+            <span className="ob-shop-bar" aria-hidden="true">
+              <span style={{ width: `${topShop > 0 ? Math.max(4, Math.round((shop.count / topShop) * 100)) : 0}%`, background: style.headerBg }} />
+            </span>
+            <span className="ob-shop-num">{shop.count}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
   )
 }
 
@@ -95,37 +74,37 @@ export default function OutboundBoard() {
   })
 
   const isLoading = groupsLoading || statsLoading
-  const carrierGroups = groups ?? []
+  const carrierGroups = useMemo(() => groups ?? [], [groups])
   const sortedCarrierGroups = useMemo(() => {
     const list = [...carrierGroups]
     if (carrierSort === 'name') list.sort((a, b) => getCarrierLabel(a.carrierName).localeCompare(getCarrierLabel(b.carrierName)))
     else list.sort((a, b) => b.totalOrders - a.totalOrders)
     return list
   }, [carrierGroups, carrierSort])
+  // Share bar is always by volume so the colours read largest → smallest.
+  const byVolume = useMemo(() => [...carrierGroups].sort((a, b) => b.totalOrders - a.totalOrders), [carrierGroups])
 
   // Which preset is active
   const preset: 'today' | 'yesterday' | 'custom' =
     selectedDate === '' ? 'today' : selectedDate === yesterdayStr ? 'yesterday' : 'custom'
 
-  const headerStats = (
-    <>
-      <StatCard label="Total Parcels" value={stats?.total ?? 0} color={colors.primary} />
-      <StatCard label="In-house" value={stats?.inHouse ?? 0} color={colors.success} />
-      <StatCard label="External" value={stats?.external ?? 0} color="#f59e0b" />
-    </>
-  )
+  const total = stats?.total ?? 0
+  const inHouse = stats?.inHouse ?? 0
+  const external = stats?.external ?? 0
+  const top = byVolume[0]
 
   return (
     <PageShell
       icon={OutboundIcon}
       title="Outbound"
       subtitle={`${user?.username} · ${user?.role?.replace(/_/g, ' ')}`}
-      stats={headerStats}
     >
       {/* Date control — Incident-style pills (single day) */}
       <div className="page-hero" style={{ marginBottom: 20 }}>
         <div className="page-hero-content">
-          <div className="page-hero-label">Dispatch Day</div>
+          <div className="page-hero-label">
+            Dispatch Day {preset === 'today' && <span className="ob-live">LIVE</span>}
+          </div>
           <div className="page-hero-title">
             {preset === 'today' ? `Today · ${todayStr}` : activeDate}
           </div>
@@ -142,56 +121,82 @@ export default function OutboundBoard() {
               value={activeDate}
               max={todayStr}
               onChange={(e) => setSelectedDate(e.target.value || '')}
+              aria-label="Dispatch day"
               style={{ padding: '8px 10px', borderRadius: 8, border: 'none', fontWeight: 600, color: '#0f172a' }}
             />
           )}
         </div>
       </div>
 
-      {/* Content */}
-      {isLoading ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '60px 0', color: colors.textMuted, fontSize: '14px' }}>
-          <span className="spinner spinner-sm" />
-          Loading parcels...
+      <div className="ob-stack">
+        <div className="ob-kpis">
+          <KpiTile label="Parcels out" icon={<BoxesIcon />} accent="#2563eb" value={total}
+            foot={preset === 'today' ? 'Scanned out so far today' : `Scanned out on ${activeDate}`} />
+          <KpiTile label="In-house" icon={<HouseIcon />} accent="#16a34a" value={inHouse}
+            foot={<><strong>{pct(inHouse, total)}</strong> of parcels · our orders</>} />
+          <KpiTile label="External" icon={<ExternalIcon />} accent="#f59e0b" value={external}
+            foot={<><strong>{pct(external, total)}</strong> of parcels · not in system</>} />
+          <KpiTile label="Top courier" icon={<TrophyIcon />} accent={top ? getCarrierStyle(top.carrierName).headerBg : '#64748b'}
+            textValue value={top ? getCarrierLabel(top.carrierName) : '—'}
+            foot={top ? <><strong>{top.totalOrders}</strong> parcels · {carrierGroups.length} {carrierGroups.length === 1 ? 'courier' : 'couriers'} active</> : 'No couriers yet'} />
         </div>
-      ) : carrierGroups.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', textAlign: 'center' }}>
-          <div style={{ width: 56, height: 56, background: 'linear-gradient(135deg, #f1f5f9, #e2e8f0)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', color: '#94a3b8' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="1" y="3" width="15" height="13" rx="2" />
-              <path d="M16 8h4l3 5v3h-7V8z" />
-              <circle cx="5.5" cy="18.5" r="2.5" />
-              <circle cx="18.5" cy="18.5" r="2.5" />
-            </svg>
-          </div>
-          <div style={{ fontWeight: 700, fontSize: '15px', color: colors.textPrimary, marginBottom: '6px' }}>
-            {preset === 'today' ? 'No parcels dispatched yet today' : `No parcels dispatched on ${activeDate}`}
-          </div>
-          <div style={{ fontSize: '13px', color: colors.textSecondary }}>
+
+        {isLoading ? (
+          <div className="ob-card ob-empty"><span className="spinner spinner-sm" />Loading parcels…</div>
+        ) : carrierGroups.length === 0 ? (
+          <div className="ob-card ob-empty">
+            <div className="ob-empty-icon"><TruckIcon size={24} /></div>
+            <div className="ob-empty-title">
+              {preset === 'today' ? 'No parcels dispatched yet today' : `No parcels dispatched on ${activeDate}`}
+            </div>
             Scan parcels from the handheld Outbound station to see them here.
           </div>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Sort</span>
-            <div style={{ display: 'inline-flex', background: '#fff', border: `1px solid ${colors.border}`, borderRadius: 999, padding: 3, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-              {([{ k: 'volume', label: 'Volume' }, { k: 'name', label: 'Name' }] as const).map((opt) => {
-                const active = carrierSort === opt.k
-                return (
-                  <button key={opt.k} onClick={() => setCarrierSort(opt.k)} style={{ border: 'none', background: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textSecondary, fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', transition: 'background 0.15s, color 0.15s' }}>
+        ) : (
+          <>
+            {/* Courier mix */}
+            <section className="ob-card">
+              <div className="ob-card-head">
+                <div>
+                  <h2 className="ob-card-title">Courier mix</h2>
+                  <p className="ob-card-sub">Share of the day's parcels by courier.</p>
+                </div>
+                <span className="ob-pill">{total} parcels</span>
+              </div>
+              <div className="ob-mix-bar" role="img" aria-label={byVolume.map((g) => `${getCarrierLabel(g.carrierName)} ${g.totalOrders}`).join(', ')}>
+                {byVolume.map((g) => (
+                  <span key={g.carrierName} className="ob-mix-seg" title={`${getCarrierLabel(g.carrierName)}: ${g.totalOrders}`}
+                    style={{ flexGrow: g.totalOrders, background: getCarrierStyle(g.carrierName).headerBg }} />
+                ))}
+              </div>
+              <div className="ob-mix-legend">
+                {byVolume.map((g) => (
+                  <span key={g.carrierName} className="ob-mix-item">
+                    <span className="ob-dot" style={{ background: getCarrierStyle(g.carrierName).headerBg }} />
+                    {getCarrierLabel(g.carrierName)} <b>{g.totalOrders}</b> · {pct(g.totalOrders, total)}
+                  </span>
+                ))}
+              </div>
+            </section>
+
+            <div className="ob-toolbar">
+              <span className="ob-toolbar-title">By courier &amp; shop</span>
+              <div className="ob-seg" role="group" aria-label="Sort couriers">
+                {([{ k: 'volume', label: 'Volume' }, { k: 'name', label: 'Name' }] as const).map((opt) => (
+                  <button key={opt.k} type="button" aria-pressed={carrierSort === opt.k} onClick={() => setCarrierSort(opt.k)}>
                     {opt.label}
                   </button>
-                )
-              })}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-            {sortedCarrierGroups.map((group) => <CarrierCard key={group.carrierName} group={group} />)}
-          </div>
-        </>
-      )}
+            <div className="ob-lanes">
+              {sortedCarrierGroups.map((group, i) => (
+                <CarrierLane key={group.carrierName} group={group} dayTotal={total} index={i} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </PageShell>
   )
 }

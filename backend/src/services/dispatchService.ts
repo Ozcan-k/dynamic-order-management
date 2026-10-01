@@ -21,6 +21,43 @@ const dispatchSelect = {
   createdBy: { select: { username: true } },
 } satisfies Prisma.DispatchParcelSelect
 
+// ─── Carrier correction (v2.98.0) ─────────────────────────────────────────────
+// Before v2.98.0 the Outbound scanner guessed an in-house parcel's courier from the
+// order's carrier text with a substring match, so "SHOPEE_INSTANT" (contains
+// "SHOPEE") was stored as SPX — Shopee Instant never showed up in Outbound reports.
+// For in-house parcels the order row is the source of truth, so reads re-derive
+// the carrier from it: historical days report Shopee Instant correctly without
+// rewriting stored dispatch rows. Only SPX in-house rows are ever re-labelled
+// (the only mis-mapping), and only when the linked order says SHOPEE_INSTANT.
+
+const CARRIER_VALUES = new Set<string>(Object.values(Carrier))
+
+function isCarrier(value: string | null | undefined): value is Carrier {
+  return !!value && CARRIER_VALUES.has(value)
+}
+
+export async function withEffectiveCarrier<
+  T extends { carrier: string; source: string; orderId: string | null },
+>(rows: T[]): Promise<T[]> {
+  const candidateIds = Array.from(new Set(
+    rows
+      .filter((r) => r.carrier === Carrier.SPX && r.source === DispatchSource.IN_HOUSE && r.orderId)
+      .map((r) => r.orderId as string),
+  ))
+  if (candidateIds.length === 0) return rows
+  const instant = await prisma.order.findMany({
+    where: { id: { in: candidateIds }, carrierName: Carrier.SHOPEE_INSTANT },
+    select: { id: true },
+  })
+  if (instant.length === 0) return rows
+  const instantIds = new Set(instant.map((o) => o.id))
+  return rows.map((r) =>
+    r.carrier === Carrier.SPX && r.source === DispatchSource.IN_HOUSE && r.orderId && instantIds.has(r.orderId)
+      ? { ...r, carrier: Carrier.SHOPEE_INSTANT }
+      : r,
+  )
+}
+
 // ─── In-house order lookup (read-only) ────────────────────────────────────────
 
 export interface OrderLookupResult {
@@ -112,6 +149,7 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
 
   let shopName = EXTERNAL_SHOP
   let orderId: string | null = null
+  let carrier = input.carrier
 
   if (input.source === DispatchSource.IN_HOUSE) {
     // Re-verify the parcel really is ours (drives the "block it" error on the scanner).
@@ -119,13 +157,15 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
     const order = await prisma.order.findFirst({
       where: { tenantId: input.tenantId, trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, shopName: true, status: true },
+      select: { id: true, shopName: true, status: true, carrierName: true },
     })
     if (!order) throw new OrderNotFoundError()
     // The packer must have finished the parcel before it can leave on a courier.
     if (!DISPATCHABLE_STATUSES.includes(order.status)) throw new OrderNotPackerCompleteError()
     orderId = order.id
     shopName = (input.shopName?.trim() || order.shopName || 'Unknown')
+    // The order's carrier (picked at inbound) wins over the scanner's guess.
+    if (isCarrier(order.carrierName)) carrier = order.carrierName
   }
   // EXTERNAL always rolls up under "Others" regardless of any supplied shop.
 
@@ -136,7 +176,7 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
       trackingNumber,
       source: input.source,
       platform: input.platform,
-      carrier: input.carrier,
+      carrier,
       shopName,
       orderId,
     },
@@ -150,10 +190,10 @@ export async function getDispatchGrouped(tenantId: string, date?: string) {
   const startOfDay = date ? getManilaStartOf(date) : getManilaStartOfToday()
   const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000)
 
-  const parcels = await prisma.dispatchParcel.findMany({
+  const parcels = await withEffectiveCarrier(await prisma.dispatchParcel.findMany({
     where: { tenantId, createdAt: { gte: startOfDay, lt: endOfDay } },
-    select: { carrier: true, shopName: true },
-  })
+    select: { carrier: true, shopName: true, source: true, orderId: true },
+  }))
 
   const map = new Map<string, Map<string, number>>()
   for (const p of parcels) {
@@ -202,10 +242,10 @@ export async function getDispatchReport(tenantId: string, from?: string, to?: st
     ...(from || to ? { createdAt } : {}),
   }
 
-  const parcels = await prisma.dispatchParcel.findMany({
+  const parcels = await withEffectiveCarrier(await prisma.dispatchParcel.findMany({
     where,
-    select: { carrier: true, source: true },
-  })
+    select: { carrier: true, source: true, orderId: true },
+  }))
 
   const map = new Map<string, { total: number; inHouse: number; external: number }>()
   for (const p of parcels) {
@@ -383,6 +423,300 @@ export async function getOldOrdersList(
   return rows
 }
 
+// ─── Order history (Outbound → Order History; read-only) ─────────────────────
+// Everything that happened to one waybill, end to end: who scanned it in, which
+// picker / packer had it and when, and who scanned it out to the courier. Replaces
+// the Warehouse Report "Order Timeline" tab (v2.98.0). Matches archived orders and
+// case-insensitively (inbound stores the raw scanned text), prefers the most recent
+// order when a tracking number was re-used, and still answers for an external parcel
+// that only exists in the dispatch log. Never writes anything.
+
+export type HistoryEventType =
+  | 'inbound'
+  | 'picker_assigned'
+  | 'picking'
+  | 'picker_complete'
+  | 'packer_assigned'
+  | 'packing'
+  | 'packer_complete'
+  | 'ready'
+  | 'returned'
+  | 'outbound'
+
+export interface HistoryEvent {
+  type: HistoryEventType
+  timestamp: string
+  actor: string
+  label: string
+  detail: string | null
+  durationFromPrevMs: number | null
+}
+
+export interface HistoryWorkStage {
+  worker: string | null
+  assignedBy: string | null
+  assignedAt: string | null
+  startedAt: string | null
+  completedAt: string | null
+  durationMs: number | null   // assigned → completed
+  assignments: number         // > 1 = re-assigned
+}
+
+export interface OrderHistory {
+  trackingNumber: string
+  order: {
+    id: string
+    platform: string
+    shopName: string | null
+    carrierName: string | null
+    status: string
+    delayLevel: number
+    slaStartedAt: string
+    slaCompletedAt: string | null
+    createdAt: string
+    archived: boolean
+  } | null
+  stages: {
+    inbound: { by: string; at: string } | null
+    picker: HistoryWorkStage | null
+    packer: HistoryWorkStage | null
+    outbound: {
+      by: string
+      at: string
+      carrier: string
+      source: string
+      platform: string
+      shopName: string
+    } | null
+  }
+  timeline: HistoryEvent[]
+  totalDurationMs: number | null // first event → last event
+  otherOrders: number            // older orders that re-used this tracking number
+}
+
+const STATUS_EVENT: Record<OrderStatus, { type: HistoryEventType; label: string }> = {
+  INBOUND:         { type: 'inbound',         label: 'Scanned in at Inbound' },
+  PICKER_ASSIGNED: { type: 'picker_assigned', label: 'Assigned to picker' },
+  PICKING:         { type: 'picking',         label: 'Picking started' },
+  PICKER_COMPLETE: { type: 'picker_complete', label: 'Picking complete' },
+  PACKER_ASSIGNED: { type: 'packer_assigned', label: 'Assigned to packer' },
+  PACKING:         { type: 'packing',         label: 'Packing started' },
+  PACKER_COMPLETE: { type: 'packer_complete', label: 'Packing complete' },
+  OUTBOUND:        { type: 'ready',           label: 'Ready for outbound' },
+}
+
+const STATUS_ORDER: OrderStatus[] = [
+  OrderStatus.INBOUND,
+  OrderStatus.PICKER_ASSIGNED,
+  OrderStatus.PICKING,
+  OrderStatus.PICKER_COMPLETE,
+  OrderStatus.PACKER_ASSIGNED,
+  OrderStatus.PACKING,
+  OrderStatus.PACKER_COMPLETE,
+  OrderStatus.OUTBOUND,
+]
+
+// An assignment row and its PICKER/PACKER_ASSIGNED status row are written together.
+const MATCH_WINDOW_MS = 60 * 1000
+
+interface AssignmentRow {
+  assignedAt: Date
+  completedAt: Date | null
+  worker: string
+  assignedBy: string
+}
+
+function nearestAssignment(rows: AssignmentRow[], at: Date): AssignmentRow | null {
+  let best: AssignmentRow | null = null
+  let bestDiff = Infinity
+  for (const r of rows) {
+    const diff = Math.abs(r.assignedAt.getTime() - at.getTime())
+    if (diff < bestDiff) { best = r; bestDiff = diff }
+  }
+  return best && bestDiff <= MATCH_WINDOW_MS ? best : null
+}
+
+function workStage(
+  rows: AssignmentRow[],
+  history: { toStatus: OrderStatus; changedAt: Date }[],
+  startStatus: OrderStatus,
+): HistoryWorkStage | null {
+  if (rows.length === 0) return null
+  // The assignment that finished the job; otherwise the latest (still open) one.
+  const done = rows.filter((r) => r.completedAt)
+  const final = done.length ? done[done.length - 1] : rows[rows.length - 1]
+  const started = history.find((h) => h.toStatus === startStatus && h.changedAt >= final.assignedAt)
+  return {
+    worker: final.worker,
+    assignedBy: final.assignedBy,
+    assignedAt: final.assignedAt.toISOString(),
+    startedAt: started ? started.changedAt.toISOString() : null,
+    completedAt: final.completedAt ? final.completedAt.toISOString() : null,
+    durationMs: final.completedAt ? final.completedAt.getTime() - final.assignedAt.getTime() : null,
+    assignments: rows.length,
+  }
+}
+
+export async function getOrderHistory(tenantId: string, trackingNumber: string): Promise<OrderHistory | null> {
+  const tn = trackingNumber.trim()
+  const tnMatch = { equals: tn, mode: 'insensitive' as const }
+
+  const [orders, dispatchRows] = await Promise.all([
+    prisma.order.findMany({
+      where: { tenantId, trackingNumber: tnMatch },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        trackingNumber: true,
+        platform: true,
+        shopName: true,
+        carrierName: true,
+        status: true,
+        delayLevel: true,
+        slaStartedAt: true,
+        slaCompletedAt: true,
+        createdAt: true,
+        archivedAt: true,
+        scannedBy: { select: { username: true } },
+        statusHistory: {
+          orderBy: { changedAt: 'asc' },
+          select: { fromStatus: true, toStatus: true, changedAt: true, changedBy: { select: { username: true } } },
+        },
+        pickerAssignments: {
+          orderBy: { assignedAt: 'asc' },
+          select: {
+            assignedAt: true,
+            completedAt: true,
+            picker: { select: { username: true } },
+            assignedBy: { select: { username: true } },
+          },
+        },
+        packerAssignments: {
+          orderBy: { assignedAt: 'asc' },
+          select: {
+            assignedAt: true,
+            completedAt: true,
+            packer: { select: { username: true } },
+            assignedBy: { select: { username: true } },
+          },
+        },
+      },
+    }),
+    prisma.dispatchParcel.findMany({
+      where: { tenantId, trackingNumber: tnMatch },
+      orderBy: { createdAt: 'desc' },
+      select: dispatchSelect,
+    }),
+  ])
+
+  const order = orders[0] ?? null
+  // Prefer the dispatch record linked to this order; fall back to any by waybill.
+  const linked = order ? dispatchRows.find((d) => d.orderId === order.id) : undefined
+  const rawDispatch = linked ?? dispatchRows[0] ?? null
+  if (!order && !rawDispatch) return null
+  const dispatch = rawDispatch ? (await withEffectiveCarrier([rawDispatch]))[0] : null
+
+  const pickerRows: AssignmentRow[] = (order?.pickerAssignments ?? []).map((a) => ({
+    assignedAt: a.assignedAt, completedAt: a.completedAt, worker: a.picker.username, assignedBy: a.assignedBy.username,
+  }))
+  const packerRows: AssignmentRow[] = (order?.packerAssignments ?? []).map((a) => ({
+    assignedAt: a.assignedAt, completedAt: a.completedAt, worker: a.packer.username, assignedBy: a.assignedBy.username,
+  }))
+  const history = order?.statusHistory ?? []
+
+  const events: HistoryEvent[] = []
+  for (const h of history) {
+    const meta = STATUS_EVENT[h.toStatus]
+    const backwards = h.fromStatus !== null
+      && STATUS_ORDER.indexOf(h.toStatus) < STATUS_ORDER.indexOf(h.fromStatus)
+    let type = meta.type
+    let label = meta.label
+    let detail: string | null = null
+    if (backwards && h.fromStatus) {
+      type = 'returned'
+      label = `Sent back to ${h.toStatus.replace(/_/g, ' ').toLowerCase()}`
+      detail = `from ${h.fromStatus.replace(/_/g, ' ').toLowerCase()}`
+    } else if (h.toStatus === OrderStatus.PICKER_ASSIGNED) {
+      const a = nearestAssignment(pickerRows, h.changedAt)
+      if (a) label = `Assigned to picker ${a.worker}`
+    } else if (h.toStatus === OrderStatus.PACKER_ASSIGNED) {
+      const a = nearestAssignment(packerRows, h.changedAt)
+      if (a) label = `Assigned to packer ${a.worker}`
+    }
+    events.push({
+      type,
+      timestamp: h.changedAt.toISOString(),
+      actor: h.changedBy.username,
+      label,
+      detail,
+      durationFromPrevMs: null,
+    })
+  }
+
+  if (dispatch) {
+    events.push({
+      type: 'outbound',
+      timestamp: dispatch.createdAt.toISOString(),
+      actor: dispatch.createdBy.username,
+      label: 'Scanned out to courier',
+      detail: dispatch.source === DispatchSource.IN_HOUSE ? 'In-house' : 'External',
+      durationFromPrevMs: null,
+    })
+  }
+
+  events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  for (let i = 1; i < events.length; i++) {
+    events[i].durationFromPrevMs =
+      new Date(events[i].timestamp).getTime() - new Date(events[i - 1].timestamp).getTime()
+  }
+
+  const inboundEvent = history.find((h) => h.toStatus === OrderStatus.INBOUND && h.fromStatus === null)
+  const inbound = order
+    ? {
+        by: inboundEvent?.changedBy.username ?? order.scannedBy.username,
+        at: (inboundEvent?.changedAt ?? order.createdAt).toISOString(),
+      }
+    : null
+
+  return {
+    trackingNumber: order?.trackingNumber ?? rawDispatch?.trackingNumber ?? tn,
+    order: order
+      ? {
+          id: order.id,
+          platform: order.platform,
+          shopName: order.shopName,
+          carrierName: order.carrierName,
+          status: order.status,
+          delayLevel: order.delayLevel,
+          slaStartedAt: order.slaStartedAt.toISOString(),
+          slaCompletedAt: order.slaCompletedAt ? order.slaCompletedAt.toISOString() : null,
+          createdAt: order.createdAt.toISOString(),
+          archived: order.archivedAt !== null,
+        }
+      : null,
+    stages: {
+      inbound,
+      picker: workStage(pickerRows, history, OrderStatus.PICKING),
+      packer: workStage(packerRows, history, OrderStatus.PACKING),
+      outbound: dispatch
+        ? {
+            by: dispatch.createdBy.username,
+            at: dispatch.createdAt.toISOString(),
+            carrier: dispatch.carrier,
+            source: dispatch.source,
+            platform: dispatch.platform,
+            shopName: dispatch.shopName,
+          }
+        : null,
+    },
+    timeline: events,
+    totalDurationMs: events.length > 1
+      ? new Date(events[events.length - 1].timestamp).getTime() - new Date(events[0].timestamp).getTime()
+      : null,
+    otherOrders: Math.max(0, orders.length - 1),
+  }
+}
+
 // ─── Paginated list + delete (admin corrections) ──────────────────────────────
 
 export interface ListDispatchParams {
@@ -410,7 +744,7 @@ export async function listDispatch(tenantId: string, params: ListDispatchParams)
     ...(params.search ? { trackingNumber: { contains: params.search.trim().toUpperCase() } } : {}),
   }
 
-  const [rows, total] = await Promise.all([
+  const [rawRows, total] = await Promise.all([
     prisma.dispatchParcel.findMany({
       where,
       select: dispatchSelect,
@@ -420,6 +754,7 @@ export async function listDispatch(tenantId: string, params: ListDispatchParams)
     }),
     prisma.dispatchParcel.count({ where }),
   ])
+  const rows = await withEffectiveCarrier(rawRows)
 
   return { rows, total, page, pageSize }
 }

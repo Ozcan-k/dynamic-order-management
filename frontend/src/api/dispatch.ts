@@ -115,3 +115,58 @@ export async function getOldOrders(from?: string, to?: string): Promise<OldOrder
   const res = await api.get<OldOrderRow[]>('/dispatch/old-orders', { params: { from, to } })
   return res.data
 }
+
+// ─── Order history (v2.98.0) ────────────────────────────────────────────────────
+
+export type HistoryEventType =
+  | 'inbound' | 'picker_assigned' | 'picking' | 'picker_complete'
+  | 'packer_assigned' | 'packing' | 'packer_complete' | 'ready' | 'returned' | 'outbound'
+
+export interface HistoryEvent {
+  type: HistoryEventType
+  timestamp: string
+  actor: string
+  label: string
+  detail: string | null
+  durationFromPrevMs: number | null
+}
+
+export interface HistoryWorkStage {
+  worker: string | null
+  assignedBy: string | null
+  assignedAt: string | null
+  startedAt: string | null
+  completedAt: string | null
+  durationMs: number | null
+  assignments: number
+}
+
+export interface OrderHistory {
+  trackingNumber: string
+  order: {
+    id: string
+    platform: string
+    shopName: string | null
+    carrierName: string | null
+    status: string
+    delayLevel: number
+    slaStartedAt: string
+    slaCompletedAt: string | null
+    createdAt: string
+    archived: boolean
+  } | null
+  stages: {
+    inbound: { by: string; at: string } | null
+    picker: HistoryWorkStage | null
+    packer: HistoryWorkStage | null
+    outbound: { by: string; at: string; carrier: string; source: string; platform: string; shopName: string } | null
+  }
+  timeline: HistoryEvent[]
+  totalDurationMs: number | null
+  otherOrders: number
+}
+
+export async function getOrderHistory(trackingNumber: string): Promise<OrderHistory> {
+  const res = await api.get<OrderHistory>('/dispatch/order-history', { params: { trackingNumber } })
+  return res.data
+}
