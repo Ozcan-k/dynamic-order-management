@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { accBalance, accManilaToday, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, downloadInvoicePdf, money, type SaleFilters } from '../../api/accounting'
+import { useSales, useSalesStats, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
+import ExportButtons from '../../components/accounting/ExportButtons'
+import { exportCsv, exportName, exportXlsx } from '../../components/accounting/tableExport'
+import { saleColumns } from '../../components/accounting/exportColumns'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 import AccIcon from '../../components/accounting/AccIcon'
 import { DueCell, PaidBar, StatusPill } from '../../components/accounting/paymentBits'
@@ -44,7 +47,16 @@ export default function AccInvoices() {
     <div className="acc-page acc-v3">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">Sales</h1><p className="acc-sub">Invoices, what has been collected, and what is still owed</p></div>
-        <button className="acc-btn acc-btn-primary" onClick={() => navigate('/accounting/sales/new')}><AccIcon name="plus" />New Invoice</button>
+        <div className="acc-actions">
+          <ExportButtons onExport={async (format) => {
+            const rows = await fetchAllSales(filters)
+            const name = exportName('Sales', filters.from, filters.to)
+            const title = `Sales · ${filters.from || filters.to ? `${filters.from || 'start'} to ${filters.to || 'today'}` : 'all dates'}${tab !== 'all' ? ` · ${TABS.find((t) => t.key === tab)?.label}` : ''}`
+            if (format === 'csv') exportCsv(`${name}.csv`, saleColumns(), rows)
+            else exportXlsx(`${name}.xlsx`, 'Sales', title, saleColumns(), rows)
+          }} />
+          <button className="acc-btn acc-btn-primary" onClick={() => navigate('/accounting/sales/new')}><AccIcon name="plus" />New Invoice</button>
+        </div>
       </div>
 
       <div className="acc-money" aria-label="Summary for the selected dates">

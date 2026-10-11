@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom'
 import { ACC_PAYMENT_METHOD_LABELS } from '@dom/shared'
 import { useSalesLedger, useExpenseLedger, usePaymentsLedger, money } from '../../api/accounting'
 import DateRangePicker, { type DateRange } from '../../components/accounting/DateRangePicker'
+import ExportButtons from '../../components/accounting/ExportButtons'
+import { exportCsv, exportName, exportXlsx, type ExportColumn } from '../../components/accounting/tableExport'
+import { expenseLineColumns, paymentColumns, salesLineColumns } from '../../components/accounting/exportColumns'
 
 type Tab = 'sales' | 'payments' | 'expenses' | 'paymentsOut'
 
@@ -23,11 +26,12 @@ export default function AccTransactions() {
   const [tab, setTab] = useState<Tab>('sales')
   const [range, setRange] = useState<DateRange>(() => thisMonth())
 
-  const salesQ = useSalesLedger(tab === 'sales' ? range : { from: '', to: '' })
-  const expensesQ = useExpenseLedger(tab === 'expenses' ? range : { from: '', to: '' })
+  // Only the open tab queries (the others used to load the whole history with an empty range).
+  const salesQ = useSalesLedger(range, tab === 'sales')
+  const expensesQ = useExpenseLedger(range, tab === 'expenses')
   // Payments are filtered by the day the money came in, not the invoice date.
-  const paymentsInQ = usePaymentsLedger(tab === 'payments' ? range : { from: '', to: '' }, 'sale')
-  const paymentsOutQ = usePaymentsLedger(tab === 'paymentsOut' ? range : { from: '', to: '' }, 'expense')
+  const paymentsInQ = usePaymentsLedger(range, 'sale', tab === 'payments')
+  const paymentsOutQ = usePaymentsLedger(range, 'expense', tab === 'paymentsOut')
   const paymentsQ = tab === 'paymentsOut' ? paymentsOutQ : paymentsInQ
   const payments = paymentsQ.data
 
@@ -38,7 +42,16 @@ export default function AccTransactions() {
   return (
     <div className="acc-page">
       <div className="acc-head acc-head-row">
-        <div><h1 className="acc-title">Transactions</h1><p className="acc-sub">Every sale &amp; expense line item, and every payment received, one row each</p></div>
+        <div><h1 className="acc-title">Transactions</h1><p className="acc-sub">Every sale &amp; expense line item, and every payment received or made, one row each</p></div>
+        <ExportButtons disabled={isLoading} onExport={(format) => {
+          const label = { sales: 'Sales lines', payments: 'Payments received', paymentsOut: 'Payments made', expenses: 'Expense lines' }[tab]
+          const name = exportName(label.replace(/ /g, '-'), range.from, range.to)
+          const title = `${label} · ${range.from || range.to ? `${range.from || 'start'} to ${range.to || 'today'}` : 'all dates'}`
+          const go = <T,>(cols: ExportColumn<T>[], rows: T[]) => format === 'csv' ? exportCsv(`${name}.csv`, cols, rows) : exportXlsx(`${name}.xlsx`, label, title, cols, rows)
+          if (tab === 'sales') go(salesLineColumns, sales?.rows ?? [])
+          else if (tab === 'expenses') go(expenseLineColumns, expenses?.rows ?? [])
+          else go(paymentColumns(tab === 'payments' ? 'sale' : 'expense'), payments?.rows ?? [])
+        }} />
       </div>
 
       {/* Tabs */}

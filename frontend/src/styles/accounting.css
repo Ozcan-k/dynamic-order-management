@@ -411,6 +411,9 @@
 /* ── v2.100.0: Overview, customer statement ─────────────────────────────── */
 .acc-page .acc-stat--teal { border-top-color: #0d9488; }
 .acc-page a.acc-btn { text-decoration: none; }
+/* v2.102.0 — CSV / Excel export buttons */
+.acc-page .acc-export { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.acc-page .acc-export .acc-error { margin-left: 4px; }
 /* v2.101.0 — possible duplicate expense (warning, never a block) */
 .acc-page .acc-dup-warn { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 11px 14px; border-radius: 10px; background: var(--acc-warn-50); border: 1px solid var(--acc-warn-line); color: #78350f; font-size: 13px; }
 .acc-page .acc-dup-warn svg { color: var(--acc-warn-ink); margin-top: 1px; }

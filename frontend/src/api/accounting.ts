@@ -337,6 +337,25 @@ export function useExpenseReport(p: ExpenseReportParams) {
   })
 }
 
+// ─── Export: every row behind the current list filters (v2.102.0) ────────────
+// Pages through the same list endpoint the table uses (200 a page), so the export holds
+// exactly what the filters show — never a different query. Capped at 50 pages.
+async function fetchAllPages<T>(path: string, params: Record<string, unknown>): Promise<T[]> {
+  const out: T[] = []
+  for (let page = 1; page <= 50; page++) {
+    const res = (await api.get<AccPaginated<T>>(`${BASE}${path}`, { params: { ...params, page, pageSize: 200 } })).data
+    out.push(...res.items)
+    if (out.length >= res.total || res.items.length === 0) break
+  }
+  return out
+}
+export function fetchAllSales(f: SaleFilters) {
+  return fetchAllPages<AccSale>('/sales', clean({ ...f, page: undefined, pageSize: undefined, late: f.late ? '1' : undefined }))
+}
+export function fetchAllExpenses(f: ExpenseFilters) {
+  return fetchAllPages<AccExpense>('/expenses', clean({ ...f, page: undefined, pageSize: undefined, late: f.late ? '1' : undefined }))
+}
+
 // ─── Receivables + customer statement (v2.100.0) ─────────────────────────────
 export function useReceivablesOverview() {
   return useQuery({
@@ -368,23 +387,26 @@ export async function downloadStatementPdf(customerId: string, name: string, p: 
 
 // ─── Transactions ledger (flat per-line-item rows) ───────────────────────────
 export interface LedgerParams { from?: string; to?: string }
-export function useSalesLedger(p: LedgerParams) {
+export function useSalesLedger(p: LedgerParams, enabled = true) {
   return useQuery({
     queryKey: ['acc', 'ledger', 'sales', p],
+    enabled,
     queryFn: async () => (await api.get<AccLedger<AccSalesLedgerRow>>(`${BASE}/ledger/sales`, { params: clean(p as any) })).data,
     placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }
-export function usePaymentsLedger(p: LedgerParams, kind: 'sale' | 'expense' = 'sale') {
+export function usePaymentsLedger(p: LedgerParams, kind: 'sale' | 'expense' = 'sale', enabled = true) {
   return useQuery({
     queryKey: ['acc', 'ledger', 'payments', kind, p],
+    enabled,
     queryFn: async () => (await api.get<AccLedger<AccPaymentLedgerRow>>(`${BASE}/ledger/payments`, { params: { ...clean(p as any), kind } })).data,
     placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }
-export function useExpenseLedger(p: LedgerParams) {
+export function useExpenseLedger(p: LedgerParams, enabled = true) {
   return useQuery({
     queryKey: ['acc', 'ledger', 'expenses', p],
+    enabled,
     queryFn: async () => (await api.get<AccLedger<AccExpenseLedgerRow>>(`${BASE}/ledger/expenses`, { params: clean(p as any) })).data,
     placeholderData: keepPreviousData, staleTime: 15_000,
   })

@@ -1,6 +1,9 @@
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ACC_COUNTRY_LABELS, accBalance, accManilaToday } from '@dom/shared'
-import { useExpenses, useExpensesStats, useCategories, money, type ExpenseFilters } from '../../api/accounting'
+import { useExpenses, useExpensesStats, useCategories, fetchAllExpenses, money, type ExpenseFilters } from '../../api/accounting'
+import ExportButtons from '../../components/accounting/ExportButtons'
+import { exportCsv, exportName, exportXlsx } from '../../components/accounting/tableExport'
+import { expenseColumns } from '../../components/accounting/exportColumns'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 import AccIcon from '../../components/accounting/AccIcon'
 import { DueCell, PaidBar, StatusPill } from '../../components/accounting/paymentBits'
@@ -69,7 +72,16 @@ export default function AccPurchases() {
     <div className="acc-page acc-v3">
       <div className="acc-head acc-head-row">
         <div><h1 className="acc-title">Expenses</h1><p className="acc-sub">Bills, what has been paid, and what is still owed to vendors</p></div>
-        <button className="acc-btn acc-btn-primary" onClick={() => go('/accounting/expenses/new')}><AccIcon name="plus" />New Expense</button>
+        <div className="acc-actions">
+          <ExportButtons onExport={async (format) => {
+            const rows = await fetchAllExpenses(filters)
+            const name = exportName('Expenses', filters.from, filters.to)
+            const title = `Expenses · ${filters.from || filters.to ? `${filters.from || 'start'} to ${filters.to || 'today'}` : 'all dates'}${tab !== 'all' ? ` · ${TABS.find((t) => t.key === tab)?.label}` : ''}`
+            if (format === 'csv') exportCsv(`${name}.csv`, expenseColumns(), rows)
+            else exportXlsx(`${name}.xlsx`, 'Expenses', title, expenseColumns(), rows)
+          }} />
+          <button className="acc-btn acc-btn-primary" onClick={() => go('/accounting/expenses/new')}><AccIcon name="plus" />New Expense</button>
+        </div>
       </div>
 
       <div className="acc-money" aria-label="Summary for the selected dates">
