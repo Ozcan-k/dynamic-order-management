@@ -5,6 +5,22 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-11] Invoice PDF always had a blank second page; long invoices scattered one row per page (v2.99.0)
+
+### Problem
+Every accounting invoice PDF came out as 2 pages — page 2 held only "Thank you for your business." A test invoice with 14 lines + 9 payments came out as 4 pages, with a single row on some of them.
+
+### Root cause
+`accountingPdfService.ts` writes at absolute `y` positions on an A4 page with a 50 pt margin (usable bottom = 792). The footer was written at `y = 790`, inside the bottom margin, so PDFKit's own text flow broke to a new page before printing it. The item rows and totals never checked the remaining space either, so any text placed past the margin triggered the same automatic break mid-block.
+
+### Fix
+Every block asks for its height first (`ensure(h)` against `BOTTOM = 760`) and starts a fresh page itself; item rows use `heightOfString` for wrapped names and repeat the table header on a new page. The footer sets `doc.page.margins.bottom = 0` and `lineBreak: false` before printing at 790. Verified by rendering with PyMuPDF: normal invoice = 1 page, stress invoice = 2 pages, no blank page.
+
+### Rule
+In PDFKit, never place text inside the page margin with an absolute `y` unless the margin is removed for that call — it silently adds a page. Render the PDF to an image and count pages after any layout change (memory: layout-render probe).
+
+---
+
 ## [2026-09-24] Route throws a 4xx error but the UI shows "Bad Request" instead of the message (v2.92.0)
 
 ### Problem

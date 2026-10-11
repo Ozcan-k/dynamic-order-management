@@ -1,6 +1,6 @@
 # Accounting v3 — kısmi ödeme, alacak takibi, yeni ekranlar
 
-> Durum: **Faz 0 tamam (v2.98.1)** · sıradaki: Faz 1 (v2.99.0).
+> Durum: **Faz 0 tamam (v2.98.1)** · **Faz 1 test'te (v2.99.0-test, main'e geçiş izin bekliyor)** · sıradaki: Faz 2 (v2.100.0).
 > Görsel plan + ekran tasarımları (denenebilir ödeme paneli): https://claude.ai/artifact/1DCALaDzR7PgsXTUspnMrM
 > Mimari: ARCHITECTURE.md §7.13 · ilgili tuzak: SOLUTIONS.md [2026-06-03] (prod `db push` sessiz fail).
 
@@ -63,7 +63,18 @@ Dump müşteri/kullanıcı verisi içerir: **repoya/OneDrive'a koyma**, iş biti
 - Header toplamı ≠ line item toplamı olan kayıt yok (satış ve gider).
 - Recycle Bin'de satış ve gider var → geçiş binned kayıtları da kapsamalı (plan böyle).
 
-## Faz 1 — satışlarda kısmi ödeme (v2.99.0)
+## Faz 1 — satışlarda kısmi ödeme (v2.99.0) — test'te ✅
+
+**Prova sonucu (2026-10-11 prod yedeği, izole container):** CD'nin `prisma db push --accept-data-loss` komutu → "in sync"; şema eklemesi sonrası snapshot birebir aynı; geçiş 513 PAID faturaya 513 `MIGRATED` ödeme yazdı (toplam = PAID toplamı), ikinci çalıştırma 0; geçiş sonrası snapshot birebir aynı + 5 değişmez PASS; `updated_at` değişmedi. API E2E 32/32 (eşzamanlı iki tam ödeme → biri 201 biri 409), Playwright 1440/390, PDF görsel kontrol.
+
+**Prod'a geçiş adımları (main merge izniyle):**
+1. Prod'da `PROJECT_DIR=/opt/dom scripts/acc-reconcile.sh > /root/acc-before-v299.txt` (exit 0, "skip" satırları normal).
+2. `/opt/dom/scripts/backup.sh` elle çalıştır, dosyanın oluştuğunu doğrula.
+3. test → main merge, CD izle; log'da db push "in sync" satırını doğrula; backend log'unda `Accounting: N paid invoice(s) moved to the payment ledger`.
+4. `scripts/acc-reconcile.sh > /root/acc-after-v299.txt; diff …before… …after…` → **boş**, değişmezler PASS. Prod canlı olduğu için 1–3 arası biri fatura girerse fark çıkar: deploy'u sakin saatte yap, çıkan her fark satırını açıkla.
+5. Canlı kontrol: listeyi ve eski bir PAID faturanın detayını aç (tek "From Paid status" ödemesi, tutar = toplam). Gerçek müşteri faturasına deneme ödemesi girme — void bile olsa iz kalır.
+
+Bilinen not: Undo bir ödemeyi siler değil, "Undone right after it was entered" gerekçesiyle void eder (veri kaybı yok kuralı); listede üstü çizili görünür.
 
 Şema (eklemeli):
 - `AccSalePayment` → `acc_sale_payments`: `id`, `saleId` (cascade), `amount Decimal(14,2)`, `paidOn DateTime`, `method AccPaymentMethod`, `bankName?`, `accountName?`, `referenceNumber?`, `gcashNumber?`, `checkNumber?`, `note?`, `receivedByName?`, `source` (`MANUAL` | `MIGRATED`), `createdByName?`, `createdAt`, `voidedAt?`, `voidedByName?`, `voidReason?`; index `(saleId)`, `(tenantId, paidOn)`.

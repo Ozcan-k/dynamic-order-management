@@ -25,6 +25,35 @@ const lineSchema = z.object({
   taxPct: z.number().min(0).max(100).optional(),
 })
 
+const METHODS = ['GCASH', 'CASH', 'BANK_TRANSFER', 'CHECK', 'CREDIT_CARD'] as const
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+
+// v2.99.0 — one payment against an invoice. Method-specific fields follow the same rules
+// the old invoice form enforced (bank: bank + account + reference, GCash: number).
+const paymentSchema = z
+  .object({
+    amount: z.number().positive().max(1e12),
+    paidOn: isoDay,
+    method: z.enum(METHODS),
+    bankName: z.string().max(160).nullish(),
+    accountName: z.string().max(160).nullish(),
+    referenceNumber: z.string().max(120).nullish(),
+    gcashNumber: z.string().max(120).nullish(),
+    note: z.string().max(1000).nullish(),
+    receivedByName: z.string().max(160).nullish(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.method === 'BANK_TRANSFER') {
+      if (!d.bankName?.trim()) ctx.addIssue({ code: 'custom', path: ['bankName'], message: 'Bank Name is required' })
+      if (!d.accountName?.trim()) ctx.addIssue({ code: 'custom', path: ['accountName'], message: 'Account Name is required' })
+      if (!d.referenceNumber?.trim()) ctx.addIssue({ code: 'custom', path: ['referenceNumber'], message: 'Reference Number is required' })
+    }
+    if (d.method === 'GCASH' && !d.gcashNumber?.trim()) ctx.addIssue({ code: 'custom', path: ['gcashNumber'], message: 'Gcash Number is required' })
+  })
+
+/** First validation message, phrased for a person, for the 400 body. */
+const firstIssue = (e: z.ZodError) => e.issues[0]?.message ?? 'Invalid input'
+
 const saleSchema = z
   .object({
     customerType: z.enum(['INDIVIDUAL', 'CORPORATION']),
@@ -41,17 +70,20 @@ const saleSchema = z
     salesAgentName: z.string().max(160).nullish(),
     saleChannel: z.enum(['FACEBOOK', 'TIKTOK', 'INSTAGRAM', 'MARKETPLACE', 'OTHERS']),
     storeName: z.string().max(160).nullish(),
-    status: z.enum(['PAID', 'UNPAID']),
-    paymentMethod: z.enum(['GCASH', 'CASH', 'BANK_TRANSFER', 'CHECK', 'CREDIT_CARD']).nullish(),
+    // v2.99.0: the status is derived from payments. `status` + `paymentMethod` + bank
+    // fields are still accepted from a tab opened before the upgrade (create only).
+    status: z.enum(['PAID', 'UNPAID']).optional(),
+    paymentMethod: z.enum(METHODS).nullish(),
     bankName: z.string().max(160).nullish(),
     accountName: z.string().max(160).nullish(),
     referenceNumber: z.string().max(120).nullish(),
     gcashNumber: z.string().max(120).nullish(),
     note: z.string().max(2000).nullish(),
+    initialPayment: paymentSchema.nullish(),
     items: z.array(lineSchema).min(1),
   })
   .superRefine((d, ctx) => {
-    if (d.status === 'PAID') {
+    if (d.status === 'PAID' && !d.initialPayment) {
       if (!d.paymentMethod) ctx.addIssue({ code: 'custom', path: ['paymentMethod'], message: 'Payment Method is required when Paid' })
       if (d.paymentMethod === 'BANK_TRANSFER') {
         if (!d.bankName) ctx.addIssue({ code: 'custom', path: ['bankName'], message: 'Bank Name is required' })
@@ -174,24 +206,66 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   fastify.get('/sales/next-number', g, async (req) => ({ invoiceNo: await svc.peekNextNumber(tenantOf(req), 'invoice') }))
   fastify.get('/sales', g, async (req) => {
     const q = (req.query as any) ?? {}
+    const status = ['PAID', 'UNPAID', 'PARTIAL'].includes(q.status) ? q.status : undefined
     return svc.listSales(tenantOf(req), {
-      from: q.from, to: q.to, status: q.status, customerId: q.customerId, saleChannel: q.saleChannel, search: q.search,
+      from: q.from, to: q.to, status, late: q.late === '1' || q.late === 'true',
+      customerId: q.customerId, saleChannel: q.saleChannel, search: q.search,
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
     })
   })
   fastify.get('/sales/:id', g, async (req, reply) => {
     const s = await svc.getSale(tenantOf(req), (req.params as any).id); if (!s) return reply.code(404).send({ error: 'Not found' }); return s
   })
+
+  // A payment rule the person can fix (overpayment, total below collected) → 409 with
+  // a sentence they can act on. Anything else is a real error and propagates.
+  const paymentRule = (reply: any, err: unknown) => {
+    if (err instanceof svc.AccPaymentRuleError) {
+      reply.code(err.code === 'INVALID_AMOUNT' ? 400 : 409).send({ error: err.message, code: err.code })
+      return true
+    }
+    return false
+  }
+
   fastify.post('/sales', g, async (req, reply) => {
-    const p = saleSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Validation failed', details: p.error.flatten() })
-    return reply.code(201).send(await svc.createSale(tenantOf(req), p.data))
+    const p = saleSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      return reply.code(201).send(await svc.createSale(tenantOf(req), p.data, actor))
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
   })
   fastify.put('/sales/:id', g, async (req, reply) => {
-    const p = saleSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Validation failed', details: p.error.flatten() })
-    const u = await svc.updateSale(tenantOf(req), (req.params as any).id, p.data); if (!u) return reply.code(404).send({ error: 'Not found' }); return u
+    const p = saleSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      const u = await svc.updateSale(tenantOf(req), (req.params as any).id, p.data, actor); if (!u) return reply.code(404).send({ error: 'Not found' }); return u
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
   })
   fastify.delete('/sales/:id', g, async (req, reply) => {
-    const ok = await svc.deleteSale(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+    const actor = await svc.actorName((req.user as JWTPayload).userId)
+    const ok = await svc.deleteSale(tenantOf(req), (req.params as any).id, actor); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+
+  // ─── Payments against an invoice (v2.99.0) ────────────────────────────────
+  // Both return the refreshed invoice (with payments + new status) so the page can
+  // re-render from one response.
+  fastify.post('/sales/:id/payments', g, async (req, reply) => {
+    const p = paymentSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      const s = await svc.addSalePayment(tenantOf(req), (req.params as any).id, p.data, actor)
+      if (!s) return reply.code(404).send({ error: 'Invoice not found' })
+      return reply.code(201).send(s)
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
+  })
+  fastify.post('/sales/:id/payments/:paymentId/void', g, async (req, reply) => {
+    const p = z.object({ reason: z.string().trim().min(3, 'Say briefly why this payment is voided').max(300) }).safeParse(req.body)
+    if (!p.success) return reply.code(400).send({ error: firstIssue(p.error) })
+    const { id, paymentId } = req.params as { id: string; paymentId: string }
+    const actor = await svc.actorName((req.user as JWTPayload).userId)
+    const s = await svc.voidSalePayment(tenantOf(req), id, paymentId, p.data.reason, actor)
+    if (!s) return reply.code(404).send({ error: 'Payment not found or already voided' })
+    return s
   })
   fastify.get('/sales/:id/pdf', g, async (req, reply) => {
     const tenantId = tenantOf(req)
@@ -288,8 +362,9 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
       if (!category) return
       const uploaded = await readUploadedFile(req, reply)
       if (!uploaded) return
+      const paymentId = kind === 'sale' && typeof (req.query as any)?.paymentId === 'string' ? (req.query as any).paymentId : null
       try {
-        const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, category, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null)
+        const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, category, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null, paymentId)
         if (!att) return reply.code(404).send({ error: 'Not found' })
         return reply.code(201).send(att)
       } catch (err) {
@@ -416,6 +491,10 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   fastify.get('/ledger/sales', g, async (req) => {
     const q = (req.query as any) ?? {}
     return svc.listSalesLedger(tenantOf(req), dateStr(q.from), dateStr(q.to))
+  })
+  fastify.get('/ledger/payments', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    return svc.listPaymentsLedger(tenantOf(req), dateStr(q.from), dateStr(q.to))
   })
   fastify.get('/ledger/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}

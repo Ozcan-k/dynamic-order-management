@@ -5,6 +5,7 @@ import type {
   AccCompanyProfile, AccPaginated, AccListStats, AccSalesAgent,
   AccSalesReport, AccExpenseReport, AccCatalogKind,
   AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
+  AccSalesStats, AccPaymentInput, AccPaymentLedgerRow,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -113,14 +114,38 @@ export function useSalesAgents() {
 }
 
 // ─── Invoices (Sales) ─────────────────────────────────────────────────────────
-export interface SaleFilters { from?: string; to?: string; status?: string; customerId?: string; saleChannel?: string; search?: string; page?: number; pageSize?: number }
+export interface SaleFilters { from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string; search?: string; page?: number; pageSize?: number }
 export function useSales(filters: SaleFilters) {
-  return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params: clean(filters) })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
+  const params = clean({ ...filters, late: filters.late ? '1' : undefined })
+  return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
 // Stats are scoped to the same date range as the list page's picker so the summary
-// cards react to the period selection (and reconcile with the Report tab).
+// strip and tab counts react to the period selection (and reconcile with the Report tab).
 export function useSalesStats(p: { from?: string; to?: string } = {}) {
-  return useQuery({ queryKey: ['acc', 'sales', 'stats', p], queryFn: async () => (await api.get<AccListStats>(`${BASE}/sales/stats`, { params: clean(p) })).data, staleTime: 15_000 })
+  return useQuery({ queryKey: ['acc', 'sales', 'stats', p], queryFn: async () => (await api.get<AccSalesStats>(`${BASE}/sales/stats`, { params: clean(p) })).data, staleTime: 15_000, placeholderData: keepPreviousData })
+}
+
+// ─── Payments against an invoice (v2.99.0) ──────────────────────────────────
+// Both mutations answer with the refreshed invoice; it is written straight into the
+// detail cache so the page updates from one response, then lists/stats refetch.
+function afterPayment(qc: ReturnType<typeof useQueryClient>, saleId: string, sale: AccSale) {
+  qc.setQueryData(['acc', 'sale', saleId], sale)
+  qc.invalidateQueries({ queryKey: ['acc', 'sales'] })
+  qc.invalidateQueries({ queryKey: ['acc', 'ledger'] })
+}
+export function useRecordPayment(saleId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: AccPaymentInput) => (await api.post<AccSale>(`${BASE}/sales/${saleId}/payments`, input)).data,
+    onSuccess: (sale) => afterPayment(qc, saleId, sale),
+  })
+}
+export function useVoidPayment(saleId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (p: { paymentId: string; reason: string }) => (await api.post<AccSale>(`${BASE}/sales/${saleId}/payments/${p.paymentId}/void`, { reason: p.reason })).data,
+    onSuccess: (sale) => afterPayment(qc, saleId, sale),
+  })
 }
 export function useSale(id?: string) {
   return useQuery({ queryKey: ['acc', 'sale', id], enabled: !!id, queryFn: async () => (await api.get<AccSale>(`${BASE}/sales/${id}`)).data })
@@ -132,7 +157,11 @@ export function useSaveSale() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/sales/${input.id}`, input)).data : (await api.post(`${BASE}/sales`, input)).data,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'customers'] }) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['acc', 'sales'] }); qc.invalidateQueries({ queryKey: ['acc', 'sale'] })
+      qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'customers'] })
+      qc.invalidateQueries({ queryKey: ['acc', 'ledger'] })
+    },
   })
 }
 export function useDeleteSale() {
@@ -178,10 +207,10 @@ export function useAttachments(resource: AttachmentResource, recordId: string | 
   })
 }
 
-export async function uploadAttachment(resource: AttachmentResource, recordId: string, category: AccAttachmentCategory, file: File): Promise<AccInvoiceAttachment> {
+export async function uploadAttachment(resource: AttachmentResource, recordId: string, category: AccAttachmentCategory, file: File, paymentId?: string): Promise<AccInvoiceAttachment> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const res = await api.post<AccInvoiceAttachment>(`${BASE}/${resource}/${recordId}/attachments`, form, { params: { category } })
+  const res = await api.post<AccInvoiceAttachment>(`${BASE}/${resource}/${recordId}/attachments`, form, { params: paymentId ? { category, paymentId } : { category } })
   return res.data
 }
 
@@ -295,6 +324,13 @@ export function useSalesLedger(p: LedgerParams) {
   return useQuery({
     queryKey: ['acc', 'ledger', 'sales', p],
     queryFn: async () => (await api.get<AccLedger<AccSalesLedgerRow>>(`${BASE}/ledger/sales`, { params: clean(p as any) })).data,
+    placeholderData: keepPreviousData, staleTime: 15_000,
+  })
+}
+export function usePaymentsLedger(p: LedgerParams) {
+  return useQuery({
+    queryKey: ['acc', 'ledger', 'payments', p],
+    queryFn: async () => (await api.get<AccLedger<AccPaymentLedgerRow>>(`${BASE}/ledger/payments`, { params: clean(p as any) })).data,
     placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }

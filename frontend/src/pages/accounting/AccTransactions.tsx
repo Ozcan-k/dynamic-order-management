@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { useSalesLedger, useExpenseLedger, money } from '../../api/accounting'
+import { Link } from 'react-router-dom'
+import { ACC_PAYMENT_METHOD_LABELS } from '@dom/shared'
+import { useSalesLedger, useExpenseLedger, usePaymentsLedger, money } from '../../api/accounting'
 import DateRangePicker, { type DateRange } from '../../components/accounting/DateRangePicker'
 
-type Tab = 'sales' | 'expenses'
+type Tab = 'sales' | 'payments' | 'expenses'
 
 // Default to the current month so the page isn't an unbounded full-history dump.
 function thisMonth(): DateRange {
@@ -21,20 +23,24 @@ export default function AccTransactions() {
 
   const salesQ = useSalesLedger(tab === 'sales' ? range : { from: '', to: '' })
   const expensesQ = useExpenseLedger(tab === 'expenses' ? range : { from: '', to: '' })
+  // Payments are filtered by the day the money came in, not the invoice date.
+  const paymentsQ = usePaymentsLedger(tab === 'payments' ? range : { from: '', to: '' })
+  const payments = paymentsQ.data
 
   const sales = salesQ.data
   const expenses = expensesQ.data
-  const isLoading = tab === 'sales' ? salesQ.isLoading : expensesQ.isLoading
+  const isLoading = tab === 'sales' ? salesQ.isLoading : tab === 'payments' ? paymentsQ.isLoading : expensesQ.isLoading
 
   return (
     <div className="acc-page">
       <div className="acc-head acc-head-row">
-        <div><h1 className="acc-title">Transactions</h1><p className="acc-sub">Every sale &amp; expense line item, one row each</p></div>
+        <div><h1 className="acc-title">Transactions</h1><p className="acc-sub">Every sale &amp; expense line item, and every payment received, one row each</p></div>
       </div>
 
       {/* Tabs */}
       <div className="acc-seg" style={{ marginBottom: 14 }}>
         <button type="button" className={`acc-seg-btn${tab === 'sales' ? ' active' : ''}`} onClick={() => setTab('sales')}>Sales</button>
+        <button type="button" className={`acc-seg-btn${tab === 'payments' ? ' active' : ''}`} onClick={() => setTab('payments')}>Payments received</button>
         <button type="button" className={`acc-seg-btn${tab === 'expenses' ? ' active' : ''}`} onClick={() => setTab('expenses')}>Expenses</button>
       </div>
 
@@ -74,6 +80,34 @@ export default function AccTransactions() {
               <tfoot><tr>
                 <td colSpan={10} style={{ textAlign: 'right', fontWeight: 700 }}>Total ({sales.count} lines)</td>
                 <td className="acc-col-num" style={{ fontWeight: 700 }}>{money(sales.total)}</td>
+              </tr></tfoot>
+            )}
+          </table>
+        ) : tab === 'payments' ? (
+          <table>
+            <thead><tr>
+              <th>Date paid</th><th>Invoice #</th><th>Customer</th><th>Method</th><th>Reference</th><th>Received by</th><th className="acc-col-num">Amount</th>
+            </tr></thead>
+            <tbody>
+              {isLoading ? <tr><td colSpan={7} className="acc-empty">Loading…</td></tr>
+                : (payments?.rows.length ?? 0) === 0 ? <tr><td colSpan={7} className="acc-empty">No payments received in this range.</td></tr>
+                : payments!.rows.map((r) => (
+                  <tr key={r.id} className={r.voidedAt ? 'acc-row-void' : ''}>
+                    <td>{fmtDate(r.paidOn)}</td>
+                    <td style={{ fontWeight: 600 }}><Link to={`/accounting/sales/${r.saleId}`}>{r.invoiceNo}</Link></td>
+                    <td>{r.customerName}</td>
+                    <td>{r.method ? ACC_PAYMENT_METHOD_LABELS[r.method] : <span className="acc-muted">Not recorded</span>}
+                      {r.voidedAt && <span className="acc-tag">Voided</span>}</td>
+                    <td>{r.referenceNumber || <span className="acc-muted">—</span>}</td>
+                    <td>{r.receivedByName || <span className="acc-muted">—</span>}</td>
+                    <td className="acc-col-num" style={{ fontWeight: 600 }}>{money(r.amount)}</td>
+                  </tr>
+                ))}
+            </tbody>
+            {payments && payments.rows.length > 0 && (
+              <tfoot><tr>
+                <td colSpan={6} style={{ textAlign: 'right', fontWeight: 700 }}>Total received ({payments.count} payment{payments.count === 1 ? '' : 's'}, voided not counted)</td>
+                <td className="acc-col-num" style={{ fontWeight: 700 }}>{money(payments.total)}</td>
               </tr></tfoot>
             )}
           </table>

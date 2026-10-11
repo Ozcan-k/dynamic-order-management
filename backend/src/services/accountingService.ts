@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
-import { SALES_STORES } from '@dom/shared'
+import { SALES_STORES, accCents, accDeriveStatus, accManilaToday } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { ACCOUNTING_DIR, extFromMime, ensureUploadDirs } from '../lib/uploads'
 
@@ -51,11 +51,16 @@ function serItem(i: any) {
     discountPct: num(i.discountPct), taxPct: num(i.taxPct), lineTotal: num(i.lineTotal),
   }
 }
+function serPayment(p: any) {
+  return { ...p, amount: num(p.amount) }
+}
 function serSale(s: any) {
   return {
     ...s,
     subtotal: num(s.subtotal), discountTotal: num(s.discountTotal), taxTotal: num(s.taxTotal), total: num(s.total),
+    paidTotal: num(s.paidTotal),
     items: (s.items ?? []).map(serItem),
+    ...(s.payments ? { payments: s.payments.map(serPayment) } : {}),
   }
 }
 function serExpense(e: any) {
@@ -276,20 +281,157 @@ export async function listSalesAgents(tenantId: string) {
 // ════════════════════════════════════════════════════════════════════════════
 // Invoices (Sales)
 // ════════════════════════════════════════════════════════════════════════════
-function normalizeSalePayment(d: any) {
-  const base = { paymentMethod: null as any, bankName: null, accountName: null, referenceNumber: null, gcashNumber: null }
-  if (d.status !== 'PAID') return base
-  const pm = d.paymentMethod ?? null
-  const out: any = { ...base, paymentMethod: pm }
-  if (pm === 'BANK_TRANSFER') { out.bankName = d.bankName ?? null; out.accountName = d.accountName ?? null; out.referenceNumber = d.referenceNumber ?? null }
-  else if (pm === 'GCASH') { out.gcashNumber = d.gcashNumber ?? null; out.referenceNumber = d.referenceNumber ?? null }
-  else if (pm === 'CHECK') { out.referenceNumber = d.referenceNumber ?? null; out.accountName = d.accountName ?? null }
-  return out
+// ─── Payments (v2.99.0) ─────────────────────────────────────────────────────
+// A sale's paid_total is the sum of its non-voided payments, rewritten in the same
+// transaction as every payment change while the sale row is locked FOR UPDATE, so two
+// people recording a payment at once can never push the invoice past its total.
+
+/** A business rule refused the request — the route maps `code` to an HTTP status. */
+export class AccPaymentRuleError extends Error {
+  constructor(public code: 'OVERPAYMENT' | 'TOTAL_BELOW_PAID' | 'INVALID_AMOUNT', message: string) {
+    super(message)
+    this.name = 'AccPaymentRuleError'
+  }
+}
+
+export interface PaymentInput {
+  amount: number
+  paidOn: string
+  method: 'GCASH' | 'CASH' | 'BANK_TRANSFER' | 'CHECK' | 'CREDIT_CARD'
+  bankName?: string | null
+  accountName?: string | null
+  referenceNumber?: string | null
+  gcashNumber?: string | null
+  note?: string | null
+  receivedByName?: string | null
+}
+
+const peso = (cents: number) => '₱' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** Only the fields that belong to the chosen method are kept (same rules as the old invoice form). */
+function paymentFields(p: PaymentInput) {
+  const m = p.method
+  return {
+    method: m,
+    bankName: m === 'BANK_TRANSFER' ? p.bankName || null : null,
+    accountName: m === 'BANK_TRANSFER' || m === 'CHECK' ? p.accountName || null : null,
+    gcashNumber: m === 'GCASH' ? p.gcashNumber || null : null,
+    referenceNumber: p.referenceNumber || null,
+    note: p.note?.trim() || null,
+    receivedByName: p.receivedByName?.trim() || null,
+  }
+}
+
+type Tx = Prisma.TransactionClient
+
+/** Row-locks the sale (FOR UPDATE) for the rest of the transaction, then reads it. */
+async function lockSale(tx: Tx, tenantId: string, id: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM acc_sales WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`
+  if (!rows.length) return null
+  return tx.accSale.findUnique({ where: { id } })
+}
+
+/** Recomputes paid_total from the ledger and derives status. Call inside the locking tx. */
+async function syncPaid(tx: Tx, saleId: string) {
+  const [agg, sale] = await Promise.all([
+    tx.accSalePayment.aggregate({ _sum: { amount: true }, where: { saleId, voidedAt: null } }),
+    tx.accSale.findUnique({ where: { id: saleId }, select: { total: true } }),
+  ])
+  const paid = num(agg._sum.amount)
+  await tx.accSale.update({ where: { id: saleId }, data: { paidTotal: paid, status: accDeriveStatus(num(sale!.total), paid) } })
+}
+
+async function insertPayment(tx: Tx, tenantId: string, saleId: string, total: number, alreadyPaid: number, p: PaymentInput, actor: string | null) {
+  const amountC = accCents(p.amount)
+  if (amountC <= 0) throw new AccPaymentRuleError('INVALID_AMOUNT', 'Enter an amount greater than ₱0.00.')
+  const balanceC = Math.max(0, accCents(total) - accCents(alreadyPaid))
+  if (amountC > balanceC) {
+    throw new AccPaymentRuleError('OVERPAYMENT', `${peso(amountC)} is more than the ${peso(balanceC)} left on this invoice.`)
+  }
+  return tx.accSalePayment.create({
+    data: {
+      tenantId, saleId, amount: amountC / 100, paidOn: new Date(p.paidOn), source: 'MANUAL', createdByName: actor,
+      ...paymentFields(p),
+    },
+  })
+}
+
+/** Username for "created by" / "voided by" stamps. JWTs carry only the user id. */
+export async function actorName(userId: string | undefined): Promise<string | null> {
+  if (!userId) return null
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } })
+  return u?.username ?? null
+}
+
+export async function addSalePayment(tenantId: string, saleId: string, p: PaymentInput, actor: string | null) {
+  const ok = await prisma.$transaction(async (tx) => {
+    const sale = await lockSale(tx, tenantId, saleId)
+    if (!sale || sale.deletedAt) return false
+    await insertPayment(tx, tenantId, saleId, num(sale.total), num(sale.paidTotal), p, actor)
+    await syncPaid(tx, saleId)
+    return true
+  })
+  return ok ? getSale(tenantId, saleId) : null
+}
+
+/** A payment is never deleted — voiding keeps the row (who, when, why) and drops it from paid_total. */
+export async function voidSalePayment(tenantId: string, saleId: string, paymentId: string, reason: string, actor: string | null) {
+  const ok = await prisma.$transaction(async (tx) => {
+    const sale = await lockSale(tx, tenantId, saleId)
+    if (!sale || sale.deletedAt) return false
+    const res = await tx.accSalePayment.updateMany({
+      where: { id: paymentId, saleId, voidedAt: null },
+      data: { voidedAt: new Date(), voidedByName: actor, voidReason: reason.trim() },
+    })
+    if (!res.count) return false
+    await syncPaid(tx, saleId)
+    return true
+  })
+  return ok ? getSale(tenantId, saleId) : null
+}
+
+/**
+ * v2.99.0 one-time, idempotent: every pre-v3 PAID invoice (total > 0) without payments
+ * gets ONE payment rebuilt from its legacy columns — amount = total, paidOn = dateIssued
+ * (owner's decision), method/bank/GCash as recorded — and paid_total = total. Binned
+ * invoices are included so a restore stays consistent. UNPAID invoices are untouched.
+ * paid_total is set with plain SQL so updated_at keeps its real "last edited" value.
+ * Safe to run on every boot: once done the candidate query is empty.
+ */
+export async function migrateSalePayments(): Promise<number> {
+  const candidates = await prisma.accSale.findMany({
+    where: { status: 'PAID', paidTotal: 0, total: { gt: 0 }, payments: { none: {} } },
+    select: { id: true },
+  })
+  let migrated = 0
+  for (const { id } of candidates) {
+    const done = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM acc_sales WHERE id = ${id} FOR UPDATE`
+      const s = await tx.accSale.findUnique({ where: { id }, include: { _count: { select: { payments: true } } } })
+      if (!s || s.status !== 'PAID' || s._count.payments > 0 || num(s.paidTotal) !== 0 || num(s.total) <= 0) return false
+      await tx.accSalePayment.create({
+        data: {
+          tenantId: s.tenantId, saleId: s.id, amount: s.total, paidOn: s.dateIssued, method: s.paymentMethod ?? null,
+          bankName: s.bankName, accountName: s.accountName, referenceNumber: s.referenceNumber, gcashNumber: s.gcashNumber,
+          source: 'MIGRATED',
+        },
+      })
+      await tx.$executeRaw`UPDATE acc_sales SET paid_total = total WHERE id = ${id}`
+      return true
+    })
+    if (done) migrated++
+  }
+  return migrated
 }
 
 export interface SaleFilters {
-  from?: string; to?: string; status?: string; customerId?: string; saleChannel?: string
+  from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string
   search?: string; page: number; pageSize: number
+}
+
+/** Due before today (Manila calendar day) and not fully paid. */
+function lateWhere() {
+  return { dueDate: { lt: new Date(accManilaToday() + 'T00:00:00.000Z') }, status: { not: 'PAID' as const } }
 }
 
 function dateWhere(from?: string, to?: string) {
@@ -304,6 +446,7 @@ export async function listSales(tenantId: string, f: SaleFilters) {
   const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
   if (f.status) where.status = f.status
+  if (f.late) Object.assign(where, lateWhere())
   if (f.customerId) where.customerId = f.customerId
   if (f.saleChannel) where.saleChannel = f.saleChannel
   if (f.search) where.OR = [
@@ -315,124 +458,179 @@ export async function listSales(tenantId: string, f: SaleFilters) {
   // for each row was a needless join + payload that slowed the page. The edit screen
   // loads the full record (with items) separately via getSale().
   const [items, total] = await Promise.all([
-    prisma.accSale.findMany({ where, orderBy: { dateIssued: 'desc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
+    prisma.accSale.findMany({ where, orderBy: [{ dateIssued: 'desc' }, { createdAt: 'desc' }], skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
     prisma.accSale.count({ where }),
   ])
   return { items: items.map(serSale), total, page: f.page, pageSize: f.pageSize }
 }
 
-// Summary cards for the Sales list page. Scoped to the same date range as the list's
-// DateRangePicker (from/to) so the cards react to This Month / Last Month / etc. and
-// reconcile with the Report → Sales tab for the same period. `avg` = total / count.
+// Summary strip + tab counts for the Sales list page. Scoped to the same date range as
+// the list's DateRangePicker (from/to), so Invoiced reconciles with Report → Sales for
+// the same period (v2.74 rule). Collected = paid_total of those invoices; Late = what is
+// still owed on the ones past their due date today (Manila).
 export async function salesStats(tenantId: string, from?: string, to?: string) {
   const base: any = { tenantId, deletedAt: null }
   const dw = dateWhere(from, to); if (dw) base.dateIssued = dw
-  const [all, paid, unpaid, count] = await Promise.all([
-    prisma.accSale.aggregate({ _sum: { total: true }, where: base }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { ...base, status: 'PAID' } }),
-    prisma.accSale.aggregate({ _sum: { total: true }, where: { ...base, status: 'UNPAID' } }),
-    prisma.accSale.count({ where: base }),
+  const [byStatus, late] = await Promise.all([
+    prisma.accSale.groupBy({ by: ['status'], where: base, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),
+    prisma.accSale.aggregate({ where: { ...base, ...lateWhere() }, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),
   ])
-  const total = num(all._sum.total)
-  return { total, paid: num(paid._sum.total), unpaid: num(unpaid._sum.total), avg: count > 0 ? r2(total / count) : 0, count }
+  let invoicedC = 0, collectedC = 0, count = 0
+  const counts = { UNPAID: 0, PARTIAL: 0, PAID: 0 }
+  for (const g of byStatus) {
+    invoicedC += accCents(num(g._sum.total)); collectedC += accCents(num(g._sum.paidTotal)); count += g._count._all
+    counts[g.status as keyof typeof counts] = g._count._all
+  }
+  const lateC = accCents(num(late._sum.total)) - accCents(num(late._sum.paidTotal))
+  return {
+    invoiced: invoicedC / 100, collected: collectedC / 100, owed: (invoicedC - collectedC) / 100,
+    late: lateC / 100, lateCount: late._count._all, openCount: counts.UNPAID + counts.PARTIAL,
+    count, avg: count > 0 ? r2(invoicedC / 100 / count) : 0, byStatus: counts,
+  }
 }
 
 export async function getSale(tenantId: string, id: string) {
-  return prisma.accSale.findFirst({ where: { id, tenantId, deletedAt: null }, include: { items: true } }).then((s) => (s ? serSale(s) : null))
+  const s = await prisma.accSale.findFirst({
+    where: { id, tenantId, deletedAt: null },
+    include: { items: true, payments: { orderBy: [{ paidOn: 'desc' }, { createdAt: 'desc' }] } },
+  })
+  if (!s) return null
+  // What this customer owes across all live invoices (by archive id, else by name).
+  const who = s.customerId ? { customerId: s.customerId } : { customerName: s.customerName }
+  const open = await prisma.accSale.aggregate({ where: { tenantId, deletedAt: null, ...who }, _sum: { total: true, paidTotal: true } })
+  return { ...serSale(s), customerOpenBalance: (accCents(num(open._sum.total)) - accCents(num(open._sum.paidTotal))) / 100 }
 }
 
-export async function createSale(tenantId: string, d: any) {
+export async function createSale(tenantId: string, d: any, actor: string | null = null) {
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
+  // A tab opened before v2.99.0 still posts the old "status: PAID + paymentMethod" shape.
+  // Honour it as one full payment on the invoice date instead of dropping the payment.
+  let initial: PaymentInput | null = d.initialPayment ?? null
+  if (!initial && d.status === 'PAID' && d.paymentMethod) {
+    initial = {
+      amount: totals.total, paidOn: d.dateIssued, method: d.paymentMethod,
+      bankName: d.bankName, accountName: d.accountName, referenceNumber: d.referenceNumber, gcashNumber: d.gcashNumber,
+    }
+  }
+  // Refuse a bad first payment BEFORE taking an invoice number, so a rejected save never
+  // leaves a gap in the INV/ sequence. (insertPayment re-checks under the transaction.)
+  if (initial && accCents(totals.total) > 0) {
+    const amountC = accCents(initial.amount)
+    if (amountC <= 0) throw new AccPaymentRuleError('INVALID_AMOUNT', 'Enter an amount greater than ₱0.00.')
+    if (amountC > accCents(totals.total)) {
+      throw new AccPaymentRuleError('OVERPAYMENT', `${peso(amountC)} is more than the invoice total of ${peso(accCents(totals.total))}.`)
+    }
+  }
   d.customerId = await ensureCustomerId(tenantId, d)
   await ensureItemsCatalog(tenantId, items, 'SALE')
   const invoiceNo = await nextNumber(tenantId, 'invoice')
-  const sale = await prisma.accSale.create({
-    data: {
-      tenantId, invoiceNo,
-      customerType: d.customerType ?? 'INDIVIDUAL',
-      customerId: d.customerId ?? null,
-      customerName: d.customerName,
-      customerAddress: d.customerAddress ?? null,
-      customerEmail: d.customerEmail ?? null,
-      customerNumber: d.customerNumber ?? null,
-      contactPerson: d.contactPerson ?? null,
-      dateIssued: d.dateIssued ? new Date(d.dateIssued) : new Date(),
-      dueDate: d.dueDate ? new Date(d.dueDate) : null,
-      orderReference: d.orderReference ?? null,
-      salesAgentId: d.salesAgentId ?? null,
-      salesAgentName: d.salesAgentName ?? null,
-      saleChannel: d.saleChannel ?? 'OTHERS',
-      storeName: d.storeName ?? null,
-      status: d.status ?? 'UNPAID',
-      note: d.note ?? null,
-      ...normalizeSalePayment(d),
-      ...totals,
-      items: {
-        create: items.map((l) => ({
-          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
-          description: l.description ?? null,
-          quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
-          lineTotal: computeLine(l).lineTotal,
-        })),
+  const id = await prisma.$transaction(async (tx) => {
+    const sale = await tx.accSale.create({
+      data: {
+        tenantId, invoiceNo,
+        customerType: d.customerType ?? 'INDIVIDUAL',
+        customerId: d.customerId ?? null,
+        customerName: d.customerName,
+        customerAddress: d.customerAddress ?? null,
+        customerEmail: d.customerEmail ?? null,
+        customerNumber: d.customerNumber ?? null,
+        contactPerson: d.contactPerson ?? null,
+        dateIssued: d.dateIssued ? new Date(d.dateIssued) : new Date(),
+        dueDate: d.dueDate ? new Date(d.dueDate) : null,
+        orderReference: d.orderReference ?? null,
+        salesAgentId: d.salesAgentId ?? null,
+        salesAgentName: d.salesAgentName ?? null,
+        saleChannel: d.saleChannel ?? 'OTHERS',
+        storeName: d.storeName ?? null,
+        // Status is never taken from the request: it follows the payments (₱0 → PAID).
+        status: accDeriveStatus(totals.total, 0),
+        note: d.note ?? null,
+        createdByName: actor,
+        ...totals,
+        items: {
+          create: items.map((l) => ({
+            itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+            description: l.description ?? null,
+            quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
+            lineTotal: computeLine(l).lineTotal,
+          })),
+        },
       },
-    },
-    include: { items: true },
+    })
+    // A ₱0 invoice is already PAID; there is nothing to record against it.
+    if (initial && accCents(totals.total) > 0) {
+      await insertPayment(tx, tenantId, sale.id, totals.total, 0, initial, actor)
+      await syncPaid(tx, sale.id)
+    }
+    return sale.id
   })
-  return serSale(sale)
+  return getSale(tenantId, id)
 }
 
-export async function updateSale(tenantId: string, id: string, d: any) {
+export async function updateSale(tenantId: string, id: string, d: any, actor: string | null = null) {
   const existing = await prisma.accSale.findFirst({ where: { id, tenantId, deletedAt: null } })
   if (!existing) return null
   const items: LineInput[] = d.items ?? []
   const totals = computeTotals(items)
   d.customerId = await ensureCustomerId(tenantId, d)
   await ensureItemsCatalog(tenantId, items, 'SALE')
-  await prisma.accSaleItem.deleteMany({ where: { saleId: id } })
-  const sale = await prisma.accSale.update({
-    where: { id },
-    data: {
-      customerType: d.customerType ?? 'INDIVIDUAL',
-      customerId: d.customerId ?? null,
-      customerName: d.customerName,
-      customerAddress: d.customerAddress ?? null,
-      customerEmail: d.customerEmail ?? null,
-      customerNumber: d.customerNumber ?? null,
-      contactPerson: d.contactPerson ?? null,
-      dateIssued: d.dateIssued ? new Date(d.dateIssued) : existing.dateIssued,
-      dueDate: d.dueDate ? new Date(d.dueDate) : null,
-      orderReference: d.orderReference ?? null,
-      salesAgentId: d.salesAgentId ?? null,
-      salesAgentName: d.salesAgentName ?? null,
-      saleChannel: d.saleChannel ?? 'OTHERS',
-      storeName: d.storeName ?? null,
-      status: d.status ?? 'UNPAID',
-      note: d.note ?? null,
-      ...normalizeSalePayment(d),
-      ...totals,
-      items: {
-        create: items.map((l) => ({
-          itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
-          description: l.description ?? null,
-          quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
-          lineTotal: computeLine(l).lineTotal,
-        })),
+  // Payments are managed on the invoice page, never through this form; the legacy
+  // payment columns are left exactly as they are. The only payment rule here: the new
+  // total may not drop below what has already been collected.
+  const ok = await prisma.$transaction(async (tx) => {
+    const locked = await lockSale(tx, tenantId, id)
+    if (!locked || locked.deletedAt) return false
+    if (accCents(totals.total) < accCents(num(locked.paidTotal))) {
+      throw new AccPaymentRuleError('TOTAL_BELOW_PAID',
+        `${peso(accCents(num(locked.paidTotal)))} is already collected on this invoice, so the total can't go below that. Void a payment first.`)
+    }
+    await tx.accSaleItem.deleteMany({ where: { saleId: id } })
+    await tx.accSale.update({
+      where: { id },
+      data: {
+        customerType: d.customerType ?? 'INDIVIDUAL',
+        customerId: d.customerId ?? null,
+        customerName: d.customerName,
+        customerAddress: d.customerAddress ?? null,
+        customerEmail: d.customerEmail ?? null,
+        customerNumber: d.customerNumber ?? null,
+        contactPerson: d.contactPerson ?? null,
+        dateIssued: d.dateIssued ? new Date(d.dateIssued) : existing.dateIssued,
+        dueDate: d.dueDate ? new Date(d.dueDate) : null,
+        orderReference: d.orderReference ?? null,
+        salesAgentId: d.salesAgentId ?? null,
+        salesAgentName: d.salesAgentName ?? null,
+        saleChannel: d.saleChannel ?? 'OTHERS',
+        storeName: d.storeName ?? null,
+        note: d.note ?? null,
+        updatedByName: actor,
+        ...totals,
+        items: {
+          create: items.map((l) => ({
+            itemId: l.itemId ?? null, itemName: l.itemName, categoryId: l.categoryId ?? null, categoryName: l.categoryName ?? null,
+            description: l.description ?? null,
+            quantity: l.quantity, unitCost: l.unitCost, discountPct: l.discountPct ?? 0, taxPct: l.taxPct ?? 0,
+            lineTotal: computeLine(l).lineTotal,
+          })),
+        },
       },
-    },
-    include: { items: true },
+    })
+    // A changed total can move the status (e.g. a PAID invoice that grew is PARTIAL now).
+    await syncPaid(tx, id)
+    return true
   })
-  return serSale(sale)
+  return ok ? getSale(tenantId, id) : null
 }
 
 // Soft-delete: stamp deletedAt so the sale drops out of every live query but can be
 // restored from the Recycle Bin. Only stamps rows that are not already deleted.
-export async function deleteSale(tenantId: string, id: string) {
-  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: null }, data: { deletedAt: new Date() } })
+export async function deleteSale(tenantId: string, id: string, actor: string | null = null) {
+  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: null }, data: { deletedAt: new Date(), deletedByName: actor } })
   return res.count > 0
 }
 export async function restoreSale(tenantId: string, id: string) {
-  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: { not: null } }, data: { deletedAt: null } })
+  const res = await prisma.accSale.updateMany({ where: { id, tenantId, deletedAt: { not: null } }, data: { deletedAt: null, deletedByName: null } })
   if (!res.count) return null
   return getSale(tenantId, id)
 }
@@ -472,6 +670,26 @@ export async function listSalesLedger(tenantId: string, from?: string, to?: stri
     })),
   )
   return { rows, total: rows.reduce((a, r) => a + r.lineTotal, 0), count: rows.length }
+}
+
+// ─── Transactions ledger — payments received (v2.99.0) ──────────────────────
+// One row per payment, filtered by the date the money came in (paidOn) — the cash
+// view, next to the line-item (accrual) view above. Voided payments are listed so the
+// trail is complete, but never counted in the total. Binned invoices are left out.
+export async function listPaymentsLedger(tenantId: string, from?: string, to?: string) {
+  const where: any = { tenantId, sale: { deletedAt: null } }
+  const dw = dateWhere(from, to); if (dw) where.paidOn = dw
+  const pays = await prisma.accSalePayment.findMany({
+    where, orderBy: [{ paidOn: 'desc' }, { createdAt: 'desc' }],
+    include: { sale: { select: { invoiceNo: true, customerName: true } } },
+  })
+  const rows = pays.map((p) => ({
+    id: p.id, saleId: p.saleId, invoiceNo: p.sale.invoiceNo, customerName: p.sale.customerName,
+    paidOn: p.paidOn, amount: num(p.amount), method: p.method, referenceNumber: p.referenceNumber,
+    receivedByName: p.receivedByName, source: p.source, voidedAt: p.voidedAt,
+  }))
+  const live = rows.filter((r) => !r.voidedAt)
+  return { rows, total: live.reduce((a, r) => a + accCents(r.amount), 0) / 100, count: live.length }
 }
 
 // ─── Transactions ledger — flat per-line-item rows (Expenses) ───────────────
@@ -661,11 +879,14 @@ export class DuplicateAttachmentError extends Error {
   }
 }
 
-interface AttachmentRow { id: string; category: AttachmentCategory; mime: string; originalName: string | null; sizeBytes: number; uploadedAt: Date }
+interface AttachmentRow { id: string; category: AttachmentCategory; mime: string; originalName: string | null; sizeBytes: number; uploadedAt: Date; paymentId?: string | null }
 const serAttachment = (a: AttachmentRow) => ({
   id: a.id, category: a.category, mime: a.mime, originalName: a.originalName, sizeBytes: a.sizeBytes, uploadedAt: a.uploadedAt.toISOString(),
+  ...(a.paymentId !== undefined ? { paymentId: a.paymentId } : {}),
 })
 const ATTACHMENT_SELECT = { id: true, category: true, mime: true, originalName: true, sizeBytes: true, uploadedAt: true } as const
+// Only sale attachments carry paymentId (v2.99.0) — expense attachments have no such column yet.
+const SALE_ATTACHMENT_SELECT = { ...ATTACHMENT_SELECT, paymentId: true } as const
 
 /** Soft-deleted sales/expenses still own their files — the Recycle Bin must be able to restore them. */
 async function ownedRecord(tenantId: string, kind: AttachmentKind, recordId: string) {
@@ -691,7 +912,7 @@ function findDuplicate(kind: AttachmentKind, recordId: string, category: Attachm
 export async function listAttachments(tenantId: string, kind: AttachmentKind, recordId: string, category: AttachmentCategory) {
   if (!(await ownedRecord(tenantId, kind, recordId))) return null
   const rows = kind === 'sale'
-    ? await prisma.accSaleAttachment.findMany({ where: { saleId: recordId, category }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
+    ? await prisma.accSaleAttachment.findMany({ where: { saleId: recordId, category }, orderBy: { uploadedAt: 'asc' }, select: SALE_ATTACHMENT_SELECT })
     : await prisma.accExpenseAttachment.findMany({ where: { expenseId: recordId, category }, orderBy: { uploadedAt: 'asc' }, select: ATTACHMENT_SELECT })
   return rows.map(serAttachment)
 }
@@ -704,8 +925,11 @@ export async function addAttachment(
   buffer: Buffer,
   mime: string,
   originalName: string | null,
+  paymentId: string | null = null,
 ) {
   if (!(await ownedRecord(tenantId, kind, recordId))) return null
+  // A payment proof may name the sale payment it proves; it must be one of this sale's.
+  if (paymentId && (kind !== 'sale' || !(await prisma.accSalePayment.findFirst({ where: { id: paymentId, saleId: recordId }, select: { id: true } })))) return null
 
   const name = (originalName ?? '').trim()
   if (name && (await findDuplicate(kind, recordId, category, mime, name))) throw new DuplicateAttachmentError()
@@ -716,7 +940,7 @@ export async function addAttachment(
 
   const data = { category, fileName, mime, originalName: name || null, sizeBytes: buffer.length }
   const row = kind === 'sale'
-    ? await prisma.accSaleAttachment.create({ data: { saleId: recordId, ...data }, select: ATTACHMENT_SELECT })
+    ? await prisma.accSaleAttachment.create({ data: { saleId: recordId, ...data, paymentId }, select: SALE_ATTACHMENT_SELECT })
     : await prisma.accExpenseAttachment.create({ data: { expenseId: recordId, ...data }, select: ATTACHMENT_SELECT })
   return serAttachment(row)
 }
@@ -744,7 +968,7 @@ export async function replaceAttachment(
 
   const data = { fileName, mime, originalName: name || null, sizeBytes: buffer.length, uploadedAt: new Date() }
   const row = kind === 'sale'
-    ? await prisma.accSaleAttachment.update({ where: { id: attachmentId }, data, select: ATTACHMENT_SELECT })
+    ? await prisma.accSaleAttachment.update({ where: { id: attachmentId }, data, select: SALE_ATTACHMENT_SELECT })
     : await prisma.accExpenseAttachment.update({ where: { id: attachmentId }, data, select: ATTACHMENT_SELECT })
 
   // Old file is only unlinked once the new one is safely written and the row repointed.

@@ -697,6 +697,14 @@ enum AccPaymentMethod {
 enum AccPaymentStatus {
   PAID
   UNPAID
+  PARTIAL // v2.99.0 — derived from paid_total, never chosen by hand
+}
+
+// v2.99.0 — where a payment row came from. MIGRATED = written once at startup from a
+// pre-v3 PAID invoice's legacy payment columns (amount = total, paidOn = dateIssued).
+enum AccPaymentSource {
+  MANUAL
+  MIGRATED
 }
 
 enum AccCustomerType {
@@ -838,6 +846,15 @@ model AccSale {
 
   note String? @db.Text
 
+  // v2.99.0 partial payments. paid_total = SUM(non-voided acc_sale_payments.amount),
+  // kept in the same transaction as every payment change (sale row locked FOR UPDATE);
+  // status is derived from it. The legacy payment columns above (payment_method,
+  // bank_name, …) are kept as history and no longer written for new invoices.
+  paidTotal     Decimal @default(0) @map("paid_total") @db.Decimal(14, 2)
+  createdByName String? @map("created_by_name")
+  updatedByName String? @map("updated_by_name")
+  deletedByName String? @map("deleted_by_name")
+
   // Soft-delete: a deleted sale keeps its row (and line items) so it can be
   // restored from the Recycle Bin. All live queries filter deletedAt: null, so a
   // stamped row disappears from lists/stats/reports/ledger but is never lost.
@@ -845,6 +862,7 @@ model AccSale {
 
   items       AccSaleItem[]
   attachments AccSaleAttachment[]
+  payments    AccSalePayment[]
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
 
@@ -865,9 +883,41 @@ model AccSaleAttachment {
   originalName String?               @map("original_name")
   sizeBytes    Int                   @map("size_bytes")
   uploadedAt   DateTime              @default(now()) @map("uploaded_at")
+  // v2.99.0 — a payment proof can name the payment it proves. Plain column (no FK):
+  // payments are never hard-deleted except by the sale's own purge cascade.
+  paymentId    String?               @map("payment_id")
 
   @@index([saleId, category])
   @@map("acc_sale_attachments")
+}
+
+/// v2.99.0 — one received payment against an invoice. Never deleted: a mistake is
+/// voided (voidedAt + who + why) and stays visible. amount > 0; the sum of non-voided
+/// rows never exceeds the sale total (checked under the sale's row lock).
+model AccSalePayment {
+  id              String            @id @default(uuid())
+  tenantId        String            @map("tenant_id")
+  saleId          String            @map("sale_id")
+  sale            AccSale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  amount          Decimal           @db.Decimal(14, 2)
+  paidOn          DateTime          @map("paid_on")
+  method          AccPaymentMethod? // null only for a MIGRATED row whose invoice had no method recorded
+  bankName        String?           @map("bank_name")
+  accountName     String?           @map("account_name")
+  referenceNumber String?           @map("reference_number")
+  gcashNumber     String?           @map("gcash_number")
+  note            String?           @db.Text
+  receivedByName  String?           @map("received_by_name")
+  source          AccPaymentSource  @default(MANUAL)
+  createdByName   String?           @map("created_by_name")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  voidedAt        DateTime?         @map("voided_at")
+  voidedByName    String?           @map("voided_by_name")
+  voidReason      String?           @map("void_reason")
+
+  @@index([saleId])
+  @@index([tenantId, paidOn])
+  @@map("acc_sale_payments")
 }
 
 model AccSaleItem {
