@@ -6,6 +6,7 @@ import type {
   AccSalesReport, AccExpenseReport, AccCatalogKind,
   AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
   AccSalesStats, AccPaymentInput, AccPaymentLedgerRow,
+  AccReceivablesOverview, AccCustomerStatement,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -316,6 +317,35 @@ export function useExpenseReport(p: ExpenseReportParams) {
     queryKey: ['acc', 'report', 'expenses', p],
     queryFn: async () => (await api.get<AccExpenseReport>(`${BASE}/report/expenses`, { params: clean(p as any) })).data,
   })
+}
+
+// ─── Receivables + customer statement (v2.100.0) ─────────────────────────────
+export function useReceivablesOverview() {
+  return useQuery({
+    queryKey: ['acc', 'sales', 'receivables'],
+    queryFn: async () => (await api.get<AccReceivablesOverview>(`${BASE}/receivables/overview`)).data,
+    staleTime: 30_000,
+  })
+}
+export function useCustomerStatement(customerId: string | undefined, p: { from?: string; to?: string }) {
+  return useQuery({
+    queryKey: ['acc', 'sales', 'statement', customerId, p],
+    enabled: !!customerId,
+    queryFn: async () => (await api.get<AccCustomerStatement>(`${BASE}/customers/${customerId}/statement`, { params: clean(p) })).data,
+    placeholderData: keepPreviousData,
+  })
+}
+/** Blob download for the same reason as downloadInvoicePdf (nginx SPA fallback on html navigations). */
+export async function downloadStatementPdf(customerId: string, name: string, p: { from?: string; to?: string }) {
+  const res = await api.get(`${BASE}/customers/${customerId}/statement/pdf`, { params: clean(p), responseType: 'blob' })
+  const url = window.URL.createObjectURL(res.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `Statement-${name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-') || 'customer'}${p.to ? `-${p.to}` : ''}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
 }
 
 // ─── Transactions ledger (flat per-line-item rows) ───────────────────────────

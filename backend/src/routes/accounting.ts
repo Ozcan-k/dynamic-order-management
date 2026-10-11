@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { UserRole, JWTPayload } from '@dom/shared'
 import { requireRole } from '../middleware/rbac'
 import * as svc from '../services/accountingService'
-import { generateInvoicePdfBuffer } from '../services/accountingPdfService'
+import { generateInvoicePdfBuffer, generateStatementPdfBuffer } from '../services/accountingPdfService'
 
 const tenantOf = (request: any) => (request.user as JWTPayload).tenantId
 
@@ -147,6 +147,24 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   })
   fastify.delete('/customers/:id', g, async (req, reply) => {
     const ok = await svc.deleteCustomer(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+
+  // ─── Receivables + customer statement (v2.100.0) ──────────────────────────
+  fastify.get('/receivables/overview', g, async (req) => svc.getReceivablesOverview(tenantOf(req)))
+  fastify.get('/customers/:id/statement', g, async (req, reply) => {
+    const q = (req.query as any) ?? {}
+    const st = await svc.getCustomerStatement(tenantOf(req), (req.params as any).id, dateStr(q.from), dateStr(q.to))
+    if (!st) return reply.code(404).send({ error: 'Customer not found' })
+    return st
+  })
+  fastify.get('/customers/:id/statement/pdf', g, async (req, reply) => {
+    const tenantId = tenantOf(req)
+    const q = (req.query as any) ?? {}
+    const st = await svc.getCustomerStatement(tenantId, (req.params as any).id, dateStr(q.from), dateStr(q.to))
+    if (!st) return reply.code(404).send({ error: 'Customer not found' })
+    const pdf = await generateStatementPdfBuffer(st, await svc.getCompany(tenantId))
+    const safe = st.customer.name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'customer'
+    reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="Statement-${safe}-${st.to ?? st.asOf}.pdf"`).send(pdf)
   })
 
   // ─── Vendors ──────────────────────────────────────────────────────────────

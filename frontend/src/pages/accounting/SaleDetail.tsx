@@ -183,6 +183,11 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
               {sale.customerEmail && <div><dt>Email</dt><dd>{sale.customerEmail}</dd></div>}
               <div><dt>Owes on all invoices</dt><dd className={(sale.customerOpenBalance ?? 0) > 0 ? 'ink-warn' : ''}>{money(sale.customerOpenBalance ?? 0)}</dd></div>
             </dl>
+            {sale.customerId && (
+              <div style={{ padding: '0 18px 14px' }}>
+                <Link className="acc-btn acc-btn-outline acc-btn-sm" style={{ width: '100%' }} to={`/accounting/customers/${sale.customerId}`}><AccIcon name="file" />Account statement</Link>
+              </div>
+            )}
           </section>
 
           <section className="acc-card acc-files">

@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
-import { SALES_STORES, accCents, accDeriveStatus, accManilaToday } from '@dom/shared'
+import { SALES_STORES, accCents, accDeriveStatus, accManilaToday, accDaysLate, accAgingBucket, type AccAgingBucket } from '@dom/shared'
 import { prisma } from '../lib/prisma'
 import { ACCOUNTING_DIR, extFromMime, ensureUploadDirs } from '../lib/uploads'
 
@@ -1144,8 +1144,18 @@ export async function getSalesReport(tenantId: string, opts: { from?: string; to
   const dw = dateWhere(opts.from, opts.to); if (dw) where.dateIssued = dw
   const sales = await prisma.accSale.findMany({ where, select: { dateIssued: true, total: true, salesAgentName: true, invoiceNo: true } })
   const range = resolveRange(opts.from, opts.to, sales.map((s) => new Date(s.dateIssued)))
-  if (!range) return { trend: [], total: 0, count: 0, byAgent: [] }
+  if (!range) return { trend: [], collectedTrend: [], collected: 0, total: 0, count: 0, byAgent: [] }
   const { trend, add } = buildBuckets(range.start, range.end)
+  // v2.100.0 — Collected: money that came in during the same buckets, by payment date
+  // (cash view). Voided payments and binned invoices never count.
+  const collectedBuckets = buildBuckets(range.start, range.end)
+  const pays = await prisma.accSalePayment.findMany({
+    where: { tenantId, voidedAt: null, sale: { deletedAt: null }, paidOn: { gte: range.start, lte: range.end } },
+    select: { paidOn: true, amount: true },
+  })
+  let collectedC = 0
+  for (const p of pays) { collectedBuckets.add(new Date(p.paidOn), num(p.amount)); collectedC += accCents(num(p.amount)) }
+  const collectedTrend = collectedBuckets.trend.map((t) => ({ label: t.label, amount: r2(t.amount) }))
   let total = 0
   // Sales per agent over the selected period — name + amount + invoice count +
   // the invoice numbers behind it (surfaced on hover, esp. for "Unassigned").
@@ -1163,7 +1173,144 @@ export async function getSalesReport(tenantId: string, opts: { from?: string; to
   const byAgent = [...agentMap.entries()]
     .map(([name, v]) => ({ name, amount: r2(v.amount), count: v.count, invoiceNos: v.invoiceNos }))
     .sort((a, b) => b.amount - a.amount)
-  return { trend, total: r2(total), count: sales.length, byAgent }
+  return { trend, collectedTrend, collected: collectedC / 100, total: r2(total), count: sales.length, byAgent }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Receivables (v2.100.0) — who owes what, how late, and when money came in.
+// Always "as of today (Manila)"; computed from paid_total + the payment ledger.
+// ════════════════════════════════════════════════════════════════════════════
+const AGING_ORDER: AccAgingBucket[] = ['notDue', 'd1_30', 'd31_60', 'd60']
+const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
+const dayStart = (day: string) => new Date(day + 'T00:00:00.000Z')
+
+function emptyAging() {
+  return new Map<AccAgingBucket, { amount: number; count: number }>(AGING_ORDER.map((b) => [b, { amount: 0, count: 0 }]))
+}
+const agingRows = (m: ReturnType<typeof emptyAging>) => AGING_ORDER.map((b) => ({ bucket: b, amount: m.get(b)!.amount / 100, count: m.get(b)!.count }))
+
+export async function getReceivablesOverview(tenantId: string) {
+  const today = accManilaToday()
+  const open = await prisma.accSale.findMany({
+    where: { tenantId, deletedAt: null, status: { not: 'PAID' } },
+    select: { customerId: true, customerName: true, total: true, paidTotal: true, dueDate: true },
+  })
+  const aging = emptyAging()
+  const debtors = new Map<string, { customerId: string | null; name: string; owed: number; late: number; invoices: number }>()
+  let owedC = 0, lateC = 0, lateCount = 0
+  for (const s of open) {
+    const balC = Math.max(0, accCents(num(s.total)) - accCents(num(s.paidTotal)))
+    if (balC === 0) continue
+    const daysLate = accDaysLate(isoDay(s.dueDate), 'UNPAID', today)
+    const a = aging.get(accAgingBucket(daysLate))!; a.amount += balC; a.count += 1
+    owedC += balC
+    if (daysLate > 0) { lateC += balC; lateCount += 1 }
+    const key = s.customerId ?? `name:${s.customerName.trim().toLowerCase()}`
+    const d = debtors.get(key) ?? { customerId: s.customerId, name: s.customerName, owed: 0, late: 0, invoices: 0 }
+    d.owed += balC; d.invoices += 1; if (daysLate > 0) d.late += balC
+    debtors.set(key, d)
+  }
+
+  // Last 6 calendar months including this one: invoiced by issue date, collected by payment date.
+  const [ty, tm] = today.split('-').map(Number)
+  const months: string[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(Date.UTC(ty, tm - 1 - i, 1))
+    months.push(d.toISOString().slice(0, 7))
+  }
+  const since = dayStart(months[0] + '-01')
+  const monthStart = dayStart(today.slice(0, 7) + '-01')
+  const [salesSince, paysSince] = await Promise.all([
+    prisma.accSale.findMany({ where: { tenantId, deletedAt: null, dateIssued: { gte: since } }, select: { dateIssued: true, total: true } }),
+    prisma.accSalePayment.findMany({ where: { tenantId, voidedAt: null, sale: { deletedAt: null }, paidOn: { gte: since } }, select: { paidOn: true, amount: true } }),
+  ])
+  const inv = new Map(months.map((m) => [m, 0])), col = new Map(months.map((m) => [m, 0]))
+  for (const s of salesSince) { const k = s.dateIssued.toISOString().slice(0, 7); if (inv.has(k)) inv.set(k, inv.get(k)! + accCents(num(s.total))) }
+  let monthC = 0, monthCount = 0
+  for (const p of paysSince) {
+    const k = p.paidOn.toISOString().slice(0, 7)
+    if (col.has(k)) col.set(k, col.get(k)! + accCents(num(p.amount)))
+    if (p.paidOn >= monthStart) { monthC += accCents(num(p.amount)); monthCount += 1 }
+  }
+
+  const ranked = [...debtors.values()].sort((a, b) => b.owed - a.owed)
+  return {
+    asOf: today,
+    owed: owedC / 100, openCount: open.filter((s) => accCents(num(s.total)) > accCents(num(s.paidTotal))).length,
+    late: lateC / 100, lateCount,
+    aging: agingRows(aging),
+    collectedThisMonth: monthC / 100, collectedThisMonthCount: monthCount,
+    debtors: ranked.slice(0, 8).map((d) => ({ ...d, owed: d.owed / 100, late: d.late / 100 })),
+    debtorCount: ranked.length,
+    trend: months.map((m) => ({
+      month: m,
+      label: new Date(m + '-01T00:00:00Z').toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+      invoiced: inv.get(m)! / 100, collected: col.get(m)! / 100,
+    })),
+    payables: await getPayablesSummary(tenantId, today),
+  }
+}
+
+/** Filled in by the expense-payments phase; until then the Overview shows no payables card. */
+async function getPayablesSummary(_tenantId: string, _today: string): Promise<{ owed: number; count: number; late: number; lateCount: number } | null> {
+  return null
+}
+
+/**
+ * A customer's account: every live invoice (by issue date) and every non-voided payment
+ * (by payment date) on one timeline with a running balance. `from`/`to` narrow the rows;
+ * everything before `from` is rolled into the opening balance, so the closing balance is
+ * always what they owe as of `to` (or today).
+ */
+export async function getCustomerStatement(tenantId: string, customerId: string, from?: string, to?: string) {
+  const customer = await prisma.accCustomer.findFirst({ where: { id: customerId, tenantId } })
+  if (!customer) return null
+  const today = accManilaToday()
+  const sales = await prisma.accSale.findMany({
+    where: { tenantId, deletedAt: null, customerId },
+    include: { payments: { where: { voidedAt: null }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] } },
+    orderBy: [{ dateIssued: 'asc' }, { createdAt: 'asc' }],
+  })
+  type Ev = { date: string; order: number; kind: 'INVOICE' | 'PAYMENT'; saleId: string; invoiceNo: string; details: string; inv: number; paid: number }
+  const METHOD: Record<string, string> = { GCASH: 'GCash', CASH: 'Cash', BANK_TRANSFER: 'Bank Transfer', CHECK: 'Check', CREDIT_CARD: 'Card' }
+  const events: Ev[] = []
+  for (const s of sales) {
+    const due = s.dueDate ? s.dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : null
+    events.push({ date: isoDay(s.dateIssued)!, order: 0, kind: 'INVOICE', saleId: s.id, invoiceNo: s.invoiceNo, details: `Invoice ${s.invoiceNo}${due ? ` · due ${due}` : ''}`, inv: accCents(num(s.total)), paid: 0 })
+    for (const p of s.payments) {
+      const parts = [`Payment · ${p.method ? METHOD[p.method] ?? p.method : 'method not recorded'}`, p.referenceNumber ? `Ref ${p.referenceNumber}` : null, `for ${s.invoiceNo}`]
+      events.push({ date: isoDay(p.paidOn)!, order: 1, kind: 'PAYMENT', saleId: s.id, invoiceNo: s.invoiceNo, details: parts.filter(Boolean).join(' · '), inv: 0, paid: accCents(num(p.amount)) })
+    }
+  }
+  events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order))
+
+  let running = 0, opening = 0, invP = 0, paidP = 0
+  const rows: { date: string; kind: 'INVOICE' | 'PAYMENT'; saleId: string; invoiceNo: string; details: string; invoiced: number; paid: number; balance: number }[] = []
+  for (const e of events) {
+    running += e.inv - e.paid
+    if (from && e.date < from) { opening = running; continue }
+    if (to && e.date > to) continue
+    invP += e.inv; paidP += e.paid
+    rows.push({ date: e.date, kind: e.kind, saleId: e.saleId, invoiceNo: e.invoiceNo, details: e.details, invoiced: e.inv / 100, paid: e.paid / 100, balance: running / 100 })
+  }
+  const closing = opening + invP - paidP
+
+  const aging = emptyAging()
+  const openInvoices = []
+  let owedNowC = 0
+  for (const s of sales) {
+    const balC = Math.max(0, accCents(num(s.total)) - accCents(num(s.paidTotal)))
+    if (balC === 0) continue
+    const daysLate = accDaysLate(isoDay(s.dueDate), 'UNPAID', today)
+    const a = aging.get(accAgingBucket(daysLate))!; a.amount += balC; a.count += 1
+    owedNowC += balC
+    openInvoices.push({ id: s.id, invoiceNo: s.invoiceNo, dateIssued: isoDay(s.dateIssued)!, dueDate: isoDay(s.dueDate), total: num(s.total), paidTotal: num(s.paidTotal), balance: balC / 100, daysLate })
+  }
+  return {
+    customer, from: from ?? null, to: to ?? null, asOf: today,
+    opening: opening / 100, rows, invoicedInPeriod: invP / 100, paidInPeriod: paidP / 100, closing: closing / 100,
+    owedNow: owedNowC / 100, aging: agingRows(aging), openInvoices,
+  }
 }
 
 interface ExpenseReportOpts {

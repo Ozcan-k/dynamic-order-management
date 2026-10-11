@@ -8,6 +8,7 @@ import {
   useSalesReport, useExpenseReport, useVendors, useCategories, money, PESO,
 } from '../../api/accounting'
 import DateRangePicker, { type DateRange } from '../../components/accounting/DateRangePicker'
+import { SERIES_COLOR } from '../../components/accounting/paymentUtils'
 
 type Tab = 'sales' | 'expenses'
 
@@ -38,6 +39,29 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
       </div>
       {children}
     </div>
+  )
+}
+
+// v2.100.0 — Sales tab: invoiced (by issue date) next to collected (by payment date) in
+// the same buckets. Colours match the Overview (validated blue / teal pair).
+function SalesCollectedChart({ data }: { data: { label: string; invoiced: number; collected: number }[] }) {
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={320}>
+        <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }} barGap={2}>
+          <CartesianGrid stroke="#94a3b8" strokeOpacity={0.18} vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval="preserveStartEnd" tickLine={false} />
+          <YAxis tickFormatter={compact} tick={{ fontSize: 12, fill: '#475569' }} width={56} axisLine={false} tickLine={false} />
+          <Tooltip formatter={tip} cursor={{ fill: 'rgba(148,163,184,0.14)' }} contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13 }} />
+          <Bar dataKey="invoiced" name="Invoiced" fill={SERIES_COLOR.invoiced} radius={[4, 4, 0, 0]} maxBarSize={24} />
+          <Bar dataKey="collected" name="Collected" fill={SERIES_COLOR.collected} radius={[4, 4, 0, 0]} maxBarSize={24} />
+        </BarChart>
+      </ResponsiveContainer>
+      <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#475569', marginTop: 6 }}>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><i style={{ width: 8, height: 8, borderRadius: 2, background: SERIES_COLOR.invoiced, display: 'inline-block' }} />Invoiced · by issue date</span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><i style={{ width: 8, height: 8, borderRadius: 2, background: SERIES_COLOR.collected, display: 'inline-block' }} />Collected · by payment date</span>
+      </div>
+    </>
   )
 }
 
@@ -178,7 +202,9 @@ export default function AccReport() {
   const { data: categories = [] } = useCategories('EXPENSE')
   const exp = useExpenseReport({ from: range.from, to: range.to, country, vendorId, category, subcategory })
 
-  const salesSeries = (sales.data?.trend ?? []).map((t) => ({ label: t.label, value: t.amount }))
+  const collectedTrend = sales.data?.collectedTrend ?? []
+  const salesSeries = (sales.data?.trend ?? []).map((t, i) => ({ label: t.label, invoiced: t.amount, collected: collectedTrend[i]?.amount ?? 0 }))
+  const salesCollected = sales.data?.collected ?? 0
   const salesTotal = sales.data?.total ?? 0
   const salesCount = sales.data?.count ?? 0
   const salesByAgent = sales.data?.byAgent ?? []
@@ -198,6 +224,7 @@ export default function AccReport() {
 
   const salesCards = [
     { label: 'Total Sales', value: money(salesTotal), cls: 'acc-stat--green' },
+    { label: 'Collected', value: money(salesCollected), cls: 'acc-stat--teal' },
     { label: 'Invoices', value: String(salesCount), cls: 'acc-stat--blue' },
     { label: 'Avg / Invoice', value: money(salesCount > 0 ? salesTotal / salesCount : 0), cls: 'acc-stat--amber' },
   ]
@@ -224,10 +251,10 @@ export default function AccReport() {
       {tab === 'sales' ? (
         <>
           <StatCards cards={salesCards} />
-          <ChartCard title="Sales" subtitle={`${periodLabel}`}>
+          <ChartCard title="Sales and money collected" subtitle={`${periodLabel} · Collected counts payments received in the period, whatever the invoice date`}>
             {sales.isLoading ? <div className="acc-empty">Loading…</div>
               : salesSeries.length === 0 ? <div className="acc-empty">No data for this period.</div>
-              : <TrendChart data={salesSeries} color={C.sales} />}
+              : <SalesCollectedChart data={salesSeries} />}
           </ChartCard>
 
           <ChartCard title="Sales by Agent" subtitle={`${periodLabel} · ${salesByAgent.length} agent${salesByAgent.length === 1 ? '' : 's'}`}>
