@@ -963,11 +963,20 @@ model AccExpense {
   taxTotal      Decimal @default(0) @map("tax_total") @db.Decimal(14, 2)
   total         Decimal @default(0) @db.Decimal(14, 2)
 
+  // v2.101.0 partial payments — same rules as AccSale.paidTotal (sum of non-voided
+  // acc_expense_payments, kept under the expense row lock; status derived from it).
+  // Legacy payment_method / paid_by above are kept as history, no longer written.
+  paidTotal     Decimal @default(0) @map("paid_total") @db.Decimal(14, 2)
+  createdByName String? @map("created_by_name")
+  updatedByName String? @map("updated_by_name")
+  deletedByName String? @map("deleted_by_name")
+
   // Soft-delete (see AccSale.deletedAt) — restorable from the Recycle Bin.
   deletedAt DateTime? @map("deleted_at")
 
   items       AccExpenseItem[]
   attachments AccExpenseAttachment[]
+  payments    AccExpensePayment[]
   createdAt   DateTime               @default(now()) @map("created_at")
   updatedAt   DateTime               @updatedAt @map("updated_at")
 
@@ -1015,9 +1024,39 @@ model AccExpenseAttachment {
   originalName String?               @map("original_name")
   sizeBytes    Int                   @map("size_bytes")
   uploadedAt   DateTime              @default(now()) @map("uploaded_at")
+  // v2.101.0 — the expense payment a PAYMENT_PROOF belongs to (plain column, no FK).
+  paymentId    String?               @map("payment_id")
 
   @@index([expenseId, category])
   @@map("acc_expense_attachments")
+}
+
+/// v2.101.0 — one payment made against an expense / supplier bill. Mirrors
+/// AccSalePayment: never deleted, voided instead; Σ non-voided ≤ expense total.
+model AccExpensePayment {
+  id              String            @id @default(uuid())
+  tenantId        String            @map("tenant_id")
+  expenseId       String            @map("expense_id")
+  expense         AccExpense        @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  amount          Decimal           @db.Decimal(14, 2)
+  paidOn          DateTime          @map("paid_on")
+  method          AccPaymentMethod? // null only for a MIGRATED row whose expense had no method recorded
+  bankName        String?           @map("bank_name")
+  accountName     String?           @map("account_name")
+  referenceNumber String?           @map("reference_number")
+  gcashNumber     String?           @map("gcash_number")
+  note            String?           @db.Text
+  paidByName      String?           @map("paid_by_name") // who paid (person / card holder), like the legacy paid_by
+  source          AccPaymentSource  @default(MANUAL)
+  createdByName   String?           @map("created_by_name")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  voidedAt        DateTime?         @map("voided_at")
+  voidedByName    String?           @map("voided_by_name")
+  voidReason      String?           @map("void_reason")
+
+  @@index([expenseId])
+  @@index([tenantId, paidOn])
+  @@map("acc_expense_payments")
 }
 
 model AccCompanyProfile {

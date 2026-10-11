@@ -1,4 +1,4 @@
-// Record Payment — a side sheet over the invoice page (v2.99.0).
+// Record Payment — a side sheet over the invoice page (v2.99.0) and the expense page (v2.101.0).
 // The amount starts at the full balance, the outcome ("Stays Partial · ₱X left") is
 // previewed live from the same shared math the backend uses, and an amount above the
 // balance is stopped inline before it ever reaches the server (which refuses it too).
@@ -6,9 +6,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ACC_PAYMENT_METHOD_LABELS, AccPaymentMethod, accBalance, accCents, accDeriveStatus, accManilaToday,
-  type AccPaymentInput, type AccSale,
+  type AccPaymentInput, type AccSale, type AccExpense,
 } from '@dom/shared'
-import { money, uploadAttachment, useRecordPayment } from '../../api/accounting'
+import { money, uploadAttachment, useRecordPayment, type PaymentResource } from '../../api/accounting'
 import { useAuthStore } from '../../stores/authStore'
 import { downscaleImage } from '../../lib/imageDownscale'
 import { validateAttachment, ACCEPT } from './InvoiceAttachments'
@@ -20,17 +20,30 @@ const SHORT: Record<AccPaymentMethod, string> = { CASH: 'Cash', GCASH: 'GCash', 
 
 const asInput = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** What the sheet needs from an invoice or an expense. */
+export interface PayableRecord {
+  id: string
+  number: string
+  party: string
+  total: number
+  paidTotal: number
+  payments?: { id: string }[]
+}
+
 interface Props {
-  sale: AccSale
+  /** 'sales' = money received (invoice); 'expenses' = money paid out. */
+  resource: PaymentResource
+  record: PayableRecord
   open: boolean
   onClose: () => void
   /** Called after the payment is stored (and its proof, if any, uploaded). */
-  onSaved: (info: { amount: number; paymentId: string | null; sale: AccSale; proofFailed: boolean }) => void
+  onSaved: (info: { amount: number; paymentId: string | null; record: AccSale | AccExpense; proofFailed: boolean }) => void
 }
 
-export default function PaymentSheet({ sale, open, onClose, onSaved }: Props) {
+export default function PaymentSheet({ resource, record: sale, open, onClose, onSaved }: Props) {
   const me = useAuthStore((s) => s.user?.username ?? '')
-  const record = useRecordPayment(sale.id)
+  const record = useRecordPayment(resource, sale.id)
+  const isSale = resource === 'sales'
   const balance = accBalance(sale.total, sale.paidTotal)
 
   const [amount, setAmount] = useState('')
@@ -88,18 +101,19 @@ export default function PaymentSheet({ sale, open, onClose, onSaved }: Props) {
     const input: AccPaymentInput = {
       amount: value, paidOn, method,
       bankName: bankName || null, accountName: accountName || null, referenceNumber: referenceNumber || null,
-      gcashNumber: gcashNumber || null, note: note || null, receivedByName: receivedBy || null,
+      gcashNumber: gcashNumber || null, note: note || null,
+      ...(isSale ? { receivedByName: receivedBy || null } : { paidByName: receivedBy || null }),
     }
-    let updated: AccSale
+    let updated: AccSale | AccExpense
     try { updated = await record.mutateAsync(input) }
     catch (err) { setError(apiErrorMessage(err, 'The payment could not be saved. Try again.')); return }
-    const created = (updated.payments ?? []).find((p) => !before.has(p.id)) ?? null
+    const created = ((updated.payments ?? []) as { id: string }[]).find((p) => !before.has(p.id)) ?? null
     let proofFailed = false
     if (proof && created) {
-      try { await uploadAttachment('sales', sale.id, 'PAYMENT_PROOF', await downscaleImage(proof), created.id) }
+      try { await uploadAttachment(resource, sale.id, 'PAYMENT_PROOF', await downscaleImage(proof), created.id) }
       catch { proofFailed = true }
     }
-    onSaved({ amount: value, paymentId: created?.id ?? null, sale: updated, proofFailed })
+    onSaved({ amount: value, paymentId: created?.id ?? null, record: updated, proofFailed })
   }
 
   // Esc closes; Tab stays inside the sheet while it is open.
@@ -121,14 +135,14 @@ export default function PaymentSheet({ sale, open, onClose, onSaved }: Props) {
         <div className="acc-sheet-head">
           <div>
             <h2 id="acc-pay-title">Record Payment</h2>
-            <p>{sale.invoiceNo} · {sale.customerName} · {money(balance)} left</p>
+            <p>{sale.number} · {sale.party} · {money(balance)} left</p>
           </div>
           <button type="button" className="acc-icon-btn" onClick={onClose} aria-label="Close"><AccIcon name="x" /></button>
         </div>
 
         <form id="acc-pay-form" className="acc-sheet-body" onSubmit={submit} noValidate>
           <div className={`acc-pf${amountError ? ' has-error' : ''}`}>
-            <label htmlFor="acc-pay-amount">Amount received</label>
+            <label htmlFor="acc-pay-amount">{isSale ? 'Amount received' : 'Amount paid'}</label>
             <div className="acc-money-input">
               <span aria-hidden="true">₱</span>
               <input id="acc-pay-amount" ref={amountRef} name="amount" inputMode="decimal" autoComplete="off" spellCheck={false}
@@ -143,7 +157,7 @@ export default function PaymentSheet({ sale, open, onClose, onSaved }: Props) {
           <div className="acc-pf-row">
             <div className="acc-pf"><label htmlFor="acc-pay-date">Date paid</label>
               <input id="acc-pay-date" type="date" value={paidOn} max={accManilaToday()} onChange={(e) => setPaidOn(e.target.value)} /></div>
-            <div className="acc-pf"><label htmlFor="acc-pay-by">Received by</label>
+            <div className="acc-pf"><label htmlFor="acc-pay-by">{isSale ? 'Received by' : 'Paid by'}</label>
               <input id="acc-pay-by" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} autoComplete="off" /></div>
           </div>
 
@@ -200,9 +214,9 @@ export default function PaymentSheet({ sale, open, onClose, onSaved }: Props) {
           <div className={`acc-outcome${outcome?.after === 'PAID' ? ' is-full' : ''}`} aria-live="polite">
             {outcome
               ? outcome.after === 'PAID'
-                ? <><AccIcon name="ok" style={{ color: 'var(--acc-ok-ink)' }} /><span>Invoice becomes <b className="ink-ok">Paid</b> · nothing left to collect.</span></>
+                ? <><AccIcon name="ok" style={{ color: 'var(--acc-ok-ink)' }} /><span>{isSale ? 'Invoice' : 'Expense'} becomes <b className="ink-ok">Paid</b> · nothing left to {isSale ? 'collect' : 'pay'}.</span></>
                 : <><AccIcon name="half" style={{ color: 'var(--acc-warn-ink)' }} /><span>Stays <b className="ink-warn">Partial</b> · {money(outcome.left)} left after this.</span></>
-              : <><AccIcon name="alert" /><span>{amountError ? 'Nothing is saved until the amount fits.' : 'Enter the amount the customer paid.'}</span></>}
+              : <><AccIcon name="alert" /><span>{amountError ? 'Nothing is saved until the amount fits.' : (isSale ? 'Enter the amount the customer paid.' : 'Enter the amount paid to the vendor.')}</span></>}
           </div>
           {(error || (tried && methodError)) && <p className="acc-pf-error" role="alert">{error || methodError}</p>}
         </form>

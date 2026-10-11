@@ -2,11 +2,11 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tansta
 import type {
   AccCustomer, AccVendor, AccItem, AccCategory, AccStore, AccSale, AccExpense,
   AccInvoiceAttachment, AccAttachmentCategory,
-  AccCompanyProfile, AccPaginated, AccListStats, AccSalesAgent,
+  AccCompanyProfile, AccPaginated, AccSalesAgent,
   AccSalesReport, AccExpenseReport, AccCatalogKind,
   AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
   AccSalesStats, AccPaymentInput, AccPaymentLedgerRow,
-  AccReceivablesOverview, AccCustomerStatement,
+  AccReceivablesOverview, AccCustomerStatement, AccExpensesStats, AccExpenseDuplicate,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -126,26 +126,30 @@ export function useSalesStats(p: { from?: string; to?: string } = {}) {
   return useQuery({ queryKey: ['acc', 'sales', 'stats', p], queryFn: async () => (await api.get<AccSalesStats>(`${BASE}/sales/stats`, { params: clean(p) })).data, staleTime: 15_000, placeholderData: keepPreviousData })
 }
 
-// ─── Payments against an invoice (v2.99.0) ──────────────────────────────────
-// Both mutations answer with the refreshed invoice; it is written straight into the
+// ─── Payments against an invoice (v2.99.0) or an expense (v2.101.0) ─────────
+// Both mutations answer with the refreshed record; it is written straight into the
 // detail cache so the page updates from one response, then lists/stats refetch.
-function afterPayment(qc: ReturnType<typeof useQueryClient>, saleId: string, sale: AccSale) {
-  qc.setQueryData(['acc', 'sale', saleId], sale)
-  qc.invalidateQueries({ queryKey: ['acc', 'sales'] })
+export type PaymentResource = 'sales' | 'expenses'
+type PayRecord = AccSale | AccExpense
+function afterPayment(qc: ReturnType<typeof useQueryClient>, resource: PaymentResource, id: string, rec: PayRecord) {
+  qc.setQueryData(['acc', resource === 'sales' ? 'sale' : 'expense', id], rec)
+  qc.invalidateQueries({ queryKey: ['acc', resource] })
   qc.invalidateQueries({ queryKey: ['acc', 'ledger'] })
+  // The Overview (under 'sales') also shows what is owed to vendors.
+  if (resource === 'expenses') qc.invalidateQueries({ queryKey: ['acc', 'sales', 'receivables'] })
 }
-export function useRecordPayment(saleId: string) {
+export function useRecordPayment(resource: PaymentResource, id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: AccPaymentInput) => (await api.post<AccSale>(`${BASE}/sales/${saleId}/payments`, input)).data,
-    onSuccess: (sale) => afterPayment(qc, saleId, sale),
+    mutationFn: async (input: AccPaymentInput) => (await api.post<PayRecord>(`${BASE}/${resource}/${id}/payments`, input)).data,
+    onSuccess: (rec) => afterPayment(qc, resource, id, rec),
   })
 }
-export function useVoidPayment(saleId: string) {
+export function useVoidPayment(resource: PaymentResource, id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (p: { paymentId: string; reason: string }) => (await api.post<AccSale>(`${BASE}/sales/${saleId}/payments/${p.paymentId}/void`, { reason: p.reason })).data,
-    onSuccess: (sale) => afterPayment(qc, saleId, sale),
+    mutationFn: async (p: { paymentId: string; reason: string }) => (await api.post<PayRecord>(`${BASE}/${resource}/${id}/payments/${p.paymentId}/void`, { reason: p.reason })).data,
+    onSuccess: (rec) => afterPayment(qc, resource, id, rec),
   })
 }
 export function useSale(id?: string) {
@@ -171,12 +175,22 @@ export function useDeleteSale() {
 }
 
 // ─── Purchases (Expenses) ──────────────────────────────────────────────────────
-export interface ExpenseFilters { from?: string; to?: string; status?: string; country?: string; vendorId?: string; category?: string; subcategory?: string; search?: string; page?: number; pageSize?: number }
+export interface ExpenseFilters { from?: string; to?: string; status?: string; late?: boolean; country?: string; vendorId?: string; category?: string; subcategory?: string; search?: string; page?: number; pageSize?: number }
 export function useExpenses(filters: ExpenseFilters) {
-  return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params: clean(filters) })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
+  const params = clean({ ...filters, late: filters.late ? '1' : undefined })
+  return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
 export function useExpensesStats(p: { from?: string; to?: string } = {}) {
-  return useQuery({ queryKey: ['acc', 'expenses', 'stats', p], queryFn: async () => (await api.get<AccListStats>(`${BASE}/expenses/stats`, { params: clean(p) })).data, staleTime: 15_000 })
+  return useQuery({ queryKey: ['acc', 'expenses', 'stats', p], queryFn: async () => (await api.get<AccExpensesStats>(`${BASE}/expenses/stats`, { params: clean(p) })).data, staleTime: 15_000, placeholderData: keepPreviousData })
+}
+/** Possible double entries for the expense being typed (warning only). */
+export function useExpenseDuplicates(p: { vendorName?: string; total?: number; dateIssued?: string; invoiceNumber?: string; excludeId?: string }, enabled: boolean) {
+  return useQuery({
+    queryKey: ['acc', 'expenses', 'duplicates', p],
+    enabled,
+    queryFn: async () => (await api.get<AccExpenseDuplicate[]>(`${BASE}/expenses/duplicates`, { params: clean({ ...p }) })).data,
+    staleTime: 10_000,
+  })
 }
 export function useExpense(id?: string) {
   return useQuery({ queryKey: ['acc', 'expense', id], enabled: !!id, queryFn: async () => (await api.get<AccExpense>(`${BASE}/expenses/${id}`)).data })
@@ -188,7 +202,11 @@ export function useSaveExpense() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: any) => input.id ? (await api.put(`${BASE}/expenses/${input.id}`, input)).data : (await api.post(`${BASE}/expenses`, input)).data,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'report'] }) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['acc', 'expenses'] }); qc.invalidateQueries({ queryKey: ['acc', 'expense'] })
+      qc.invalidateQueries({ queryKey: ['acc', 'report'] }); qc.invalidateQueries({ queryKey: ['acc', 'ledger'] })
+      qc.invalidateQueries({ queryKey: ['acc', 'sales', 'receivables'] })
+    },
   })
 }
 export function useDeleteExpense() {
@@ -357,10 +375,10 @@ export function useSalesLedger(p: LedgerParams) {
     placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }
-export function usePaymentsLedger(p: LedgerParams) {
+export function usePaymentsLedger(p: LedgerParams, kind: 'sale' | 'expense' = 'sale') {
   return useQuery({
-    queryKey: ['acc', 'ledger', 'payments', p],
-    queryFn: async () => (await api.get<AccLedger<AccPaymentLedgerRow>>(`${BASE}/ledger/payments`, { params: clean(p as any) })).data,
+    queryKey: ['acc', 'ledger', 'payments', kind, p],
+    queryFn: async () => (await api.get<AccLedger<AccPaymentLedgerRow>>(`${BASE}/ledger/payments`, { params: { ...clean(p as any), kind } })).data,
     placeholderData: keepPreviousData, staleTime: 15_000,
   })
 }

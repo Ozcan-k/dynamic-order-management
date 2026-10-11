@@ -41,6 +41,7 @@ const paymentSchema = z
     gcashNumber: z.string().max(120).nullish(),
     note: z.string().max(1000).nullish(),
     receivedByName: z.string().max(160).nullish(),
+    paidByName: z.string().max(160).nullish(),
   })
   .superRefine((d, ctx) => {
     if (d.method === 'BANK_TRANSFER') {
@@ -101,12 +102,15 @@ const expenseSchema = z.object({
   vendorName: z.string().min(1).max(160),
   dateIssued: z.string(),
   dueDate: z.string().nullish(),
-  status: z.enum(['PAID', 'UNPAID']),
-  paymentMethod: z.enum(['GCASH', 'CASH', 'BANK_TRANSFER', 'CHECK', 'CREDIT_CARD']).nullish(),
+  // v2.101.0: status follows payments. The old shape is still accepted from a tab opened
+  // before the upgrade (create only → one full payment).
+  status: z.enum(['PAID', 'UNPAID']).optional(),
+  paymentMethod: z.enum(METHODS).nullish(),
   paidBy: z.string().max(160).nullish(),
+  initialPayment: paymentSchema.nullish(),
   items: z.array(lineSchema).min(1),
 }).superRefine((d, ctx) => {
-  if (d.status === 'PAID' && !d.paymentMethod) ctx.addIssue({ code: 'custom', path: ['paymentMethod'], message: 'Payment Method is required when Paid' })
+  if (d.status === 'PAID' && !d.initialPayment && !d.paymentMethod) ctx.addIssue({ code: 'custom', path: ['paymentMethod'], message: 'Payment Method is required when Paid' })
 })
 
 const customerSchema = z.object({
@@ -302,25 +306,61 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   fastify.get('/expenses/next-number', g, async (req) => ({ purchaseNo: await svc.peekNextNumber(tenantOf(req), 'purchase') }))
   fastify.get('/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}
+    const status = ['PAID', 'UNPAID', 'PARTIAL'].includes(q.status) ? q.status : undefined
     return svc.listExpenses(tenantOf(req), {
-      from: q.from, to: q.to, status: q.status, country: q.country, vendorId: q.vendorId,
+      from: q.from, to: q.to, status, late: q.late === '1' || q.late === 'true', country: q.country, vendorId: q.vendorId,
       category: q.category, subcategory: q.subcategory, search: q.search,
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
+    })
+  })
+  // Possible double entry while typing a new expense — a warning list, never a block.
+  fastify.get('/expenses/duplicates', g, async (req) => {
+    const q = (req.query as any) ?? {}
+    const total = q.total !== undefined && q.total !== '' && Number.isFinite(Number(q.total)) ? Number(q.total) : undefined
+    return svc.findExpenseDuplicates(tenantOf(req), {
+      vendorName: str(q.vendorName), total, dateIssued: dateStr(q.dateIssued), invoiceNumber: str(q.invoiceNumber), excludeId: str(q.excludeId),
     })
   })
   fastify.get('/expenses/:id', g, async (req, reply) => {
     const e = await svc.getExpense(tenantOf(req), (req.params as any).id); if (!e) return reply.code(404).send({ error: 'Not found' }); return e
   })
   fastify.post('/expenses', g, async (req, reply) => {
-    const p = expenseSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Validation failed', details: p.error.flatten() })
-    return reply.code(201).send(await svc.createExpense(tenantOf(req), p.data))
+    const p = expenseSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      return reply.code(201).send(await svc.createExpense(tenantOf(req), p.data, actor))
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
   })
   fastify.put('/expenses/:id', g, async (req, reply) => {
-    const p = expenseSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Validation failed', details: p.error.flatten() })
-    const u = await svc.updateExpense(tenantOf(req), (req.params as any).id, p.data); if (!u) return reply.code(404).send({ error: 'Not found' }); return u
+    const p = expenseSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      const u = await svc.updateExpense(tenantOf(req), (req.params as any).id, p.data, actor); if (!u) return reply.code(404).send({ error: 'Not found' }); return u
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
   })
   fastify.delete('/expenses/:id', g, async (req, reply) => {
-    const ok = await svc.deleteExpense(tenantOf(req), (req.params as any).id); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+    const actor = await svc.actorName((req.user as JWTPayload).userId)
+    const ok = await svc.deleteExpense(tenantOf(req), (req.params as any).id, actor); if (!ok) return reply.code(404).send({ error: 'Not found' }); return { ok: true }
+  })
+
+  // ─── Payments against an expense (v2.101.0) — mirror of the sale routes ─────
+  fastify.post('/expenses/:id/payments', g, async (req, reply) => {
+    const p = paymentSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    try {
+      const actor = await svc.actorName((req.user as JWTPayload).userId)
+      const e = await svc.addExpensePayment(tenantOf(req), (req.params as any).id, p.data, actor)
+      if (!e) return reply.code(404).send({ error: 'Expense not found' })
+      return reply.code(201).send(e)
+    } catch (err) { if (paymentRule(reply, err)) return; throw err }
+  })
+  fastify.post('/expenses/:id/payments/:paymentId/void', g, async (req, reply) => {
+    const p = z.object({ reason: z.string().trim().min(3, 'Say briefly why this payment is voided').max(300) }).safeParse(req.body)
+    if (!p.success) return reply.code(400).send({ error: firstIssue(p.error) })
+    const { id, paymentId } = req.params as { id: string; paymentId: string }
+    const actor = await svc.actorName((req.user as JWTPayload).userId)
+    const e = await svc.voidExpensePayment(tenantOf(req), id, paymentId, p.data.reason, actor)
+    if (!e) return reply.code(404).send({ error: 'Payment not found or already voided' })
+    return e
   })
 
   // ─── Invoice attachments (Sales + Expenses) — photo or PDF of the invoice ──
@@ -380,7 +420,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
       if (!category) return
       const uploaded = await readUploadedFile(req, reply)
       if (!uploaded) return
-      const paymentId = kind === 'sale' && typeof (req.query as any)?.paymentId === 'string' ? (req.query as any).paymentId : null
+      const paymentId = typeof (req.query as any)?.paymentId === 'string' ? (req.query as any).paymentId : null
       try {
         const att = await svc.addAttachment(tenantOf(req), kind, (req.params as any).id, category, uploaded.buffer, uploaded.mimetype, uploaded.filename ?? null, paymentId)
         if (!att) return reply.code(404).send({ error: 'Not found' })
@@ -512,7 +552,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   })
   fastify.get('/ledger/payments', g, async (req) => {
     const q = (req.query as any) ?? {}
-    return svc.listPaymentsLedger(tenantOf(req), dateStr(q.from), dateStr(q.to))
+    return svc.listPaymentsLedger(tenantOf(req), dateStr(q.from), dateStr(q.to), q.kind === 'expense' ? 'expense' : 'sale')
   })
   fastify.get('/ledger/expenses', g, async (req) => {
     const q = (req.query as any) ?? {}

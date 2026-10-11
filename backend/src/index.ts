@@ -36,7 +36,7 @@ import brandingRoutes from './routes/branding'
 import accountingRoutes from './routes/accounting'
 import employeeScheduleRoutes from './routes/employeeSchedule'
 import { migrateEmpNosToFourDigit, migrateEmployeeLinksToUsers } from './services/employeeScheduleService'
-import { migrateSalePayments } from './services/accountingService'
+import { migrateSalePayments, migrateExpensePayments } from './services/accountingService'
 import devTestRoutes from './routes/devTest'
 import { registerPermissionCollector } from './services/permissionMap'
 
@@ -213,13 +213,26 @@ async function start() {
   } catch (err) {
     fastify.log.error({ err }, 'Employee login link migration failed')
   }
-  // v2.99.0 — pre-v3 PAID invoices get one payment rebuilt from their legacy columns (idempotent)
-  try {
-    const paid = await migrateSalePayments()
-    if (paid > 0) fastify.log.info(`Accounting: ${paid} paid invoice(s) moved to the payment ledger`)
-  } catch (err) {
-    fastify.log.error({ err }, 'Accounting sale-payment migration failed')
+  // v2.99.0 / v2.101.0 — pre-v3 PAID invoices and expenses get one payment rebuilt from
+  // their legacy columns (idempotent). CD starts this container BEFORE `prisma db push`
+  // (cd.yml), so on the deploy that adds the columns the first attempt meets a missing
+  // column/table (P2022/P2021): retry every 15 s until the schema is there (v2.99.0
+  // needed a manual re-run because of this — SOLUTIONS [2026-10-11]).
+  const runStartupMigration = async (label: string, fn: () => Promise<number>, attempt = 1): Promise<void> => {
+    try {
+      const n = await fn()
+      if (n > 0) fastify.log.info(`Accounting: ${n} ${label} moved to the payment ledger`)
+    } catch (err: any) {
+      if ((err?.code === 'P2021' || err?.code === 'P2022') && attempt < 40) {
+        fastify.log.warn(`Accounting ${label} migration: schema not ready yet (attempt ${attempt}), retrying in 15 s`)
+        setTimeout(() => { void runStartupMigration(label, fn, attempt + 1) }, 15_000)
+        return
+      }
+      fastify.log.error({ err }, `Accounting ${label} migration failed`)
+    }
   }
+  await runStartupMigration('paid invoice(s)', migrateSalePayments)
+  await runStartupMigration('paid expense(s)', migrateExpensePayments)
 
   // Start BullMQ workers
   escalationWorker = startSlaEscalationWorker()

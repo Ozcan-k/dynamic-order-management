@@ -1,6 +1,6 @@
 # Accounting v3 — kısmi ödeme, alacak takibi, yeni ekranlar
 
-> Durum: **Faz 0 + Faz 1 LIVE (v2.99.0, 2026-10-11)** · **Faz 2 test'te (v2.100.0-test)** · Faz 3 + 4 sırada · kullanıcı kararı: Faz 2–4 tek seferde main'e (fresh prod yedeğiyle tek prova).
+> Durum: **Faz 0 + Faz 1 LIVE (v2.99.0, 2026-10-11)** · **Faz 2 (v2.100.0-test) + Faz 3 (v2.101.0-test) test'te** · Faz 4 sırada · kullanıcı kararı: Faz 2–4 tek seferde main'e (fresh prod yedeğiyle tek prova).
 > Görsel plan + ekran tasarımları (denenebilir ödeme paneli): https://claude.ai/artifact/1DCALaDzR7PgsXTUspnMrM
 > Mimari: ARCHITECTURE.md §7.13 · ilgili tuzak: SOLUTIONS.md [2026-06-03] (prod `db push` sessiz fail).
 
@@ -93,7 +93,7 @@ UI: fatura detay sayfası (`/accounting/sales/:id`), sağdan açılan ödeme pan
 ## Faz 2 — alacak takibi (v2.100.0) — test'te ✅ (şema değişikliği yok; prova 15/15)
 Overview sayfası (Accounting giriş sayfası), yaşlandırma (Not due / 1–30 / 31–60 / 60+), en çok borçlu müşteriler, Report'a Collected serisi (ödeme tarihi), müşteri profili + Statement PDF.
 
-## Faz 3 — giderlerde kısmi ödeme (v2.101.0)
+## Faz 3 — giderlerde kısmi ödeme (v2.101.0) — test'te ✅ (858 gider taşındı provada; açılış geçişi artık şema gelene kadar yeniden dener)
 `acc_expense_payments` + `AccExpense.paidTotal`, aynı geçiş kuralı (`paidOn = dateIssued`, method + `paidBy` legacy'den), Overview'da vendor borçları, mükerrer gider uyarısı (aynı vendor + tutar + tarih; sadece uyarı).
 
 ## Faz 4 — export ve cila (v2.102.0)

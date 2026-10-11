@@ -74,7 +74,7 @@ export default function AccDeleted() {
                 : salesRows.map((s) => (
                   <tr key={s.id}>
                     <td style={{ fontWeight: 600 }}>{s.invoiceNo}</td>
-                    <td>{new Date(s.dateIssued).toLocaleDateString('en-US')}</td>
+                    <td>{new Date(s.dateIssued).toLocaleDateString('en-US', { timeZone: 'UTC' })}</td>
                     <td>{s.customerName}</td>
                     <td className="acc-col-num">{money(s.total)}</td>
                     <td><span className="acc-muted">{fmtDateTime(s.deletedAt)}</span></td>
@@ -100,7 +100,7 @@ export default function AccDeleted() {
                 : expenseRows.map((e) => (
                   <tr key={e.id}>
                     <td style={{ fontWeight: 600 }}>{e.purchaseNo}</td>
-                    <td>{new Date(e.dateIssued).toLocaleDateString('en-US')}</td>
+                    <td>{new Date(e.dateIssued).toLocaleDateString('en-US', { timeZone: 'UTC' })}</td>
                     <td>{e.vendorName}</td>
                     <td>{ACC_COUNTRY_LABELS[e.country]}</td>
                     <td className="acc-col-num">{money(e.total)}</td>
