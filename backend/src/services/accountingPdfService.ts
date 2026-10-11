@@ -21,7 +21,16 @@ interface SaleLike {
   discountTotal: number
   taxTotal: number
   total: number
+  paidTotal?: number
+  payments?: { amount: number; paidOn: string | Date; method: string | null; referenceNumber: string | null; voidedAt: string | Date | null }[]
   items: { itemName: string; description: string | null; quantity: number; unitCost: number; discountPct: number; taxPct: number; lineTotal: number }[]
+}
+
+const METHOD_LABEL: Record<string, string> = { GCASH: 'GCash', CASH: 'Cash', BANK_TRANSFER: 'Bank Transfer', CHECK: 'Check', CREDIT_CARD: 'Credit Card' }
+const STAMP: Record<string, { text: string; color: string }> = {
+  PAID: { text: 'PAID', color: '#15803d' },
+  PARTIAL: { text: 'PARTIALLY PAID', color: '#b45309' },
+  UNPAID: { text: 'UNPAID', color: '#475569' },
 }
 interface CompanyLike {
   name: string
@@ -59,6 +68,9 @@ export function generateInvoicePdfBuffer(sale: SaleLike, company: CompanyLike): 
       const dividerY = Math.max(130, doc.y + 12)
       doc.moveTo(50, dividerY).lineTo(545, dividerY).strokeColor('#e2e8f0').stroke()
       doc.fontSize(26).fillColor(primary).font('Helvetica-Bold').text('INVOICE', 50, dividerY + 15)
+      // Payment state stamp, right-aligned on the title line (v2.99.0).
+      const stamp = STAMP[sale.status] ?? STAMP.UNPAID
+      doc.fontSize(11).fillColor(stamp.color).font('Helvetica-Bold').text(stamp.text, 300, dividerY + 24, { width: 245, align: 'right' })
       const metaY = dividerY + 50
       doc.fontSize(10).fillColor(gray).font('Helvetica')
       doc.text(`Invoice No:  ${sale.invoiceNo}`, 50, metaY)
@@ -74,26 +86,38 @@ export function generateInvoicePdfBuffer(sale: SaleLike, company: CompanyLike): 
         sale.customerAddress, sale.customerEmail, sale.customerNumber,
       ].filter(Boolean).join('\n'), 320, metaY + 18, { width: 225 })
 
-      // Items table — start below whichever column (meta / bill-to) is taller
+      // Every block below asks for its height first: if it would cross into the footer
+      // zone, it starts a fresh page. (Writing past the margin made PDFKit break pages on
+      // its own mid-block, scattering one row per page.)
+      const BOTTOM = 760
       let y = Math.max(metaY + 75, doc.y + 16)
-      doc.rect(50, y, 495, 22).fill('#f1f5f9')
-      doc.fillColor(navy).fontSize(9).font('Helvetica-Bold')
-      doc.text('Description', 56, y + 6)
-      doc.text('Qty', 300, y + 6, { width: 35, align: 'right' })
-      doc.text('Unit', 340, y + 6, { width: 60, align: 'right' })
-      doc.text('Disc%', 402, y + 6, { width: 38, align: 'right' })
-      doc.text('Tax%', 442, y + 6, { width: 33, align: 'right' })
-      doc.text('Total', 480, y + 6, { width: 60, align: 'right' })
-      y += 28
-      doc.font('Helvetica').fillColor(navy).fontSize(9)
+      const ensure = (h: number) => { if (y + h > BOTTOM) { doc.addPage(); y = 50 } }
+
+      const tableHeader = () => {
+        doc.rect(50, y, 495, 22).fill('#f1f5f9')
+        doc.fillColor(navy).fontSize(9).font('Helvetica-Bold')
+        doc.text('Description', 56, y + 6)
+        doc.text('Qty', 300, y + 6, { width: 35, align: 'right' })
+        doc.text('Unit', 340, y + 6, { width: 60, align: 'right' })
+        doc.text('Disc%', 402, y + 6, { width: 38, align: 'right' })
+        doc.text('Tax%', 442, y + 6, { width: 33, align: 'right' })
+        doc.text('Total', 480, y + 6, { width: 60, align: 'right' })
+        y += 28
+        doc.font('Helvetica').fillColor(navy).fontSize(9)
+      }
+      // Items table — start below whichever column (meta / bill-to) is taller
+      tableHeader()
       for (const it of sale.items) {
-        doc.text(it.itemName + (it.description ? ` — ${it.description}` : ''), 56, y, { width: 240 })
+        const name = it.itemName + (it.description ? ` — ${it.description}` : '')
+        const rowH = Math.max(20, doc.heightOfString(name, { width: 240 }) + 8)
+        if (y + rowH > BOTTOM) { doc.addPage(); y = 50; tableHeader() }
+        doc.text(name, 56, y, { width: 240 })
         doc.text(String(it.quantity), 300, y, { width: 35, align: 'right' })
         doc.text(it.unitCost.toFixed(2), 340, y, { width: 60, align: 'right' })
         doc.text(String(it.discountPct), 402, y, { width: 38, align: 'right' })
         doc.text(String(it.taxPct), 442, y, { width: 33, align: 'right' })
         doc.text(it.lineTotal.toFixed(2), 480, y, { width: 60, align: 'right' })
-        y += 20
+        y += rowH
       }
       doc.moveTo(50, y).lineTo(545, y).strokeColor('#e2e8f0').stroke()
       y += 12
@@ -105,17 +129,42 @@ export function generateInvoicePdfBuffer(sale: SaleLike, company: CompanyLike): 
         doc.text(v, 460, y, { width: 80, align: 'right' })
         y += bold ? 22 : 18
       }
+      const paidForTotals = sale.paidTotal ?? 0
+      ensure(paidForTotals > 0 ? 125 : 85)
       lbl('Subtotal', money(sale.subtotal))
       lbl('Discount', money(sale.discountTotal))
       lbl('Tax', money(sale.taxTotal))
       lbl('Total', money(sale.total), true)
+      if (paidForTotals > 0) {
+        lbl('Collected', money(paidForTotals))
+        lbl('Balance due', money(Math.max(0, Math.round((sale.total - paidForTotals) * 100) / 100)), true)
+      }
 
+      // Payments received (non-voided, newest first as stored). Capped at 6 rows; the
+      // rest is summarised in one line.
+      const live = (sale.payments ?? []).filter((p) => !p.voidedAt)
+      const MAX = 6
       y += 14
+      ensure(30 + Math.min(live.length || 1, MAX) * 14 + (live.length > MAX ? 14 : 0))
       doc.fontSize(10).font('Helvetica-Bold').fillColor(navy).text('Payment', 50, y)
-      doc.font('Helvetica').fillColor(gray)
-      doc.text(`Status:  ${sale.status}${sale.paymentMethod ? `  ·  ${sale.paymentMethod}` : ''}`, 50, y + 16)
+      y += 16
+      doc.font('Helvetica').fillColor(gray).fontSize(9.5)
+      if (!live.length) {
+        doc.text(`Status:  ${(STAMP[sale.status] ?? STAMP.UNPAID).text}`, 50, y)
+      } else {
+        for (const p of live.slice(0, MAX)) {
+          const parts = [new Date(p.paidOn).toLocaleDateString('en-US'), p.method ? METHOD_LABEL[p.method] ?? p.method : 'Method not recorded', p.referenceNumber ? `Ref ${p.referenceNumber}` : null]
+          doc.text(parts.filter(Boolean).join('  ·  '), 50, y, { width: 330 })
+          doc.text(money(p.amount), 380, y, { width: 160, align: 'right' })
+          y += 14
+        }
+        if (live.length > MAX) doc.text(`+ ${live.length - MAX} earlier payment(s)`, 50, y)
+      }
 
-      doc.fontSize(8).fillColor(gray).text('Thank you for your business.', 50, 790, { align: 'center', width: 495 })
+      // y=790 sits inside the 50pt bottom margin, so PDFKit used to break to a blank second
+      // page just to print this line. Drop the bottom margin for the footer only.
+      doc.page.margins.bottom = 0
+      doc.fontSize(8).fillColor(gray).text('Thank you for your business.', 50, 790, { align: 'center', width: 495, lineBreak: false })
       doc.end()
     } catch (err) { reject(err) }
   })

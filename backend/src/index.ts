@@ -36,6 +36,7 @@ import brandingRoutes from './routes/branding'
 import accountingRoutes from './routes/accounting'
 import employeeScheduleRoutes from './routes/employeeSchedule'
 import { migrateEmpNosToFourDigit, migrateEmployeeLinksToUsers } from './services/employeeScheduleService'
+import { migrateSalePayments } from './services/accountingService'
 import devTestRoutes from './routes/devTest'
 import { registerPermissionCollector } from './services/permissionMap'
 
@@ -211,6 +212,13 @@ async function start() {
     if (moved > 0) fastify.log.info(`Employee login links moved to users: ${moved} row(s)`)
   } catch (err) {
     fastify.log.error({ err }, 'Employee login link migration failed')
+  }
+  // v2.99.0 — pre-v3 PAID invoices get one payment rebuilt from their legacy columns (idempotent)
+  try {
+    const paid = await migrateSalePayments()
+    if (paid > 0) fastify.log.info(`Accounting: ${paid} paid invoice(s) moved to the payment ledger`)
+  } catch (err) {
+    fastify.log.error({ err }, 'Accounting sale-payment migration failed')
   }
 
   // Start BullMQ workers

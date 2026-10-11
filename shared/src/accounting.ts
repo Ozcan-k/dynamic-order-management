@@ -14,6 +14,7 @@ export enum AccPaymentMethod {
 export enum AccPaymentStatus {
   PAID = 'PAID',
   UNPAID = 'UNPAID',
+  PARTIAL = 'PARTIAL',
 }
 
 export enum AccCustomerType {
@@ -47,6 +48,36 @@ export const ACC_PAYMENT_METHOD_LABELS: Record<AccPaymentMethod, string> = {
 export const ACC_PAYMENT_STATUS_LABELS: Record<AccPaymentStatus, string> = {
   [AccPaymentStatus.PAID]: 'Paid',
   [AccPaymentStatus.UNPAID]: 'Unpaid',
+  [AccPaymentStatus.PARTIAL]: 'Partial',
+}
+
+// ─── Payment math (v2.99.0) ─────────────────────────────────────────────────
+// The ONE place status and balance are computed — backend writes and frontend
+// previews both call these. Money is compared in whole centavos, never as floats.
+export const accCents = (n: number | string | null | undefined): number => Math.round(Number(n || 0) * 100)
+
+/** paid ≥ total → PAID (a ₱0 invoice is paid), 0 < paid → PARTIAL, else UNPAID. */
+export function accDeriveStatus(total: number, paid: number): AccPaymentStatus {
+  const t = accCents(total), p = accCents(paid)
+  if (p >= t) return AccPaymentStatus.PAID
+  if (p > 0) return AccPaymentStatus.PARTIAL
+  return AccPaymentStatus.UNPAID
+}
+
+/** What is still owed, never negative. */
+export const accBalance = (total: number, paid: number): number => Math.max(0, accCents(total) - accCents(paid)) / 100
+
+/** Today's date in Manila as YYYY-MM-DD (due dates are compared as calendar days). */
+export function accManilaToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
+}
+
+/** Whole days past the due date (0 = not late). Computed at read time, never stored. */
+export function accDaysLate(dueDate: string | null | undefined, status: AccPaymentStatus | string, today: string = accManilaToday()): number {
+  if (!dueDate || status === AccPaymentStatus.PAID) return 0
+  const due = Date.parse(dueDate.slice(0, 10) + 'T00:00:00Z')
+  const now = Date.parse(today + 'T00:00:00Z')
+  return Math.max(0, Math.round((now - due) / 86_400_000))
 }
 
 export const ACC_CUSTOMER_TYPE_LABELS: Record<AccCustomerType, string> = {
@@ -180,10 +211,82 @@ export interface AccSale {
   taxTotal: number
   total: number
   note: string | null
+  /** v2.99.0 — sum of non-voided payments; status is derived from it. */
+  paidTotal: number
+  createdByName: string | null
+  updatedByName: string | null
+  deletedByName: string | null
   deletedAt: string | null
   items: AccSaleItem[]
+  /** Present on GET /sales/:id (newest first, voided included); absent on list rows. */
+  payments?: AccSalePayment[]
+  /** GET /sales/:id only — what this customer owes across all live invoices. */
+  customerOpenBalance?: number
   createdAt: string
   updatedAt: string
+}
+
+export type AccPaymentSource = 'MANUAL' | 'MIGRATED'
+
+/** v2.99.0 — one payment received against an invoice. Voided rows stay, struck through. */
+export interface AccSalePayment {
+  id: string
+  saleId: string
+  amount: number
+  paidOn: string
+  method: AccPaymentMethod | null
+  bankName: string | null
+  accountName: string | null
+  referenceNumber: string | null
+  gcashNumber: string | null
+  note: string | null
+  receivedByName: string | null
+  source: AccPaymentSource
+  createdByName: string | null
+  createdAt: string
+  voidedAt: string | null
+  voidedByName: string | null
+  voidReason: string | null
+}
+
+/** Body of POST /sales/:id/payments and of `initialPayment` on POST /sales. */
+export interface AccPaymentInput {
+  amount: number
+  paidOn: string
+  method: AccPaymentMethod
+  bankName?: string | null
+  accountName?: string | null
+  referenceNumber?: string | null
+  gcashNumber?: string | null
+  note?: string | null
+  receivedByName?: string | null
+}
+
+/** Sales list cards + tab counts (all scoped to the list's date range). */
+export interface AccSalesStats {
+  invoiced: number
+  collected: number
+  owed: number
+  late: number
+  lateCount: number
+  openCount: number
+  count: number
+  avg: number
+  byStatus: { UNPAID: number; PARTIAL: number; PAID: number }
+}
+
+export interface AccPaymentLedgerRow {
+  id: string
+  saleId: string
+  invoiceNo: string
+  customerName: string
+  paidOn: string
+  amount: number
+  method: AccPaymentMethod | null
+  referenceNumber: string | null
+  receivedByName: string | null
+  source: AccPaymentSource
+  voidedAt: string | null
 }
 
 export type AccAttachmentCategory = 'INVOICE' | 'PAYMENT_PROOF'
@@ -198,6 +301,8 @@ export interface AccInvoiceAttachment {
   originalName: string | null
   sizeBytes: number
   uploadedAt: string
+  /** v2.99.0 — the sale payment a PAYMENT_PROOF belongs to (sales only; null = not linked). */
+  paymentId?: string | null
 }
 export type AccExpenseAttachment = AccInvoiceAttachment
 export type AccSaleAttachment = AccInvoiceAttachment

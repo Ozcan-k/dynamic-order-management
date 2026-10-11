@@ -44,6 +44,7 @@ import AccContacts from './pages/accounting/AccContacts'
 import AccTransactions from './pages/accounting/AccTransactions'
 import AccDeleted from './pages/accounting/AccDeleted'
 import InvoiceForm from './pages/accounting/InvoiceForm'
+import SaleDetail from './pages/accounting/SaleDetail'
 import PurchaseForm from './pages/accounting/PurchaseForm'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './components/shared/AppLayout'
@@ -412,6 +413,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
                 <AppLayout><InvoiceForm /></AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounting/sales/:id"
+            element={
+              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}>
+                <AppLayout><SaleDetail /></AppLayout>
               </ProtectedRoute>
             }
           />
