@@ -259,7 +259,10 @@ export interface AccPaymentInput {
   referenceNumber?: string | null
   gcashNumber?: string | null
   note?: string | null
+  /** Sales: who received the money. */
   receivedByName?: string | null
+  /** Expenses: who paid. */
+  paidByName?: string | null
 }
 
 /** Sales list cards + tab counts (all scoped to the list's date range). */
@@ -275,16 +278,83 @@ export interface AccSalesStats {
   byStatus: { UNPAID: number; PARTIAL: number; PAID: number }
 }
 
-export interface AccPaymentLedgerRow {
-  id: string
+// ─── Receivables (v2.100.0) ─────────────────────────────────────────────────
+// Everything here is "as of today (Manila)", independent of any date picker.
+export type AccAgingBucket = 'notDue' | 'd1_30' | 'd31_60' | 'd60'
+export const ACC_AGING_LABELS: Record<AccAgingBucket, string> = {
+  notDue: 'Not due yet', d1_30: '1–30 days late', d31_60: '31–60 days late', d60: 'Over 60 days late',
+}
+/** Which bucket an open invoice falls in. No due date counts as not due. */
+export function accAgingBucket(daysLate: number): AccAgingBucket {
+  if (daysLate <= 0) return 'notDue'
+  if (daysLate <= 30) return 'd1_30'
+  if (daysLate <= 60) return 'd31_60'
+  return 'd60'
+}
+export interface AccAgingRow { bucket: AccAgingBucket; amount: number; count: number }
+
+export interface AccDebtor {
+  customerId: string | null
+  name: string
+  owed: number
+  late: number
+  invoices: number
+}
+
+export interface AccReceivablesOverview {
+  asOf: string                       // YYYY-MM-DD, Manila
+  owed: number                       // all open invoices
+  openCount: number
+  late: number                       // part of `owed` past its due date
+  lateCount: number
+  aging: AccAgingRow[]               // always 4 rows, fixed order
+  collectedThisMonth: number         // payments by paidOn, current Manila month
+  collectedThisMonthCount: number
+  debtors: AccDebtor[]               // top 8 by owed
+  debtorCount: number
+  trend: { month: string; label: string; invoiced: number; collected: number }[] // last 6 months incl. this one
+  /** Filled once expenses carry payments (v2.101.0); null before. */
+  payables: { owed: number; count: number; late: number; lateCount: number } | null
+}
+
+export interface AccStatementRow {
+  date: string
+  kind: 'INVOICE' | 'PAYMENT'
   saleId: string
   invoiceNo: string
-  customerName: string
+  details: string
+  invoiced: number
+  paid: number
+  balance: number
+}
+
+export interface AccCustomerStatement {
+  customer: AccCustomer
+  from: string | null
+  to: string | null
+  asOf: string
+  opening: number
+  rows: AccStatementRow[]
+  invoicedInPeriod: number
+  paidInPeriod: number
+  closing: number
+  owedNow: number
+  aging: AccAgingRow[]
+  openInvoices: { id: string; invoiceNo: string; dateIssued: string; dueDate: string | null; total: number; paidTotal: number; balance: number; daysLate: number }[]
+}
+
+/** One payment in the cash ledger — money in (sale) or money out (expense). */
+export interface AccPaymentLedgerRow {
+  id: string
+  kind: 'sale' | 'expense'
+  recordId: string
+  docNo: string          // INV/… or PUR/…
+  partyName: string      // customer or vendor
   paidOn: string
   amount: number
   method: AccPaymentMethod | null
   referenceNumber: string | null
-  receivedByName: string | null
+  personName: string | null // received by (sale) / paid by (expense)
   source: AccPaymentSource
   voidedAt: string | null
 }
@@ -324,10 +394,41 @@ export interface AccExpense {
   discountTotal: number
   taxTotal: number
   total: number
+  /** v2.101.0 — sum of non-voided payments; status is derived from it. */
+  paidTotal: number
+  createdByName: string | null
+  updatedByName: string | null
+  deletedByName: string | null
   deletedAt: string | null
   items: AccExpenseItem[]
+  /** Present on GET /expenses/:id (newest first, voided included). */
+  payments?: AccExpensePayment[]
+  /** GET /expenses/:id only — what is still owed to this vendor across live expenses. */
+  vendorOpenBalance?: number
   createdAt: string
   updatedAt: string
+}
+
+/** v2.101.0 — one payment made against an expense. Same shape as a sale payment, but
+ * the person is who PAID (paidByName), not who received. */
+export interface AccExpensePayment extends Omit<AccSalePayment, 'saleId' | 'receivedByName'> {
+  expenseId: string
+  paidByName: string | null
+}
+
+/** Expenses list: same figures as AccSalesStats — invoiced = billed, collected = paid out,
+ * owed = still to pay, late = owed on bills past their due date. */
+export type AccExpensesStats = AccSalesStats
+
+/** GET /expenses/duplicates — possible double entries (a warning, never a block). */
+export interface AccExpenseDuplicate {
+  id: string
+  purchaseNo: string
+  vendorName: string
+  invoiceNumber: string | null
+  dateIssued: string
+  total: number
+  reason: 'SAME_INVOICE_NO' | 'SAME_VENDOR_TOTAL_DATE'
 }
 
 export interface AccCompanyProfile {
@@ -427,6 +528,9 @@ export interface AccYearlyReport {
 // Range-based sales trend (date-range driven; buckets auto daily/monthly).
 export interface AccSalesReport {
   trend: { label: string; amount: number }[]
+  /** v2.100.0 — money received in the same buckets, by payment date (cash view). */
+  collectedTrend: { label: string; amount: number }[]
+  collected: number
   total: number
   count: number
   // invoiceNos: the invoice numbers behind each agent's total — surfaced on hover

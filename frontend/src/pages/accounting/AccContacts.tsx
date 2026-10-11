@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AccCustomerType, type AccCustomer, type AccVendor } from '@dom/shared'
 import {
   useCustomers, useSaveCustomer, useDeleteCustomer,
@@ -145,7 +146,7 @@ export default function AccContacts() {
                   : pagedCustomers.length === 0 ? <tr><td colSpan={6} className="acc-empty">{q ? 'No matching customers.' : `No ${isCorpTab ? 'corporation' : 'individual'} customers yet.`}</td></tr>
                   : pagedCustomers.map((c) => (
                     <tr key={c.id}>
-                      <td style={{ fontWeight: 600 }}>{c.name}</td>
+                      <td style={{ fontWeight: 600 }}><Link to={`/accounting/customers/${c.id}`} className="acc-name-link" title="Open account statement">{c.name}</Link></td>
                       <td>{c.email || <span className="acc-muted">—</span>}</td>
                       <td>{c.contactNumber || <span className="acc-muted">—</span>}</td>
                       <td>{c.contactPerson || <span className="acc-muted">—</span>}</td>

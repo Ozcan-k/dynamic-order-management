@@ -10,6 +10,7 @@ import {
 import { downloadInvoicePdf, money, useAttachments, useSale, useVoidPayment } from '../../api/accounting'
 import InvoiceAttachments from '../../components/accounting/InvoiceAttachments'
 import PaymentSheet from '../../components/accounting/PaymentSheet'
+import VoidPaymentDialog from '../../components/accounting/VoidPaymentDialog'
 import AccIcon from '../../components/accounting/AccIcon'
 import { METHOD_ICON, apiErrorMessage } from '../../components/accounting/paymentUtils'
 import { PaidBar, StatusPill } from '../../components/accounting/paymentBits'
@@ -46,7 +47,7 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
   const [toast, setToast] = useState<null | { text: string; undoId?: string }>(null)
   const toastTimer = useRef<number>()
   const payBtn = useRef<HTMLButtonElement>(null)
-  const voidPay = useVoidPayment(sale.id)
+  const voidPay = useVoidPayment('sales', sale.id)
   const { data: proofs = [] } = useAttachments('sales', sale.id, 'PAYMENT_PROOF')
   const proofCount = (pid: string) => proofs.filter((a) => a.paymentId === pid).length
 
@@ -183,6 +184,11 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
               {sale.customerEmail && <div><dt>Email</dt><dd>{sale.customerEmail}</dd></div>}
               <div><dt>Owes on all invoices</dt><dd className={(sale.customerOpenBalance ?? 0) > 0 ? 'ink-warn' : ''}>{money(sale.customerOpenBalance ?? 0)}</dd></div>
             </dl>
+            {sale.customerId && (
+              <div style={{ padding: '0 18px 14px' }}>
+                <Link className="acc-btn acc-btn-outline acc-btn-sm" style={{ width: '100%' }} to={`/accounting/customers/${sale.customerId}`}><AccIcon name="file" />Account statement</Link>
+              </div>
+            )}
           </section>
 
           <section className="acc-card acc-files">
@@ -205,8 +211,9 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
         </div>
       </div>
 
-      <PaymentSheet sale={sale} open={sheetOpen} onClose={closeSheet}
-        onSaved={({ amount, paymentId, sale: updated, proofFailed }) => {
+      <PaymentSheet resource="sales" open={sheetOpen} onClose={closeSheet}
+        record={{ id: sale.id, number: sale.invoiceNo, party: sale.customerName, total: sale.total, paidTotal: sale.paidTotal, payments: sale.payments }}
+        onSaved={({ amount, paymentId, record: updated, proofFailed }) => {
           closeSheet()
           const left = accBalance(updated.total, updated.paidTotal)
           showToast({
@@ -215,7 +222,7 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
           })
         }} />
 
-      {voiding && <VoidDialog payment={voiding} busy={voidPay.isPending}
+      {voiding && <VoidPaymentDialog amount={voiding.amount} busy={voidPay.isPending} nounBack="The invoice balance goes back up"
         onCancel={() => setVoiding(null)}
         onConfirm={async (reason) => {
           try {
@@ -240,27 +247,3 @@ function SaleDetailBody({ sale }: { sale: AccSale }) {
   )
 }
 
-function VoidDialog({ payment, busy, onCancel, onConfirm }: {
-  payment: AccSalePayment; busy: boolean; onCancel: () => void; onConfirm: (reason: string) => Promise<string | void>
-}) {
-  const [reason, setReason] = useState('')
-  const [error, setError] = useState('')
-  const ok = reason.trim().length >= 3
-  return (
-    <div className="acc-modal-backdrop" onClick={onCancel} onKeyDown={(e) => { if (e.key === 'Escape') onCancel() }}>
-      <div className="acc-modal" role="dialog" aria-modal="true" aria-labelledby="acc-void-title" onClick={(e) => e.stopPropagation()}>
-        <h3 className="acc-modal-title" id="acc-void-title">Void this {money(payment.amount)} payment?</h3>
-        <p className="acc-modal-text">The payment stays in the list, struck through, with your name and reason. The invoice balance goes back up by {money(payment.amount)}.</p>
-        <label className="acc-modal-label" htmlFor="acc-void-reason">Reason</label>
-        <textarea id="acc-void-reason" className="acc-modal-input" autoFocus rows={2} maxLength={300} value={reason}
-          onChange={(e) => setReason(e.target.value)} placeholder="e.g. Entered twice" />
-        {error && <p className="acc-error" role="alert">{error}</p>}
-        <div className="acc-modal-foot">
-          <button type="button" className="acc-btn acc-btn-outline" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="acc-btn acc-btn-danger" disabled={!ok || busy}
-            onClick={async () => { const err = await onConfirm(reason.trim()); if (err) setError(err) }}>{busy ? 'Voiding…' : 'Void Payment'}</button>
-        </div>
-      </div>
-    </div>
-  )
-}

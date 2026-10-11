@@ -34,6 +34,7 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/incident-report':   [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER],
   '/employee-schedule': [UserRole.ADMIN, UserRole.WAREHOUSE_ADMIN, UserRole.INCIDENT_REPORTER],
   '/accounting':          [UserRole.ADMIN, UserRole.ACCOUNTANT],
+  '/accounting/report':   [UserRole.ADMIN, UserRole.ACCOUNTANT],
   '/accounting/sales':    [UserRole.ADMIN, UserRole.ACCOUNTANT],
   '/accounting/expenses': [UserRole.ADMIN, UserRole.ACCOUNTANT],
   '/accounting/transactions': [UserRole.ADMIN, UserRole.ACCOUNTANT],

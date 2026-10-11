@@ -40,6 +40,112 @@ interface CompanyLike {
   contactNumber: string | null
 }
 
+interface StatementLike {
+  customer: { name: string; address: string | null; email: string | null; contactPerson: string | null; contactNumber: string | null }
+  from: string | null
+  to: string | null
+  asOf: string
+  opening: number
+  rows: { date: string; details: string; invoiced: number; paid: number; balance: number }[]
+  invoicedInPeriod: number
+  paidInPeriod: number
+  closing: number
+  owedNow: number
+  aging: { bucket: string; amount: number }[]
+}
+
+const AGING_PDF_LABEL: Record<string, string> = { notDue: 'Not due', d1_30: '1–30 days', d31_60: '31–60 days', d60: 'Over 60' }
+const fmtDay = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+
+/** v2.100.0 — customer statement (account history + running balance) on the invoice letterhead. */
+export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLike): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 })
+      const chunks: Buffer[] = []
+      doc.on('data', (c) => chunks.push(c as Buffer))
+      doc.on('end', () => resolve(Buffer.concat(chunks)))
+      const navy = '#1e293b', gray = '#64748b', ink = '#0f172a'
+      const BOTTOM = 760
+
+      // Letterhead (same as the invoice)
+      const headerY = 50
+      if (company.logoData) {
+        try { doc.image(Buffer.from(company.logoData, 'base64'), 50, headerY, { fit: [120, 60] }) } catch { /* skip */ }
+      }
+      doc.fontSize(18).fillColor(navy).font('Helvetica-Bold').text(company.name, 300, headerY, { width: 245, align: 'right' })
+      const companyLines = [company.address, company.email, company.contactNumber].filter(Boolean).join('\n')
+      if (companyLines) doc.fontSize(9).fillColor(gray).font('Helvetica').text(companyLines, 300, doc.y + 4, { width: 245, align: 'right' })
+      const dividerY = Math.max(130, doc.y + 12)
+      doc.moveTo(50, dividerY).lineTo(545, dividerY).strokeColor('#0f172a').lineWidth(1.5).stroke().lineWidth(1)
+
+      doc.fontSize(22).fillColor(ink).font('Helvetica-Bold').text('STATEMENT', 50, dividerY + 14)
+      const period = st.from || st.to ? `${st.from ? fmtDay(st.from) : 'Start'} – ${st.to ? fmtDay(st.to) : fmtDay(st.asOf)}` : `All activity to ${fmtDay(st.asOf)}`
+      doc.fontSize(10).fillColor(gray).font('Helvetica').text(period, 50, dividerY + 42)
+
+      const metaY = dividerY + 66
+      doc.fontSize(9).fillColor(gray).text('CUSTOMER', 50, metaY)
+      doc.fontSize(11).fillColor(ink).font('Helvetica-Bold').text(st.customer.name, 50, metaY + 12, { width: 260 })
+      doc.fontSize(9.5).fillColor(gray).font('Helvetica')
+        .text([st.customer.contactPerson, st.customer.contactNumber, st.customer.email, st.customer.address].filter(Boolean).join('\n'), 50, doc.y + 2, { width: 260 })
+      const leftEnd = doc.y
+      doc.fontSize(9).fillColor(gray).text('AMOUNT DUE', 345, metaY, { width: 200, align: 'right' })
+      doc.fontSize(20).fillColor(ink).font('Helvetica-Bold').text(money(st.closing), 345, metaY + 12, { width: 200, align: 'right' })
+      doc.fontSize(9).fillColor(gray).font('Helvetica').text(`as of ${fmtDay(st.to ?? st.asOf)}`, 345, metaY + 38, { width: 200, align: 'right' })
+
+      let y = Math.max(leftEnd, metaY + 54) + 16
+      const COLS = { date: 50, details: 112, inv: 330, paid: 405, bal: 475 }
+      const header = () => {
+        doc.fontSize(8.5).fillColor(gray).font('Helvetica-Bold')
+        doc.text('DATE', COLS.date, y); doc.text('DETAILS', COLS.details, y)
+        doc.text('INVOICED', COLS.inv, y, { width: 70, align: 'right' }); doc.text('PAID', COLS.paid, y, { width: 65, align: 'right' }); doc.text('BALANCE', COLS.bal, y, { width: 70, align: 'right' })
+        y += 13
+        doc.moveTo(50, y).lineTo(545, y).strokeColor('#cbd5e1').stroke()
+        y += 6
+        doc.font('Helvetica').fontSize(9).fillColor(ink)
+      }
+      header()
+      const row = (date: string, details: string, inv: string, paid: string, bal: string) => {
+        const h = Math.max(16, doc.heightOfString(details, { width: 210 }) + 6)
+        if (y + h > BOTTOM) { doc.addPage(); y = 50; header() }
+        doc.text(date, COLS.date, y, { width: 58 }); doc.text(details, COLS.details, y, { width: 210 })
+        doc.text(inv, COLS.inv, y, { width: 70, align: 'right' }); doc.text(paid, COLS.paid, y, { width: 65, align: 'right' }); doc.text(bal, COLS.bal, y, { width: 70, align: 'right' })
+        y += h
+      }
+      const m = (n: number) => (n ? money(n).replace('PHP ', '') : '')
+      // Drop the year from the date column only when every row is in the same year.
+      const years = new Set([...(st.from ? [st.from] : []), ...st.rows.map((r) => r.date)].map((d) => d.slice(0, 4)))
+      const day = (iso: string) => (years.size <= 1 ? fmtDay(iso).replace(/, \d{4}$/, '') : fmtDay(iso))
+      if (st.from) row(day(st.from), 'Opening balance', '', '', money(st.opening).replace('PHP ', ''))
+      if (!st.rows.length) row('', 'No activity in this period.', '', '', '')
+      for (const r of st.rows) row(day(r.date), r.details, m(r.invoiced), m(r.paid), money(r.balance).replace('PHP ', ''))
+
+      if (y + 120 > BOTTOM) { doc.addPage(); y = 50 }
+      doc.moveTo(50, y + 2).lineTo(545, y + 2).strokeColor('#0f172a').lineWidth(1.5).stroke().lineWidth(1)
+      y += 10
+      doc.font('Helvetica').fontSize(9.5).fillColor(gray)
+      doc.text(`Invoiced in period: ${money(st.invoicedInPeriod)}    ·    Paid in period: ${money(st.paidInPeriod)}`, 50, y, { width: 330 })
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(ink).text('Amount due', 330, y, { width: 140, align: 'right' }).text(money(st.closing), 475, y, { width: 70, align: 'right' })
+      y += 30
+
+      // Aging of what is owed today
+      doc.fontSize(9).fillColor(gray).font('Helvetica-Bold').text(`OWED TODAY BY AGE · ${money(st.owedNow)}`, 50, y)
+      y += 14
+      const w = 495 / 4
+      st.aging.forEach((a, i) => {
+        const x = 50 + i * w
+        doc.rect(x, y, w, 38).strokeColor('#cbd5e1').stroke()
+        doc.fontSize(8).fillColor(gray).font('Helvetica').text(AGING_PDF_LABEL[a.bucket] ?? a.bucket, x + 8, y + 7, { width: w - 16 })
+        doc.fontSize(10.5).fillColor(ink).font('Helvetica-Bold').text(money(a.amount), x + 8, y + 19, { width: w - 16 })
+      })
+
+      doc.page.margins.bottom = 0
+      doc.fontSize(8).fillColor(gray).font('Helvetica').text('Please quote the invoice number with your payment. Thank you for your business.', 50, 790, { align: 'center', width: 495, lineBreak: false })
+      doc.end()
+    } catch (err) { reject(err) }
+  })
+}
+
 export function generateInvoicePdfBuffer(sale: SaleLike, company: CompanyLike): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {

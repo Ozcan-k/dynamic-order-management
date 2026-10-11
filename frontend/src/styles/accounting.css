@@ -408,6 +408,75 @@
   .acc-sheet-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   .acc-sheet-foot .acc-btn { flex: 1; }
 }
+/* ── v2.100.0: Overview, customer statement ─────────────────────────────── */
+.acc-page .acc-stat--teal { border-top-color: #0d9488; }
+.acc-page a.acc-btn { text-decoration: none; }
+/* v2.102.0 — CSV / Excel export buttons */
+.acc-page .acc-export { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.acc-page .acc-export .acc-error { margin-left: 4px; }
+/* v2.101.0 — possible duplicate expense (warning, never a block) */
+.acc-page .acc-dup-warn { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 11px 14px; border-radius: 10px; background: var(--acc-warn-50); border: 1px solid var(--acc-warn-line); color: #78350f; font-size: 13px; }
+.acc-page .acc-dup-warn svg { color: var(--acc-warn-ink); margin-top: 1px; }
+.acc-page .acc-dup-warn ul { margin: 4px 0; padding-left: 18px; }
+.acc-page .acc-dup-warn a { color: var(--acc-warn-ink); font-weight: 700; }
+.acc-page .acc-dup-warn small { color: #78350f; }
+.acc-page .acc-statement { min-width: 620px; }
+.acc-page .acc-text-link { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--acc-primary); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none; }
+.acc-page .acc-text-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.acc-page .acc-name-link { color: var(--acc-text); text-decoration: none; }
+.acc-page .acc-name-link:hover { color: var(--acc-primary); text-decoration: underline; text-underline-offset: 3px; }
+.acc-page .acc-ov { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.acc-page .acc-ov-wide { grid-column: 1 / -1; }
+.acc-page .acc-aging { padding: 16px 18px 18px; display: grid; gap: 14px; }
+.acc-page .acc-aging-bar { display: flex; gap: 2px; height: 26px; }
+.acc-page .acc-aging-bar i { display: block; min-width: 4px; height: 100%; border-radius: 4px; }
+.acc-page .acc-aging-leg { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.acc-page .acc-aging-leg li { display: grid; gap: 1px; min-width: 0; }
+.acc-page .acc-aging-leg span { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: #475569; }
+.acc-page .acc-aging-leg b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.acc-page .acc-aging-leg small { font-size: 11.5px; color: #475569; }
+.acc-page .acc-debtors { list-style: none; margin: 0; padding: 4px 0; }
+.acc-page .acc-debtors button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 96px 92px; gap: 12px; align-items: center; padding: 9px 18px; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.acc-page .acc-debtors button:hover { background: #f8fafc; }
+.acc-page .acc-debtors button:focus-visible { outline: 2px solid var(--acc-primary); outline-offset: -2px; }
+.acc-page .acc-debtor-name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.acc-page .acc-debtor-name small { display: block; font-weight: 400; font-size: 11.5px; color: #475569; }
+.acc-page .acc-debtor-track { display: flex; gap: 2px; height: 8px; border-radius: 99px; background: #f1f5f9; overflow: hidden; }
+.acc-page .acc-debtor-track i { display: block; height: 100%; }
+.acc-page .acc-debtors b { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+.acc-page .acc-card-note { margin: 0; padding: 0 18px 12px; font-size: 12px; color: #475569; }
+.acc-page .acc-chart-box { padding: 10px 10px 0 4px; }
+.acc-page .acc-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 4px 18px 14px; font-size: 12px; color: #475569; }
+.acc-page .acc-legend span { display: inline-flex; gap: 6px; align-items: center; }
+.acc-page .acc-legend .acc-text-link { margin-left: auto; }
+.acc-chart-tip { background: #0f172a; color: #fff; border-radius: 9px; padding: 8px 10px; font-size: 12px; min-width: 180px; box-shadow: 0 10px 24px -10px rgba(0,0,0,0.5); }
+.acc-chart-tip b { display: block; margin-bottom: 4px; }
+.acc-chart-tip > div { display: flex; justify-content: space-between; gap: 14px; }
+.acc-chart-tip > div span { display: inline-flex; gap: 6px; align-items: center; }
+.acc-chart-tip .muted { color: #cbd5e1; margin-top: 4px; }
+.acc-page .acc-sec-h--tools { align-items: center; flex-wrap: wrap; }
+.acc-page .acc-statement tr.is-payment td { color: #334155; }
+.acc-page .acc-statement tr.is-payment td:nth-child(4) { color: var(--acc-collected); font-weight: 600; }
+.acc-page .acc-statement tr.is-opening td { background: #f8fafc; font-weight: 600; }
+.acc-page .acc-statement td a { color: var(--acc-primary); text-decoration: none; }
+.acc-page .acc-statement td a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.acc-page .acc-age-list, .acc-page .acc-open-list { list-style: none; margin: 0; padding: 6px 0; }
+.acc-page .acc-age-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 18px; font-size: 13px; }
+.acc-page .acc-age-list span { display: inline-flex; gap: 6px; align-items: center; color: #334155; }
+.acc-page .acc-age-list b { font-variant-numeric: tabular-nums; }
+.acc-page .acc-open-list a { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 9px 18px; color: inherit; text-decoration: none; border-top: 1px solid #f1f5f9; }
+.acc-page .acc-open-list li:first-child a { border-top: 0; }
+.acc-page .acc-open-list a:hover { background: #f8fafc; }
+.acc-page .acc-open-list span { display: grid; gap: 1px; }
+.acc-page .acc-open-list small { font-size: 12px; color: #475569; }
+.acc-page .acc-open-list b { font-variant-numeric: tabular-nums; }
+@media (max-width: 960px) { .acc-page .acc-ov { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .acc-page .acc-aging-leg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .acc-page .acc-debtors button { grid-template-columns: minmax(0, 1fr) auto; }
+  .acc-page .acc-debtor-track { grid-column: 1 / -1; grid-row: 2; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .acc-sheet, .acc-sheet-root.is-open .acc-sheet { transition: opacity 150ms ease; transform: none; opacity: 0; }
   .acc-sheet-root.is-open .acc-sheet { opacity: 1; }

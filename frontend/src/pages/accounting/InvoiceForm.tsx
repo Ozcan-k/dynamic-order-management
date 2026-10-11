@@ -205,6 +205,7 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
   const payTotal = invoiceTotal(validRows)
   const partValue = parseAmount(pay.amount)
   const payPreview = (() => {
+    if (accCents(payTotal) === 0) return 'empty' as const
     if (pay.mode === 'none') return { status: accDeriveStatus(payTotal, 0), left: payTotal }
     if (pay.mode === 'full') return { status: accDeriveStatus(payTotal, payTotal), left: 0 }
     if (partValue === null || partValue <= 0) return null
@@ -346,8 +347,10 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
                 </>}
               </div>
             )}
-            <div className={`acc-outcome${payPreview && payPreview !== 'over' && payPreview.status === 'PAID' ? ' is-full' : ''}`} aria-live="polite" style={{ marginTop: 12 }}>
-              {payPreview === 'over'
+            <div className={`acc-outcome${typeof payPreview === 'object' && payPreview?.status === 'PAID' ? ' is-full' : ''}`} aria-live="polite" style={{ marginTop: 12 }}>
+              {payPreview === 'empty'
+                ? <><AccIcon name="half" /><span>Add line items to see how this will be saved.</span></>
+                : payPreview === 'over'
                 ? <><AccIcon name="alert" style={{ color: 'var(--acc-bad-ink)' }} /><span>That is more than the invoice total of {money(payTotal)}. Choose Paid in full or lower the amount.</span></>
                 : payPreview === null
                   ? <><AccIcon name="half" /><span>Enter the amount paid now.</span></>

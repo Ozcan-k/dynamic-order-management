@@ -56,7 +56,7 @@ const thumbBox: React.CSSProperties = {
   border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'zoom-in',
 }
 const rowStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', flexWrap: 'wrap',
   border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff',
 }
 
@@ -133,7 +133,7 @@ function ServerRow({
         {url ? <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PdfIcon />}
       </div>
       {anchor && <HoverPreview anchor={anchor} url={url} mime={att.mime} name={att.originalName || 'invoice'} />}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: '1 1 160px', minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {att.originalName || 'invoice'}
         </div>
@@ -176,7 +176,7 @@ function LocalRow({ file, onRemove, disabled }: { file: File; onRemove: () => vo
         {url ? <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PdfIcon />}
       </div>
       {anchor && <HoverPreview anchor={anchor} url={url} mime={file.type} name={file.name} />}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: '1 1 160px', minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {file.name}
         </div>

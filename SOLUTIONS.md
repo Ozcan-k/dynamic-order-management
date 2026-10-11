@@ -5,6 +5,23 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-11] Startup data migration failed on the deploy that added its columns (v2.99.0)
+
+### Problem
+After v2.99.0 deployed, the backend log showed `Accounting sale-payment migration failed … The column acc_sales.paid_total does not exist`. The CD job was green and `prisma db push` said "in sync" — but no invoice had been moved to the payment ledger.
+
+### Root cause
+`cd.yml` runs `docker compose up -d` (new container starts, `index.ts` runs the startup migrations) **before** `docker exec dom_backend npx prisma db push`. On the deploy that introduces new columns/tables, the first and only migration attempt runs against the old schema and fails; nothing re-runs it until the next restart.
+
+### Fix
+- v2.99.0 prod: re-ran the idempotent function inside the running container without a restart: `docker exec -w /app/backend dom_backend node -e "require('./dist/services/accountingService.js').migrateSalePayments().then(console.log)"` → 513, second run 0, reconcile identical.
+- v2.101.0: `runStartupMigration` in `index.ts` retries every 15 s (up to 40×) when the error is Prisma P2021/P2022 (table/column missing), so the migration completes by itself once CD's `db push` lands. Rehearsed by starting the new code on the old schema, then pushing: attempt 1 "schema not ready", next attempt migrated 858 expenses.
+
+### Rule
+A startup migration that needs columns added in the same release must tolerate running before `db push` (retry on P2021/P2022). Check the backend log for the migration line after every such deploy.
+
+---
+
 ## [2026-10-11] Invoice PDF always had a blank second page; long invoices scattered one row per page (v2.99.0)
 
 ### Problem
