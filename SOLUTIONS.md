@@ -17,8 +17,10 @@ After v2.99.0 deployed, the backend log showed `Accounting sale-payment migratio
 - v2.99.0 prod: re-ran the idempotent function inside the running container without a restart: `docker exec -w /app/backend dom_backend node -e "require('./dist/services/accountingService.js').migrateSalePayments().then(console.log)"` → 513, second run 0, reconcile identical.
 - v2.101.0: `runStartupMigration` in `index.ts` retries every 15 s (up to 40×) when the error is Prisma P2021/P2022 (table/column missing), so the migration completes by itself once CD's `db push` lands. Rehearsed by starting the new code on the old schema, then pushing: attempt 1 "schema not ready", next attempt migrated 858 expenses.
 
+- v2.102.0 prod (2026-10-11): worked as designed — attempt 1 "schema not ready", then 858 expenses migrated with no manual step. The success line (`INFO`) did not appear in `docker logs dom_backend`: prod logs only WARN and above.
+
 ### Rule
-A startup migration that needs columns added in the same release must tolerate running before `db push` (retry on P2021/P2022). Check the backend log for the migration line after every such deploy.
+A startup migration that needs columns added in the same release must tolerate running before `db push` (retry on P2021/P2022). After such a deploy, confirm it by the row count in the DB (e.g. `select count(*) from acc_expense_payments`) — the success message is INFO and prod does not print it — and by `scripts/acc-reconcile.sh` before/after.
 
 ---
 
