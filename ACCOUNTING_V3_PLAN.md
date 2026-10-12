@@ -1,6 +1,6 @@
 # Accounting v3 — kısmi ödeme, alacak takibi, yeni ekranlar
 
-> Durum: **Faz 0 + Faz 1 LIVE (v2.99.0, 2026-10-11)** · **Faz 2 (v2.100.0-test) + Faz 3 (v2.101.0-test) test'te** · **Faz 4 (v2.102.0-test) test'te** · kullanıcı kararı: Faz 2–4 tek seferde main'e (fresh prod yedeğiyle tek prova).
+> Durum: **TAMAMLANDI — tüm fazlar LIVE.** Faz 0 + 1 → v2.99.0 (2026-10-11 06:27Z), Faz 2 + 3 + 4 → v2.102.0 (2026-10-11 07:3xZ, tek merge). Prod yedekleri: `db-20261011-062052.dump` (v2.99 öncesi), `db-20261011-073142.dump` (v2.102 öncesi). Her iki deploy'da reconcile önce/sonra birebir aynı, tüm değişmezler PASS.
 > Görsel plan + ekran tasarımları (denenebilir ödeme paneli): https://claude.ai/artifact/1DCALaDzR7PgsXTUspnMrM
 > Mimari: ARCHITECTURE.md §7.13 · ilgili tuzak: SOLUTIONS.md [2026-06-03] (prod `db push` sessiz fail).
 
@@ -63,7 +63,7 @@ Dump müşteri/kullanıcı verisi içerir: **repoya/OneDrive'a koyma**, iş biti
 - Header toplamı ≠ line item toplamı olan kayıt yok (satış ve gider).
 - Recycle Bin'de satış ve gider var → geçiş binned kayıtları da kapsamalı (plan böyle).
 
-## Faz 1 — satışlarda kısmi ödeme (v2.99.0) — test'te ✅
+## Faz 1 — satışlarda kısmi ödeme (v2.99.0) — LIVE ✅ (2026-10-11)
 
 **Prova sonucu (2026-10-11 prod yedeği, izole container):** CD'nin `prisma db push --accept-data-loss` komutu → "in sync"; şema eklemesi sonrası snapshot birebir aynı; geçiş 513 PAID faturaya 513 `MIGRATED` ödeme yazdı (toplam = PAID toplamı), ikinci çalıştırma 0; geçiş sonrası snapshot birebir aynı + 5 değişmez PASS; `updated_at` değişmedi. API E2E 32/32 (eşzamanlı iki tam ödeme → biri 201 biri 409), Playwright 1440/390, PDF görsel kontrol.
 
@@ -90,13 +90,13 @@ API: `GET/POST /accounting/sales/:id/payments`, `POST /accounting/sales/:id/paym
 
 UI: fatura detay sayfası (`/accounting/sales/:id`), sağdan açılan ödeme paneli, New Invoice ödeme bölümü (Not paid yet / Paid in full / Part paid), listede durum sekmeleri + Late filtresi + Collected çubuğu + Balance + vade, fatura PDF'inde Collected / Balance due (layout probe), Transactions'a Payments sekmesi, 390px kart görünümü. Stat kartları: Invoiced / Collected / Still owed / Late (tarih seçiciye bağlı — v2.74 kuralı).
 
-## Faz 2 — alacak takibi (v2.100.0) — test'te ✅ (şema değişikliği yok; prova 15/15)
+## Faz 2 — alacak takibi (v2.100.0) — LIVE ✅ (v2.102.0 ile; şema değişikliği yok)
 Overview sayfası (Accounting giriş sayfası), yaşlandırma (Not due / 1–30 / 31–60 / 60+), en çok borçlu müşteriler, Report'a Collected serisi (ödeme tarihi), müşteri profili + Statement PDF.
 
-## Faz 3 — giderlerde kısmi ödeme (v2.101.0) — test'te ✅ (858 gider taşındı provada; açılış geçişi artık şema gelene kadar yeniden dener)
+## Faz 3 — giderlerde kısmi ödeme (v2.101.0) — LIVE ✅ (v2.102.0 ile; prod'da 858 gider kendiliğinden taşındı, toplam = PAID gider toplamı)
 `acc_expense_payments` + `AccExpense.paidTotal`, aynı geçiş kuralı (`paidOn = dateIssued`, method + `paidBy` legacy'den), Overview'da vendor borçları, mükerrer gider uyarısı (aynı vendor + tutar + tarih; sadece uyarı).
 
-## Faz 4 — export ve cila (v2.102.0) — test'te ✅
+## Faz 4 — export ve cila (v2.102.0) — LIVE ✅
 CSV/Excel export (`lib/xlsxWriter.ts`, formül-enjeksiyon koruması), created/edited by, Expenses listesi Sales tasarımına, impeccable audit + Playwright 1440/390.
 
 ## Tasarım notları (ekranlar için bağlayıcı)

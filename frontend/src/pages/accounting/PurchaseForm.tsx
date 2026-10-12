@@ -83,7 +83,8 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
   })
   // New expenses only: the first payment, written in the same request. Editing never
   // touches payments — they live on the expense page.
-  const [pay, setPay] = useState({ mode: 'none' as PayMode, amount: '', paidOn: todayStr(), method: AccPaymentMethod.CASH as AccPaymentMethod, paidBy: '' })
+  const [pay, setPay] = useState({ mode: 'none' as PayMode, amount: '', paidOn: todayStr(), method: AccPaymentMethod.CASH as AccPaymentMethod, paidBy: '',
+    bankName: '', accountName: '', referenceNumber: '', gcashNumber: '' })
   const setP = (patch: Partial<typeof pay>) => setPay((x) => ({ ...x, ...patch }))
   const [rows, setRows] = useState<LineRow[]>(initRows(initial))
   const liveTotal = useMemo(() => expenseTotal(rows), [rows])
@@ -132,7 +133,11 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
       const amount = pay.mode === 'full' ? total : parseAmount(pay.amount)
       if (amount === null || amount <= 0) return setError('Enter the amount paid now, like 5,000 or 5,000.50.')
       if (accCents(amount) > accCents(total)) return setError(`${money(amount)} is more than the expense total of ${money(total)}. Choose Paid in full or lower the amount.`)
-      initialPayment = { amount, paidOn: pay.paidOn, method: pay.method, paidByName: pay.paidBy.trim() || null }
+      initialPayment = {
+        amount, paidOn: pay.paidOn, method: pay.method, paidByName: pay.paidBy.trim() || null,
+        bankName: pay.bankName.trim() || null, accountName: pay.accountName.trim() || null,
+        referenceNumber: pay.referenceNumber.trim() || null, gcashNumber: pay.gcashNumber.trim() || null,
+      }
     }
     const payload: any = {
       id: expenseId,
@@ -287,6 +292,19 @@ function PurchaseFormBody({ initial }: { initial: AccExpense | null }) {
                   <input id="acc-ne-d" type="date" value={pay.paidOn} max={todayStr()} onChange={(e) => setP({ paidOn: e.target.value })} /></div>
                 <div className="acc-field"><label htmlFor="acc-ne-by">Paid by</label>
                   <input id="acc-ne-by" value={pay.paidBy} onChange={(e) => setP({ paidBy: e.target.value })} autoComplete="off" placeholder="Who paid" /></div>
+                {/* Optional on an expense — kept for the record, never required to save. */}
+                {pay.method === 'BANK_TRANSFER' && <>
+                  <div className="acc-field"><label htmlFor="acc-ne-bank">Bank</label><input id="acc-ne-bank" value={pay.bankName} onChange={(e) => setP({ bankName: e.target.value })} autoComplete="off" placeholder="optional, e.g. BDO" /></div>
+                  <div className="acc-field"><label htmlFor="acc-ne-acct">Account name</label><input id="acc-ne-acct" value={pay.accountName} onChange={(e) => setP({ accountName: e.target.value })} autoComplete="off" placeholder="optional" /></div>
+                  <div className="acc-field"><label htmlFor="acc-ne-ref">Reference no.</label><input id="acc-ne-ref" value={pay.referenceNumber} onChange={(e) => setP({ referenceNumber: e.target.value })} autoComplete="off" spellCheck={false} placeholder="optional" /></div>
+                </>}
+                {pay.method === 'GCASH' && <>
+                  <div className="acc-field"><label htmlFor="acc-ne-gc">GCash number</label><input id="acc-ne-gc" inputMode="tel" value={pay.gcashNumber} onChange={(e) => setP({ gcashNumber: e.target.value })} autoComplete="off" placeholder="optional" /></div>
+                  <div className="acc-field"><label htmlFor="acc-ne-ref">Reference no.</label><input id="acc-ne-ref" value={pay.referenceNumber} onChange={(e) => setP({ referenceNumber: e.target.value })} autoComplete="off" spellCheck={false} placeholder="optional" /></div>
+                </>}
+                {pay.method === 'CHECK' && (
+                  <div className="acc-field"><label htmlFor="acc-ne-ref">Check no.</label><input id="acc-ne-ref" value={pay.referenceNumber} onChange={(e) => setP({ referenceNumber: e.target.value })} autoComplete="off" spellCheck={false} placeholder="optional" /></div>
+                )}
               </div>
             )}
             <div className={`acc-outcome${typeof payPreview === 'object' && payPreview?.status === 'PAID' ? ' is-full' : ''}`} aria-live="polite" style={{ marginTop: 12 }}>

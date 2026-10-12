@@ -80,7 +80,8 @@ export default function PaymentSheet({ resource, record: sale, open, onClose, on
     value === null || value <= 0 ? 'Enter an amount like 5,000 or 5,000.50.' :
     tooMuch ? `${money(value)} is more than the ${money(balance)} left. Use Full balance or lower the amount.` : ''
 
-  const methodError =
+  // Bank / GCash details are required on money received (sales) only; on an expense they are optional.
+  const methodError = !isSale ? '' :
     method === 'BANK_TRANSFER' && (!bankName.trim() || !accountName.trim() || !referenceNumber.trim()) ? 'Bank, account name and reference number are needed for a bank transfer.' :
     method === 'GCASH' && !gcashNumber.trim() ? 'The GCash number is needed.' : ''
 
