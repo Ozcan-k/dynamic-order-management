@@ -63,6 +63,7 @@ export default function AccPurchases() {
   const today = accManilaToday()
 
   const subOptions = categories.find((c) => c.name === filters.category)?.subcategories ?? []
+  const activeFilters = [filters.search?.trim(), filters.country, filters.category, filters.subcategory].filter(Boolean).length
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
   const tab: Tab = filters.late ? 'late' : (filters.status as Tab) || 'all'
   const count = (t: Tab) => !stats ? null : t === 'all' ? stats.count : t === 'late' ? stats.lateCount : stats.byStatus[t]
@@ -104,24 +105,41 @@ export default function AccPurchases() {
             )
           })}
         </div>
-        <div className="acc-tools">
-          <div className="acc-field acc-tools-search"><label htmlFor="acc-exp-search">Search</label>
-            <input id="acc-exp-search" placeholder="Expense no., vendor or supplier invoice…" value={filters.search || ''} autoComplete="off"
-              onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} /></div>
-          <div className="acc-field"><label htmlFor="acc-exp-country">Country</label>
-            <select id="acc-exp-country" value={filters.country || ''} onChange={(e) => setFilters({ ...filters, country: e.target.value || undefined, page: 1 })}>
-              <option value="">All</option>{Object.entries(ACC_COUNTRY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select></div>
-          <div className="acc-field"><label htmlFor="acc-exp-cat">Category</label>
-            <select id="acc-exp-cat" value={filters.category || ''} onChange={(e) => setFilters({ ...filters, category: e.target.value || undefined, subcategory: undefined, page: 1 })}>
-              <option value="">All</option>{categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-            </select></div>
-          <div className="acc-field"><label htmlFor="acc-exp-sub">Subcategory</label>
-            <select id="acc-exp-sub" value={filters.subcategory || ''} disabled={!filters.category} onChange={(e) => setFilters({ ...filters, subcategory: e.target.value || undefined, page: 1 })}>
-              <option value="">{filters.category ? 'All' : '—'}</option>{subOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select></div>
-          <div className="acc-field"><label>Date</label>
-            <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />
+        {/* Fixed grid, not a content-sized flex row: picking a long category name no longer
+            pushes the other filters sideways or onto a new line. */}
+        <div className="acc-filters">
+          <div className="acc-filters-top">
+            <div className="acc-field"><label htmlFor="acc-exp-search">Search</label>
+              <div className="acc-search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></svg>
+                <input id="acc-exp-search" type="search" placeholder="Expense no., vendor or supplier invoice…" value={filters.search || ''} autoComplete="off"
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} />
+              </div></div>
+            <div className="acc-field"><label>Date</label>
+              <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />
+            </div>
+          </div>
+          <div className="acc-filters-sel">
+            <div className="acc-field"><label htmlFor="acc-exp-country">Country</label>
+              <select id="acc-exp-country" className={filters.country ? 'is-set' : ''} value={filters.country || ''} onChange={(e) => setFilters({ ...filters, country: e.target.value || undefined, page: 1 })}>
+                <option value="">All countries</option>{Object.entries(ACC_COUNTRY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+            <div className="acc-field"><label htmlFor="acc-exp-cat">Category</label>
+              <select id="acc-exp-cat" className={filters.category ? 'is-set' : ''} value={filters.category || ''} onChange={(e) => setFilters({ ...filters, category: e.target.value || undefined, subcategory: undefined, page: 1 })}>
+                <option value="">All categories</option>{categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select></div>
+            <div className="acc-field"><label htmlFor="acc-exp-sub">Subcategory</label>
+              <select id="acc-exp-sub" className={filters.subcategory ? 'is-set' : ''} value={filters.subcategory || ''} disabled={!filters.category} onChange={(e) => setFilters({ ...filters, subcategory: e.target.value || undefined, page: 1 })}>
+                <option value="">{filters.category ? 'All subcategories' : 'Pick a category first'}</option>{subOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select></div>
+            <div className="acc-filters-clear">
+              {activeFilters > 0 && (
+                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm"
+                  onClick={() => setFilters({ ...filters, search: '', country: undefined, category: undefined, subcategory: undefined, page: 1 })}>
+                  Clear {activeFilters} filter{activeFilters === 1 ? '' : 's'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
