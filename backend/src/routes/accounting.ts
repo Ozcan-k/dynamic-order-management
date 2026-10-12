@@ -30,7 +30,7 @@ const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
 
 // v2.99.0 — one payment against an invoice. Method-specific fields follow the same rules
 // the old invoice form enforced (bank: bank + account + reference, GCash: number).
-const paymentSchema = z
+const paymentBase = z
   .object({
     amount: z.number().positive().max(1e12),
     paidOn: isoDay,
@@ -43,6 +43,7 @@ const paymentSchema = z
     receivedByName: z.string().max(160).nullish(),
     paidByName: z.string().max(160).nullish(),
   })
+const paymentSchema = paymentBase
   .superRefine((d, ctx) => {
     if (d.method === 'BANK_TRANSFER') {
       if (!d.bankName?.trim()) ctx.addIssue({ code: 'custom', path: ['bankName'], message: 'Bank Name is required' })
@@ -51,6 +52,9 @@ const paymentSchema = z
     }
     if (d.method === 'GCASH' && !d.gcashNumber?.trim()) ctx.addIssue({ code: 'custom', path: ['gcashNumber'], message: 'Gcash Number is required' })
   })
+// v2.102.2 — an expense payment never required bank/GCash details (legacy expenses kept only
+// method + paid by), so those fields stay optional here. The strict rule above is sales-only.
+const expensePaymentSchema = paymentBase
 
 /** First validation message, phrased for a person, for the 400 body. */
 const firstIssue = (e: z.ZodError) => e.issues[0]?.message ?? 'Invalid input'
@@ -107,7 +111,7 @@ const expenseSchema = z.object({
   status: z.enum(['PAID', 'UNPAID']).optional(),
   paymentMethod: z.enum(METHODS).nullish(),
   paidBy: z.string().max(160).nullish(),
-  initialPayment: paymentSchema.nullish(),
+  initialPayment: expensePaymentSchema.nullish(),
   items: z.array(lineSchema).min(1),
 }).superRefine((d, ctx) => {
   if (d.status === 'PAID' && !d.initialPayment && !d.paymentMethod) ctx.addIssue({ code: 'custom', path: ['paymentMethod'], message: 'Payment Method is required when Paid' })
@@ -345,7 +349,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
 
   // ─── Payments against an expense (v2.101.0) — mirror of the sale routes ─────
   fastify.post('/expenses/:id/payments', g, async (req, reply) => {
-    const p = paymentSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
+    const p = expensePaymentSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: firstIssue(p.error), details: p.error.flatten() })
     try {
       const actor = await svc.actorName((req.user as JWTPayload).userId)
       const e = await svc.addExpensePayment(tenantOf(req), (req.params as any).id, p.data, actor)
