@@ -23,7 +23,7 @@
   --acc-text: #0f172a;
   --acc-muted: #64748b;
   padding: 28px 32px;
-  max-width: 1280px;
+  /* No max-width: a 1280px cap left a wide empty band beside the page on large monitors. */
 }
 
 .acc-page .acc-head { margin-bottom: 22px; }
