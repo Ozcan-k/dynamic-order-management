@@ -57,8 +57,16 @@ interface StatementLike {
 const AGING_PDF_LABEL: Record<string, string> = { notDue: 'Not due', d1_30: '1–30 days', d31_60: '31–60 days', d60: 'Over 60' }
 const fmtDay = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 
-/** v2.100.0 — customer statement (account history + running balance) on the invoice letterhead. */
-export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLike): Promise<Buffer> {
+// Wording per side. 'customer' is the original v2.100.0 statement and must stay byte-identical.
+const STATEMENT_TEXT = {
+  customer: { party: 'CUSTOMER', due: 'AMOUNT DUE', dueRow: 'Amount due', col: 'INVOICED', inPeriod: 'Invoiced in period', aging: 'OWED TODAY BY AGE', footer: 'Please quote the invoice number with your payment. Thank you for your business.' },
+  vendor: { party: 'VENDOR', due: 'WE OWE', dueRow: 'Still to pay', col: 'BILLED', inPeriod: 'Billed in period', aging: 'STILL TO PAY BY AGE', footer: 'Account statement of expenses and payments made to this vendor.' },
+}
+
+/** v2.100.0 — customer statement (account history + running balance) on the invoice letterhead.
+ *  v2.103.0 — `side: 'vendor'` reuses the same layout for a vendor (what we owe them). */
+export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLike, side: 'customer' | 'vendor' = 'customer'): Promise<Buffer> {
+  const T = STATEMENT_TEXT[side]
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 50 })
@@ -84,12 +92,12 @@ export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLi
       doc.fontSize(10).fillColor(gray).font('Helvetica').text(period, 50, dividerY + 42)
 
       const metaY = dividerY + 66
-      doc.fontSize(9).fillColor(gray).text('CUSTOMER', 50, metaY)
+      doc.fontSize(9).fillColor(gray).text(T.party, 50, metaY)
       doc.fontSize(11).fillColor(ink).font('Helvetica-Bold').text(st.customer.name, 50, metaY + 12, { width: 260 })
       doc.fontSize(9.5).fillColor(gray).font('Helvetica')
         .text([st.customer.contactPerson, st.customer.contactNumber, st.customer.email, st.customer.address].filter(Boolean).join('\n'), 50, doc.y + 2, { width: 260 })
       const leftEnd = doc.y
-      doc.fontSize(9).fillColor(gray).text('AMOUNT DUE', 345, metaY, { width: 200, align: 'right' })
+      doc.fontSize(9).fillColor(gray).text(T.due, 345, metaY, { width: 200, align: 'right' })
       doc.fontSize(20).fillColor(ink).font('Helvetica-Bold').text(money(st.closing), 345, metaY + 12, { width: 200, align: 'right' })
       doc.fontSize(9).fillColor(gray).font('Helvetica').text(`as of ${fmtDay(st.to ?? st.asOf)}`, 345, metaY + 38, { width: 200, align: 'right' })
 
@@ -98,7 +106,7 @@ export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLi
       const header = () => {
         doc.fontSize(8.5).fillColor(gray).font('Helvetica-Bold')
         doc.text('DATE', COLS.date, y); doc.text('DETAILS', COLS.details, y)
-        doc.text('INVOICED', COLS.inv, y, { width: 70, align: 'right' }); doc.text('PAID', COLS.paid, y, { width: 65, align: 'right' }); doc.text('BALANCE', COLS.bal, y, { width: 70, align: 'right' })
+        doc.text(T.col, COLS.inv, y, { width: 70, align: 'right' }); doc.text('PAID', COLS.paid, y, { width: 65, align: 'right' }); doc.text('BALANCE', COLS.bal, y, { width: 70, align: 'right' })
         y += 13
         doc.moveTo(50, y).lineTo(545, y).strokeColor('#cbd5e1').stroke()
         y += 6
@@ -124,12 +132,12 @@ export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLi
       doc.moveTo(50, y + 2).lineTo(545, y + 2).strokeColor('#0f172a').lineWidth(1.5).stroke().lineWidth(1)
       y += 10
       doc.font('Helvetica').fontSize(9.5).fillColor(gray)
-      doc.text(`Invoiced in period: ${money(st.invoicedInPeriod)}    ·    Paid in period: ${money(st.paidInPeriod)}`, 50, y, { width: 330 })
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(ink).text('Amount due', 330, y, { width: 140, align: 'right' }).text(money(st.closing), 475, y, { width: 70, align: 'right' })
+      doc.text(`${T.inPeriod}: ${money(st.invoicedInPeriod)}    ·    Paid in period: ${money(st.paidInPeriod)}`, 50, y, { width: 330 })
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(ink).text(T.dueRow, 330, y, { width: 140, align: 'right' }).text(money(st.closing), 475, y, { width: 70, align: 'right' })
       y += 30
 
       // Aging of what is owed today
-      doc.fontSize(9).fillColor(gray).font('Helvetica-Bold').text(`OWED TODAY BY AGE · ${money(st.owedNow)}`, 50, y)
+      doc.fontSize(9).fillColor(gray).font('Helvetica-Bold').text(`${T.aging} · ${money(st.owedNow)}`, 50, y)
       y += 14
       const w = 495 / 4
       st.aging.forEach((a, i) => {
@@ -140,7 +148,7 @@ export function generateStatementPdfBuffer(st: StatementLike, company: CompanyLi
       })
 
       doc.page.margins.bottom = 0
-      doc.fontSize(8).fillColor(gray).font('Helvetica').text('Please quote the invoice number with your payment. Thank you for your business.', 50, 790, { align: 'center', width: 495, lineBreak: false })
+      doc.fontSize(8).fillColor(gray).font('Helvetica').text(T.footer, 50, 790, { align: 'center', width: 495, lineBreak: false })
       doc.end()
     } catch (err) { reject(err) }
   })

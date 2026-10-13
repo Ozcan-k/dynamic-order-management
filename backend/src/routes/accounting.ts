@@ -177,6 +177,27 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
 
   // ─── Vendors ──────────────────────────────────────────────────────────────
   fastify.get('/vendors', g, async (req) => svc.listVendors(tenantOf(req), (req.query as any)?.search))
+  // Vendor account statement — what we owe them, expenses + payments with a running balance.
+  fastify.get('/vendors/:id/statement', g, async (req, reply) => {
+    const q = (req.query as any) ?? {}
+    const st = await svc.getVendorStatement(tenantOf(req), (req.params as any).id, dateStr(q.from), dateStr(q.to))
+    if (!st) return reply.code(404).send({ error: 'Vendor not found' })
+    return st
+  })
+  fastify.get('/vendors/:id/statement/pdf', g, async (req, reply) => {
+    const tenantId = tenantOf(req)
+    const q = (req.query as any) ?? {}
+    const st = await svc.getVendorStatement(tenantId, (req.params as any).id, dateStr(q.from), dateStr(q.to))
+    if (!st) return reply.code(404).send({ error: 'Vendor not found' })
+    const pdf = await generateStatementPdfBuffer({
+      ...st,
+      customer: { name: st.vendor.name, address: st.vendor.address, email: st.vendor.email, contactPerson: null, contactNumber: st.vendor.contactNumber },
+      rows: st.rows.map((r) => ({ date: r.date, details: r.details, invoiced: r.billed, paid: r.paid, balance: r.balance })),
+      invoicedInPeriod: st.billedInPeriod,
+    }, await svc.getCompany(tenantId), 'vendor')
+    const safe = st.vendor.name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'vendor'
+    reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="Vendor-Statement-${safe}-${st.to ?? st.asOf}.pdf"`).send(pdf)
+  })
   fastify.post('/vendors', g, async (req, reply) => {
     const p = vendorSchema.safeParse(req.body); if (!p.success) return reply.code(400).send({ error: 'Invalid body', details: p.error.flatten() })
     return reply.code(201).send(await svc.createVendor(tenantOf(req), p.data))

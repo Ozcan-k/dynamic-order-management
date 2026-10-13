@@ -1490,6 +1490,63 @@ export async function getCustomerStatement(tenantId: string, customerId: string,
   }
 }
 
+/**
+ * A vendor's account — the expense-side twin of getCustomerStatement: every live expense
+ * (by issue date) and every non-voided payment to the vendor (by payment date) with a
+ * running balance of what is still owed to them. Same opening/closing rules.
+ */
+export async function getVendorStatement(tenantId: string, vendorId: string, from?: string, to?: string) {
+  const vendor = await prisma.accVendor.findFirst({ where: { id: vendorId, tenantId } })
+  if (!vendor) return null
+  const today = accManilaToday()
+  const expenses = await prisma.accExpense.findMany({
+    where: { tenantId, deletedAt: null, vendorId },
+    include: { payments: { where: { voidedAt: null }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] } },
+    orderBy: [{ dateIssued: 'asc' }, { createdAt: 'asc' }],
+  })
+  type Ev = { date: string; order: number; kind: 'BILL' | 'PAYMENT'; expenseId: string; purchaseNo: string; details: string; billed: number; paid: number }
+  const METHOD: Record<string, string> = { GCASH: 'GCash', CASH: 'Cash', BANK_TRANSFER: 'Bank Transfer', CHECK: 'Check', CREDIT_CARD: 'Card' }
+  const events: Ev[] = []
+  for (const e of expenses) {
+    const due = e.dueDate ? e.dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : null
+    const head = [`Expense ${e.purchaseNo}`, e.invoiceNumber ? `inv ${e.invoiceNumber}` : null, due ? `due ${due}` : null]
+    events.push({ date: isoDay(e.dateIssued)!, order: 0, kind: 'BILL', expenseId: e.id, purchaseNo: e.purchaseNo, details: head.filter(Boolean).join(' · '), billed: accCents(num(e.total)), paid: 0 })
+    for (const p of e.payments) {
+      const parts = [`Payment · ${p.method ? METHOD[p.method] ?? p.method : 'method not recorded'}`, p.referenceNumber ? `Ref ${p.referenceNumber}` : null, p.paidByName ? `by ${p.paidByName}` : null, `for ${e.purchaseNo}`]
+      events.push({ date: isoDay(p.paidOn)!, order: 1, kind: 'PAYMENT', expenseId: e.id, purchaseNo: e.purchaseNo, details: parts.filter(Boolean).join(' · '), billed: 0, paid: accCents(num(p.amount)) })
+    }
+  }
+  events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order))
+
+  let running = 0, opening = 0, billedP = 0, paidP = 0
+  const rows: { date: string; kind: 'BILL' | 'PAYMENT'; expenseId: string; purchaseNo: string; details: string; billed: number; paid: number; balance: number }[] = []
+  for (const e of events) {
+    running += e.billed - e.paid
+    if (from && e.date < from) { opening = running; continue }
+    if (to && e.date > to) continue
+    billedP += e.billed; paidP += e.paid
+    rows.push({ date: e.date, kind: e.kind, expenseId: e.expenseId, purchaseNo: e.purchaseNo, details: e.details, billed: e.billed / 100, paid: e.paid / 100, balance: running / 100 })
+  }
+  const closing = opening + billedP - paidP
+
+  const aging = emptyAging()
+  const openExpenses = []
+  let owedNowC = 0
+  for (const e of expenses) {
+    const balC = Math.max(0, accCents(num(e.total)) - accCents(num(e.paidTotal)))
+    if (balC === 0) continue
+    const daysLate = accDaysLate(isoDay(e.dueDate), 'UNPAID', today)
+    const a = aging.get(accAgingBucket(daysLate))!; a.amount += balC; a.count += 1
+    owedNowC += balC
+    openExpenses.push({ id: e.id, purchaseNo: e.purchaseNo, invoiceNumber: e.invoiceNumber, dateIssued: isoDay(e.dateIssued)!, dueDate: isoDay(e.dueDate), total: num(e.total), paidTotal: num(e.paidTotal), balance: balC / 100, daysLate })
+  }
+  return {
+    vendor, from: from ?? null, to: to ?? null, asOf: today,
+    opening: opening / 100, rows, billedInPeriod: billedP / 100, paidInPeriod: paidP / 100, closing: closing / 100,
+    owedNow: owedNowC / 100, aging: agingRows(aging), openExpenses,
+  }
+}
+
 interface ExpenseReportOpts {
   from?: string
   to?: string
