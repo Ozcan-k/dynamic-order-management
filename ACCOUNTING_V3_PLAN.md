@@ -99,6 +99,11 @@ Overview sayfası (Accounting giriş sayfası), yaşlandırma (Not due / 1–30 
 ## Faz 4 — export ve cila (v2.102.0) — LIVE ✅
 CSV/Excel export (`lib/xlsxWriter.ts`, formül-enjeksiyon koruması), created/edited by, Expenses listesi Sales tasarımına, impeccable audit + Playwright 1440/390.
 
+## v3 sonrası düzeltmeler — v2.102.2 LIVE ✅ (2026-10-12, şema değişikliği yok)
+- **Giderde GCash / Bank Transfer ödemesi kaydedilemiyordu:** Faz 3 gider ödemelerini satış kuralıyla doğruluyordu (GCash no; banka + hesap adı + referans zorunlu), New Expense formunda bu alanlar yoktu → 400. Giderde artık `expensePaymentSchema` (detaylar opsiyonel), satış kuralı aynen; formda yönteme göre opsiyonel alanlar.
+- **Expenses filtreleri seçim yapınca kayıyordu** → sabit grid `.acc-filters` + "Clear N filters".
+- **Büyük ekranda boşluk** → `.acc-page` `max-width: 1280px` kaldırıldı, tam genişlik.
+
 ## Tasarım notları (ekranlar için bağlayıcı)
 - dom'un mevcut dili (Inter, slate/mavi, açık tema, `.acc-page`); yeni görsel dünya değil.
 - Durum metinleri AA kontrastlı koyu tonlar: warn `#b45309`, ok `#15803d`, bad `#b91c1c` (dom'un `#d97706`/`#16a34a` metin olarak 3.1:1).

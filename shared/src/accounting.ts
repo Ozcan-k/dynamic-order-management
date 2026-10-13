@@ -343,6 +343,33 @@ export interface AccCustomerStatement {
   openInvoices: { id: string; invoiceNo: string; dateIssued: string; dueDate: string | null; total: number; paidTotal: number; balance: number; daysLate: number }[]
 }
 
+/** v2.103.0 — vendor account: expenses billed by a vendor + payments made to them. */
+export interface AccVendorStatementRow {
+  date: string
+  kind: 'BILL' | 'PAYMENT'
+  expenseId: string
+  purchaseNo: string
+  details: string
+  billed: number
+  paid: number
+  balance: number
+}
+
+export interface AccVendorStatement {
+  vendor: AccVendor
+  from: string | null
+  to: string | null
+  asOf: string
+  opening: number
+  rows: AccVendorStatementRow[]
+  billedInPeriod: number
+  paidInPeriod: number
+  closing: number
+  owedNow: number              // what is still owed to the vendor today
+  aging: AccAgingRow[]
+  openExpenses: { id: string; purchaseNo: string; invoiceNumber: string | null; dateIssued: string; dueDate: string | null; total: number; paidTotal: number; balance: number; daysLate: number }[]
+}
+
 /** One payment in the cash ledger — money in (sale) or money out (expense). */
 export interface AccPaymentLedgerRow {
   id: string

@@ -177,6 +177,11 @@ function ExpenseDetailBody({ exp }: { exp: AccExpense }) {
               {exp.invoiceNumber && <div><dt>Supplier invoice</dt><dd>{exp.invoiceNumber}</dd></div>}
               <div><dt>Still owed on all expenses</dt><dd className={(exp.vendorOpenBalance ?? 0) > 0 ? 'ink-warn' : ''}>{money(exp.vendorOpenBalance ?? 0)}</dd></div>
             </dl>
+            {exp.vendorId && (
+              <div style={{ padding: '0 18px 14px' }}>
+                <Link className="acc-btn acc-btn-outline acc-btn-sm" style={{ width: '100%' }} to={`/accounting/vendors/${exp.vendorId}`}><AccIcon name="file" />Account statement</Link>
+              </div>
+            )}
           </section>
 
           <section className="acc-card acc-files">

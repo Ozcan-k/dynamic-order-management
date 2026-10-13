@@ -7,6 +7,7 @@ import type {
   AccLedger, AccSalesLedgerRow, AccExpenseLedgerRow,
   AccSalesStats, AccPaymentInput, AccPaymentLedgerRow,
   AccReceivablesOverview, AccCustomerStatement, AccExpensesStats, AccExpenseDuplicate,
+  AccVendorStatement,
 } from '@dom/shared'
 import { api } from './client'
 
@@ -115,7 +116,11 @@ export function useSalesAgents() {
 }
 
 // ─── Invoices (Sales) ─────────────────────────────────────────────────────────
-export interface SaleFilters { from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string; search?: string; page?: number; pageSize?: number }
+export interface SaleFilters {
+  from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string
+  salesAgent?: string; store?: string // snapshot names; 'none' = not set on the invoice
+  search?: string; page?: number; pageSize?: number
+}
 export function useSales(filters: SaleFilters) {
   const params = clean({ ...filters, late: filters.late ? '1' : undefined })
   return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
@@ -379,6 +384,27 @@ export async function downloadStatementPdf(customerId: string, name: string, p: 
   const a = document.createElement('a')
   a.href = url
   a.download = `Statement-${name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-') || 'customer'}${p.to ? `-${p.to}` : ''}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+// ─── Vendor statement (v2.103.0) — under 'expenses' so expense saves/payments refresh it
+export function useVendorStatement(vendorId: string | undefined, p: { from?: string; to?: string }) {
+  return useQuery({
+    queryKey: ['acc', 'expenses', 'statement', vendorId, p],
+    enabled: !!vendorId,
+    queryFn: async () => (await api.get<AccVendorStatement>(`${BASE}/vendors/${vendorId}/statement`, { params: clean(p) })).data,
+    placeholderData: keepPreviousData,
+  })
+}
+export async function downloadVendorStatementPdf(vendorId: string, name: string, p: { from?: string; to?: string }) {
+  const res = await api.get(`${BASE}/vendors/${vendorId}/statement/pdf`, { params: clean(p), responseType: 'blob' })
+  const url = window.URL.createObjectURL(res.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `Vendor-Statement-${name.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-') || 'vendor'}${p.to ? `-${p.to}` : ''}.pdf`
   document.body.appendChild(a)
   a.click()
   a.remove()

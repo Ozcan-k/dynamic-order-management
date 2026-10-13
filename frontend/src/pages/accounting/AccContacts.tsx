@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AccCustomerType, type AccCustomer, type AccVendor } from '@dom/shared'
 import {
   useCustomers, useSaveCustomer, useDeleteCustomer,
@@ -70,7 +70,9 @@ export default function AccContacts() {
   const saveCust = useSaveCustomer(); const delCust = useDeleteCustomer()
   const saveVend = useSaveVendor(); const delVend = useDeleteVendor()
 
-  const [tab, setTab] = useState<Tab>('individual')
+  // ?tab=vendors deep-links straight to the Vendors list (e.g. back from a vendor statement).
+  const [sp] = useSearchParams()
+  const [tab, setTab] = useState<Tab>(() => (['individual', 'corporation', 'vendors'].includes(sp.get('tab') || '') ? sp.get('tab') as Tab : 'individual'))
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [company, setCompany] = useState(false)
@@ -179,7 +181,7 @@ export default function AccContacts() {
                   : pagedVendors.length === 0 ? <tr><td colSpan={5} className="acc-empty">{q ? 'No matching vendors.' : 'No vendors yet.'}</td></tr>
                   : pagedVendors.map((v) => (
                     <tr key={v.id}>
-                      <td style={{ fontWeight: 600 }}>{v.name}</td>
+                      <td style={{ fontWeight: 600 }}><Link to={`/accounting/vendors/${v.id}`} className="acc-name-link" title="Open vendor statement">{v.name}</Link></td>
                       <td>{v.email || <span className="acc-muted">—</span>}</td>
                       <td>{v.contactNumber || <span className="acc-muted">—</span>}</td>
                       <td>{v.address || <span className="acc-muted">—</span>}</td>

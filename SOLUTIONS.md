@@ -5,6 +5,22 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-12] Expense with GCash / Bank Transfer payment could not be saved (v2.102.2)
+
+### Problem
+New Expense → Paid in full or Part paid → Method GCash or Bank Transfer → Save failed ("Gcash Number is required" / "Bank Name is required"). Cash, Check and Credit Card worked.
+
+### Root cause
+v2.101.0 (Faz 3) reused the sales `paymentSchema` for expense payments. That schema requires a GCash number for GCASH and bank + account name + reference for BANK_TRANSFER (the old invoice-form rule). The New Expense form only had Method / Date paid / Paid by, so the request could never pass. Legacy expenses never had these fields — this was a regression, not an old rule.
+
+### Fix
+`routes/accounting.ts`: shared `paymentBase`; strict `paymentSchema` stays on sales, relaxed `expensePaymentSchema` on `expenseSchema.initialPayment` and `POST /expenses/:id/payments`. `PurchaseForm` shows the details as optional fields; `PaymentSheet` validates them only for sales. Verified: expense GCash/Bank without details → 201 PAID; sale GCash without number → still 400.
+
+### Rule
+When one validation schema is reused for a second record type, check that every field it requires is actually on that type's form. A required field with no input is a guaranteed 400.
+
+---
+
 ## [2026-10-11] Startup data migration failed on the deploy that added its columns (v2.99.0)
 
 ### Problem
