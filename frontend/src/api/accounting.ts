@@ -116,7 +116,11 @@ export function useSalesAgents() {
 }
 
 // ─── Invoices (Sales) ─────────────────────────────────────────────────────────
-export interface SaleFilters { from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string; search?: string; page?: number; pageSize?: number }
+export interface SaleFilters {
+  from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string
+  salesAgent?: string; store?: string // snapshot names; 'none' = not set on the invoice
+  search?: string; page?: number; pageSize?: number
+}
 export function useSales(filters: SaleFilters) {
   const params = clean({ ...filters, late: filters.late ? '1' : undefined })
   return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })

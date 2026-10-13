@@ -256,7 +256,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const status = ['PAID', 'UNPAID', 'PARTIAL'].includes(q.status) ? q.status : undefined
     return svc.listSales(tenantOf(req), {
       from: q.from, to: q.to, status, late: q.late === '1' || q.late === 'true',
-      customerId: q.customerId, saleChannel: q.saleChannel, search: q.search,
+      customerId: str(q.customerId), saleChannel: q.saleChannel, salesAgent: str(q.salesAgent), store: str(q.store), search: q.search,
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
     })
   })

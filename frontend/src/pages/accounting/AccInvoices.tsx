@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { accBalance, accManilaToday, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
+import { useSales, useSalesStats, useCustomers, useSalesAgents, useStores, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
 import ExportButtons from '../../components/accounting/ExportButtons'
 import { exportCsv, exportName, exportXlsx } from '../../components/accounting/tableExport'
 import { saleColumns } from '../../components/accounting/exportColumns'
@@ -31,9 +31,19 @@ export default function AccInvoices() {
     status: ['PAID', 'UNPAID', 'PARTIAL'].includes(sp.get('status') || '') ? sp.get('status')! : undefined,
     late: sp.get('late') === '1' || undefined,
     search: sp.get('search') || undefined,
+    customerId: sp.get('customerId') || undefined,
+    salesAgent: sp.get('salesAgent') || undefined,
+    store: sp.get('store') || undefined,
   }))
   const { data, isLoading, isFetching } = useSales(filters)
+  // Summary strip stays date-only (v2.74 rule: it reconciles with Report); the
+  // customer / agent / store filters narrow the table and the export, like Expenses.
   const { data: stats } = useSalesStats({ from: filters.from, to: filters.to })
+  const { data: customers = [] } = useCustomers()
+  const { data: agents = [] } = useSalesAgents()
+  const { data: stores = [] } = useStores()
+  const sortedCustomers = [...customers].sort((a, b) => a.name.localeCompare(b.name))
+  const activeFilters = [filters.search?.trim(), filters.customerId, filters.salesAgent, filters.store].filter(Boolean).length
   const today = accManilaToday()
   const tab = tabOf(filters)
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
@@ -79,12 +89,40 @@ export default function AccInvoices() {
             )
           })}
         </div>
-        <div className="acc-tools">
-          <div className="acc-field acc-tools-search"><label htmlFor="acc-sales-search">Search</label>
-            <input id="acc-sales-search" placeholder="Invoice no. or customer…" value={filters.search || ''} autoComplete="off"
-              onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} /></div>
-          <div className="acc-field"><label>Date</label>
-            <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />
+        {/* Same fixed grid as Expenses: search + date on top, the pickers below. */}
+        <div className="acc-filters">
+          <div className="acc-filters-top">
+            <div className="acc-field"><label htmlFor="acc-sales-search">Search</label>
+              <div className="acc-search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></svg>
+                <input id="acc-sales-search" type="search" placeholder="Invoice no. or customer…" value={filters.search || ''} autoComplete="off"
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} />
+              </div></div>
+            <div className="acc-field"><label>Date</label>
+              <DateRangePicker value={{ from: filters.from || '', to: filters.to || '' }} onChange={(r) => setFilters({ ...filters, from: r.from, to: r.to, page: 1 })} />
+            </div>
+          </div>
+          <div className="acc-filters-sel">
+            <div className="acc-field"><label htmlFor="acc-sales-cust">Customer</label>
+              <select id="acc-sales-cust" className={filters.customerId ? 'is-set' : ''} value={filters.customerId || ''} onChange={(e) => setFilters({ ...filters, customerId: e.target.value || undefined, page: 1 })}>
+                <option value="">All customers</option>{sortedCustomers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select></div>
+            <div className="acc-field"><label htmlFor="acc-sales-agent">Sales agent</label>
+              <select id="acc-sales-agent" className={filters.salesAgent ? 'is-set' : ''} value={filters.salesAgent || ''} onChange={(e) => setFilters({ ...filters, salesAgent: e.target.value || undefined, page: 1 })}>
+                <option value="">All agents</option>{agents.map((a) => <option key={a.id} value={a.username}>{a.username}</option>)}<option value="none">Unassigned</option>
+              </select></div>
+            <div className="acc-field"><label htmlFor="acc-sales-store">Store</label>
+              <select id="acc-sales-store" className={filters.store ? 'is-set' : ''} value={filters.store || ''} onChange={(e) => setFilters({ ...filters, store: e.target.value || undefined, page: 1 })}>
+                <option value="">All stores</option>{stores.map((st) => <option key={st.id} value={st.name}>{st.name}</option>)}<option value="none">No store</option>
+              </select></div>
+            <div className="acc-filters-clear">
+              {activeFilters > 0 && (
+                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm"
+                  onClick={() => setFilters({ ...filters, search: '', customerId: undefined, salesAgent: undefined, store: undefined, page: 1 })}>
+                  Clear {activeFilters} filter{activeFilters === 1 ? '' : 's'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -97,7 +135,7 @@ export default function AccInvoices() {
             </tr></thead>
             <tbody>
               {isLoading ? <tr><td colSpan={9} className="acc-empty">Loading…</td></tr>
-                : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={9} className="acc-empty">{emptyText(tab, !!filters.search)}</td></tr>
+                : (data?.items.length ?? 0) === 0 ? <tr><td colSpan={9} className="acc-empty">{emptyText(tab, activeFilters > 0)}</td></tr>
                 : data!.items.map((s) => {
                   const bal = accBalance(s.total, s.paidTotal)
                   const pct = s.total > 0 ? Math.round((s.paidTotal / s.total) * 100) : 100
@@ -128,7 +166,7 @@ export default function AccInvoices() {
         {/* Phone: the same rows as cards — a 9-column table does not fit 390px. */}
         <ul className="acc-cards acc-only-narrow">
           {isLoading ? <li className="acc-empty">Loading…</li>
-            : (data?.items.length ?? 0) === 0 ? <li className="acc-empty">{emptyText(tab, !!filters.search)}</li>
+            : (data?.items.length ?? 0) === 0 ? <li className="acc-empty">{emptyText(tab, activeFilters > 0)}</li>
             : data!.items.map((s) => (
               <li key={s.id}>
                 <Link to={`/accounting/sales/${s.id}`} className="acc-mcard">
@@ -154,7 +192,7 @@ export default function AccInvoices() {
 }
 
 function emptyText(tab: Tab, searching: boolean): string {
-  if (searching) return 'No invoice matches this search in the selected dates.'
+  if (searching) return 'No invoice matches these filters in the selected dates.'
   switch (tab) {
     case 'UNPAID': return 'No unpaid invoices in these dates.'
     case 'PARTIAL': return 'No part-paid invoices in these dates.'

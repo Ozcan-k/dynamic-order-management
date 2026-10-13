@@ -516,7 +516,13 @@ export async function migrateExpensePayments(): Promise<number> {
 
 export interface SaleFilters {
   from?: string; to?: string; status?: string; late?: boolean; customerId?: string; saleChannel?: string
+  salesAgent?: string; store?: string
   search?: string; page: number; pageSize: number
+}
+
+// Agent/store are snapshot names on the invoice. 'none' = the field was left empty.
+function nameFilter(field: 'salesAgentName' | 'storeName', v: string) {
+  return v === 'none' ? { OR: [{ [field]: null }, { [field]: '' }] } : { [field]: v }
 }
 
 /** Due before today (Manila calendar day) and not fully paid. */
@@ -539,6 +545,10 @@ export async function listSales(tenantId: string, f: SaleFilters) {
   if (f.late) Object.assign(where, lateWhere())
   if (f.customerId) where.customerId = f.customerId
   if (f.saleChannel) where.saleChannel = f.saleChannel
+  const and: any[] = []
+  if (f.salesAgent) and.push(nameFilter('salesAgentName', f.salesAgent))
+  if (f.store) and.push(nameFilter('storeName', f.store))
+  if (and.length) where.AND = and
   if (f.search) where.OR = [
     { invoiceNo: { contains: f.search, mode: 'insensitive' } },
     { customerName: { contains: f.search, mode: 'insensitive' } },
