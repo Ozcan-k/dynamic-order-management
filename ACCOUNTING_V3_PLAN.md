@@ -104,6 +104,12 @@ CSV/Excel export (`lib/xlsxWriter.ts`, formül-enjeksiyon koruması), created/ed
 - **Expenses filtreleri seçim yapınca kayıyordu** → sabit grid `.acc-filters` + "Clear N filters".
 - **Büyük ekranda boşluk** → `.acc-page` `max-width: 1280px` kaldırıldı, tam genişlik.
 
+## v3 sonrası eklemeler — v2.103.0 + v2.104.0 LIVE ✅ (2026-10-13/14, şema değişikliği yok)
+- **Vendor account statement** (v2.103.0): `/accounting/vendors/:id` — customer statement'ın gider tarafı (vendora borç, gecikmiş kısım, dönemde Billed/Paid, açılış bakiyeli ekstre + yürüyen bakiye, yaşa göre borç, açık giderler) + Statement PDF (aynı şablon, vendor yazıları). Vendors listesinden ve gider sayfasından açılır.
+- **Sales filtreleri** (v2.103.0): Search + Date altına Customer / Sales agent / Store (+ Unassigned / No store), Expenses ile aynı `.acc-filters` grid'i; tablo ve export'u daraltır.
+- **Agent listeleri yalnız aktif** (v2.104.0): Settings'te kaldırılmış SALES_AGENT login'leri (agent1-3, Beah, test101) listeden çıktı. Filtre = aktif agent'lar + faturalarda geçen adlar (login'i olmayan Patrice dahil); formda kaldırılmış agent'lı eski fatura "(removed)" gösterir.
+- **Kartlar filtreye uyar** (v2.104.0, kullanıcı kararı): Sales/Expenses özet kartları ve sekme sayıları status sekmesi dışındaki tüm filtreleri izler (liste ve stats aynı where builder). Yalnız tarih seçiliyken eskisiyle aynı, Report ile tutar. Filtre açıkken kartların üstünde "Filtered totals" bandı + Clear filters; ayrı bölüm yok. Prod kontrolü: Billy kartı 72 fatura / tablo 72 satır, aynı toplam.
+
 ## Tasarım notları (ekranlar için bağlayıcı)
 - dom'un mevcut dili (Inter, slate/mavi, açık tema, `.acc-page`); yeni görsel dünya değil.
 - Durum metinleri AA kontrastlı koyu tonlar: warn `#b45309`, ok `#15803d`, bad `#b91c1c` (dom'un `#d97706`/`#16a34a` metin olarak 3.1:1).
