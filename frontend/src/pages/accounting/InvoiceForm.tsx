@@ -265,6 +265,8 @@ function InvoiceFormBody({ initial }: { initial: AccSale | null }) {
             <select value={f.salesAgentId} onChange={(e) => set({ salesAgentId: e.target.value })}>
               <option value="">— None —</option>
               {agents.map((a) => <option key={a.id} value={a.id}>{a.username}</option>)}
+              {/* Agent since removed from Settings: keep it on this invoice instead of showing "None". */}
+              {f.salesAgentId && !agents.some((a) => a.id === f.salesAgentId) && <option value={f.salesAgentId}>{f.salesAgentName || 'Agent'} (removed)</option>}
             </select></div>
           <div className="acc-field"><label>Sales Channel</label>
             <select value={f.saleChannel} onChange={(e) => set({ saleChannel: e.target.value as AccSaleChannel })}>

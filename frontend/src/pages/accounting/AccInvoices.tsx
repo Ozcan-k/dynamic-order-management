@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { accBalance, accManilaToday, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, useCustomers, useSalesAgents, useStores, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
+import { useSales, useSalesStats, useCustomers, useSalesAgentNames, useStores, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
 import ExportButtons from '../../components/accounting/ExportButtons'
 import { exportCsv, exportName, exportXlsx } from '../../components/accounting/tableExport'
 import { saleColumns } from '../../components/accounting/exportColumns'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 import AccIcon from '../../components/accounting/AccIcon'
+import FilterScope from '../../components/accounting/FilterScope'
 import { DueCell, PaidBar, StatusPill } from '../../components/accounting/paymentBits'
 
 // Tabs = payment status (UNPAID / PARTIAL / PAID) plus "Late", which is a filter across
@@ -36,14 +37,23 @@ export default function AccInvoices() {
     store: sp.get('store') || undefined,
   }))
   const { data, isLoading, isFetching } = useSales(filters)
-  // Summary strip stays date-only (v2.74 rule: it reconciles with Report); the
-  // customer / agent / store filters narrow the table and the export, like Expenses.
-  const { data: stats } = useSalesStats({ from: filters.from, to: filters.to })
+  // Summary strip + tab counts follow every list filter except the status tab (v2.104.0).
+  // Date only → identical to before and reconciles with Report; any other filter → the
+  // "Filtered totals" bar says so and Clear brings the full totals back.
+  const search = filters.search?.trim() || undefined
+  const { data: stats } = useSalesStats({ from: filters.from, to: filters.to, search, customerId: filters.customerId, salesAgent: filters.salesAgent, store: filters.store })
   const { data: customers = [] } = useCustomers()
-  const { data: agents = [] } = useSalesAgents()
+  const { data: agents = [] } = useSalesAgentNames()
   const { data: stores = [] } = useStores()
   const sortedCustomers = [...customers].sort((a, b) => a.name.localeCompare(b.name))
-  const activeFilters = [filters.search?.trim(), filters.customerId, filters.salesAgent, filters.store].filter(Boolean).length
+  const scopeParts = [
+    filters.customerId && (customers.find((c) => c.id === filters.customerId)?.name ?? 'Customer'),
+    filters.salesAgent && (filters.salesAgent === 'none' ? 'Unassigned agent' : filters.salesAgent),
+    filters.store && (filters.store === 'none' ? 'No store' : filters.store),
+    search && `“${search}”`,
+  ].filter(Boolean) as string[]
+  const activeFilters = scopeParts.length
+  const clearFilters = () => setFilters({ ...filters, search: '', customerId: undefined, salesAgent: undefined, store: undefined, page: 1 })
   const today = accManilaToday()
   const tab = tabOf(filters)
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
@@ -69,7 +79,8 @@ export default function AccInvoices() {
         </div>
       </div>
 
-      <div className="acc-money" aria-label="Summary for the selected dates">
+      <FilterScope parts={scopeParts} onClear={clearFilters} />
+      <div className="acc-money" aria-label={activeFilters ? 'Summary for the selected dates and filters' : 'Summary for the selected dates'}>
         <div><span>Invoiced</span><b>{money(stats?.invoiced ?? 0)}</b><small>{stats?.count ?? 0} invoice{stats?.count === 1 ? '' : 's'}</small></div>
         <div><span><i className="acc-dot acc-dot--collected" />Collected</span><b>{money(stats?.collected ?? 0)}</b>
           <small>{stats && stats.invoiced > 0 ? `${Math.round((stats.collected / stats.invoiced) * 100)}% of invoiced` : '—'}</small></div>
@@ -109,7 +120,7 @@ export default function AccInvoices() {
               </select></div>
             <div className="acc-field"><label htmlFor="acc-sales-agent">Sales agent</label>
               <select id="acc-sales-agent" className={filters.salesAgent ? 'is-set' : ''} value={filters.salesAgent || ''} onChange={(e) => setFilters({ ...filters, salesAgent: e.target.value || undefined, page: 1 })}>
-                <option value="">All agents</option>{agents.map((a) => <option key={a.id} value={a.username}>{a.username}</option>)}<option value="none">Unassigned</option>
+                <option value="">All agents</option>{agents.map((a) => <option key={a} value={a}>{a}</option>)}<option value="none">Unassigned</option>
               </select></div>
             <div className="acc-field"><label htmlFor="acc-sales-store">Store</label>
               <select id="acc-sales-store" className={filters.store ? 'is-set' : ''} value={filters.store || ''} onChange={(e) => setFilters({ ...filters, store: e.target.value || undefined, page: 1 })}>
@@ -117,8 +128,7 @@ export default function AccInvoices() {
               </select></div>
             <div className="acc-filters-clear">
               {activeFilters > 0 && (
-                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm"
-                  onClick={() => setFilters({ ...filters, search: '', customerId: undefined, salesAgent: undefined, store: undefined, page: 1 })}>
+                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm" onClick={clearFilters}>
                   Clear {activeFilters} filter{activeFilters === 1 ? '' : 's'}
                 </button>
               )}

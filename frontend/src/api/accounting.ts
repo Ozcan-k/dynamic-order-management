@@ -114,6 +114,10 @@ export function useCreateStore() {
 export function useSalesAgents() {
   return useQuery({ queryKey: ['acc', 'sales-agents'], queryFn: async () => (await api.get<AccSalesAgent[]>(`${BASE}/sales-agents`)).data, staleTime: 5 * 60_000 })
 }
+/** Sales list filter options: active agents + names found on invoices. */
+export function useSalesAgentNames() {
+  return useQuery({ queryKey: ['acc', 'sales', 'agent-names'], queryFn: async () => (await api.get<string[]>(`${BASE}/sales-agent-names`)).data, staleTime: 5 * 60_000 })
+}
 
 // ─── Invoices (Sales) ─────────────────────────────────────────────────────────
 export interface SaleFilters {
@@ -125,9 +129,10 @@ export function useSales(filters: SaleFilters) {
   const params = clean({ ...filters, late: filters.late ? '1' : undefined })
   return useQuery({ queryKey: ['acc', 'sales', filters], queryFn: async () => (await api.get<AccPaginated<AccSale>>(`${BASE}/sales`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
-// Stats are scoped to the same date range as the list page's picker so the summary
-// strip and tab counts react to the period selection (and reconcile with the Report tab).
-export function useSalesStats(p: { from?: string; to?: string } = {}) {
+// Stats take the list's filters minus the status tab: date only → reconciles with the
+// Report tab; with customer / agent / store / search → totals what the table shows.
+export type SaleScope = Omit<SaleFilters, 'status' | 'late' | 'page' | 'pageSize'>
+export function useSalesStats(p: SaleScope = {}) {
   return useQuery({ queryKey: ['acc', 'sales', 'stats', p], queryFn: async () => (await api.get<AccSalesStats>(`${BASE}/sales/stats`, { params: clean(p) })).data, staleTime: 15_000, placeholderData: keepPreviousData })
 }
 
@@ -185,7 +190,8 @@ export function useExpenses(filters: ExpenseFilters) {
   const params = clean({ ...filters, late: filters.late ? '1' : undefined })
   return useQuery({ queryKey: ['acc', 'expenses', filters], queryFn: async () => (await api.get<AccPaginated<AccExpense>>(`${BASE}/expenses`, { params })).data, placeholderData: keepPreviousData, staleTime: 15_000 })
 }
-export function useExpensesStats(p: { from?: string; to?: string } = {}) {
+export type ExpenseScope = Omit<ExpenseFilters, 'status' | 'late' | 'page' | 'pageSize'>
+export function useExpensesStats(p: ExpenseScope = {}) {
   return useQuery({ queryKey: ['acc', 'expenses', 'stats', p], queryFn: async () => (await api.get<AccExpensesStats>(`${BASE}/expenses/stats`, { params: clean(p) })).data, staleTime: 15_000, placeholderData: keepPreviousData })
 }
 /** Possible double entries for the expense being typed (warning only). */
