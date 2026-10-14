@@ -6,6 +6,7 @@ import { exportCsv, exportName, exportXlsx } from '../../components/accounting/t
 import { expenseColumns } from '../../components/accounting/exportColumns'
 import DateRangePicker from '../../components/accounting/DateRangePicker'
 import AccIcon from '../../components/accounting/AccIcon'
+import FilterScope from '../../components/accounting/FilterScope'
 import { DueCell, PaidBar, StatusPill } from '../../components/accounting/paymentBits'
 
 const PAGE_SIZE = 25
@@ -58,12 +59,20 @@ export default function AccPurchases() {
   const setFilters = (f: ExpenseFilters) => setSearchParams(toParams(f), { replace: true })
   const go = (path: string) => navigate(path, { state: { listSearch: location.search } })
   const { data, isLoading, isFetching } = useExpenses(filters)
-  const { data: stats } = useExpensesStats({ from: filters.from, to: filters.to })
+  // Summary strip + tab counts follow the list filters (not the status tab) — v2.104.0.
+  const search = filters.search?.trim() || undefined
+  const { data: stats } = useExpensesStats({ from: filters.from, to: filters.to, search, country: filters.country, category: filters.category, subcategory: filters.subcategory })
   const { data: categories = [] } = useCategories('EXPENSE')
   const today = accManilaToday()
 
   const subOptions = categories.find((c) => c.name === filters.category)?.subcategories ?? []
-  const activeFilters = [filters.search?.trim(), filters.country, filters.category, filters.subcategory].filter(Boolean).length
+  const scopeParts = [
+    filters.country && (ACC_COUNTRY_LABELS[filters.country as keyof typeof ACC_COUNTRY_LABELS] ?? filters.country),
+    filters.category, filters.subcategory,
+    search && `“${search}”`,
+  ].filter(Boolean) as string[]
+  const activeFilters = scopeParts.length
+  const clearFilters = () => setFilters({ ...filters, search: '', country: undefined, category: undefined, subcategory: undefined, page: 1 })
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
   const tab: Tab = filters.late ? 'late' : (filters.status as Tab) || 'all'
   const count = (t: Tab) => !stats ? null : t === 'all' ? stats.count : t === 'late' ? stats.lateCount : stats.byStatus[t]
@@ -85,7 +94,8 @@ export default function AccPurchases() {
         </div>
       </div>
 
-      <div className="acc-money" aria-label="Summary for the selected dates">
+      <FilterScope parts={scopeParts} onClear={clearFilters} />
+      <div className="acc-money" aria-label={activeFilters ? 'Summary for the selected dates and filters' : 'Summary for the selected dates'}>
         <div><span>Billed</span><b>{money(stats?.invoiced ?? 0)}</b><small>{stats?.count ?? 0} expense{stats?.count === 1 ? '' : 's'}</small></div>
         <div><span><i className="acc-dot acc-dot--collected" />Paid</span><b>{money(stats?.collected ?? 0)}</b>
           <small>{stats && stats.invoiced > 0 ? `${Math.round((stats.collected / stats.invoiced) * 100)}% of billed` : '—'}</small></div>
@@ -134,8 +144,7 @@ export default function AccPurchases() {
               </select></div>
             <div className="acc-filters-clear">
               {activeFilters > 0 && (
-                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm"
-                  onClick={() => setFilters({ ...filters, search: '', country: undefined, category: undefined, subcategory: undefined, page: 1 })}>
+                <button type="button" className="acc-btn acc-btn-ghost acc-btn-sm" onClick={clearFilters}>
                   Clear {activeFilters} filter{activeFilters === 1 ? '' : 's'}
                 </button>
               )}

@@ -552,11 +552,12 @@ function dateWhere(from?: string, to?: string) {
   return w
 }
 
-export async function listSales(tenantId: string, f: SaleFilters) {
+/** The Sales list's filters (everything except the status tab), shared by the list and
+ *  its summary strip so the cards always total exactly the invoices the table can show. */
+export type SaleScope = Omit<SaleFilters, 'status' | 'late' | 'page' | 'pageSize'>
+function saleScopeWhere(tenantId: string, f: SaleScope) {
   const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
-  if (f.status) where.status = f.status
-  if (f.late) Object.assign(where, lateWhere())
   if (f.customerId) where.customerId = f.customerId
   if (f.saleChannel) where.saleChannel = f.saleChannel
   const and: any[] = []
@@ -567,6 +568,13 @@ export async function listSales(tenantId: string, f: SaleFilters) {
     { invoiceNo: { contains: f.search, mode: 'insensitive' } },
     { customerName: { contains: f.search, mode: 'insensitive' } },
   ]
+  return where
+}
+
+export async function listSales(tenantId: string, f: SaleFilters) {
+  const where: any = saleScopeWhere(tenantId, f)
+  if (f.status) where.status = f.status
+  if (f.late) Object.assign(where, lateWhere())
   // The list table only renders header columns — do NOT join every invoice's line
   // items here (serSale tolerates a missing `items` relation → []). Fetching items
   // for each row was a needless join + payload that slowed the page. The edit screen
@@ -578,13 +586,13 @@ export async function listSales(tenantId: string, f: SaleFilters) {
   return { items: items.map(serSale), total, page: f.page, pageSize: f.pageSize }
 }
 
-// Summary strip + tab counts for the Sales list page. Scoped to the same date range as
-// the list's DateRangePicker (from/to), so Invoiced reconciles with Report → Sales for
-// the same period (v2.74 rule). Collected = paid_total of those invoices; Late = what is
-// still owed on the ones past their due date today (Manila).
-export async function salesStats(tenantId: string, from?: string, to?: string) {
-  const base: any = { tenantId, deletedAt: null }
-  const dw = dateWhere(from, to); if (dw) base.dateIssued = dw
+// Summary strip + tab counts for the Sales list page. With only a date range it
+// reconciles with Report → Sales for the same period (v2.74 rule); with customer / agent /
+// store / search filters (v2.104.0) it totals the same invoices the table shows.
+// Collected = paid_total of those invoices; Late = what is still owed on the ones past
+// their due date today (Manila).
+export async function salesStats(tenantId: string, f: SaleScope = {}) {
+  const base: any = saleScopeWhere(tenantId, f)
   const [byStatus, late] = await Promise.all([
     prisma.accSale.groupBy({ by: ['status'], where: base, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),
     prisma.accSale.aggregate({ where: { ...base, ...lateWhere() }, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),
@@ -839,11 +847,11 @@ export interface ExpenseFilters {
   search?: string; page: number; pageSize: number
 }
 
-export async function listExpenses(tenantId: string, f: ExpenseFilters) {
+/** Expenses list filters minus the status tab — shared by the list and its summary strip. */
+export type ExpenseScope = Omit<ExpenseFilters, 'status' | 'late' | 'page' | 'pageSize'>
+function expenseScopeWhere(tenantId: string, f: ExpenseScope) {
   const where: any = { tenantId, deletedAt: null }
   const dw = dateWhere(f.from, f.to); if (dw) where.dateIssued = dw
-  if (f.status) where.status = f.status
-  if (f.late) Object.assign(where, lateWhere())
   if (f.country) where.country = f.country
   if (f.vendorId) where.vendorId = f.vendorId
   // Category/subcategory live on line items → match expenses that have a matching line.
@@ -858,6 +866,13 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
     { vendorName: { contains: f.search, mode: 'insensitive' } },
     { invoiceNumber: { contains: f.search, mode: 'insensitive' } },
   ]
+  return where
+}
+
+export async function listExpenses(tenantId: string, f: ExpenseFilters) {
+  const where: any = expenseScopeWhere(tenantId, f)
+  if (f.status) where.status = f.status
+  if (f.late) Object.assign(where, lateWhere())
   // List table renders header columns only — skip the per-row line-item join
   // (serExpense tolerates a missing `items` relation → []). The edit screen loads
   // the full record via getExpense().
@@ -870,10 +885,10 @@ export async function listExpenses(tenantId: string, f: ExpenseFilters) {
 
 // Summary strip + tab counts for the Expenses list — same shape and rules as
 // salesStats (invoiced = billed, collected = paid out, owed = still to pay), scoped
-// to the list's DateRangePicker so it reconciles with Report → Expenses.
-export async function expensesStats(tenantId: string, from?: string, to?: string) {
-  const base: any = { tenantId, deletedAt: null }
-  const dw = dateWhere(from, to); if (dw) base.dateIssued = dw
+// to the list's DateRangePicker so it reconciles with Report → Expenses; the other list
+// filters (country / category / subcategory / search) narrow it too (v2.104.0).
+export async function expensesStats(tenantId: string, f: ExpenseScope = {}) {
+  const base: any = expenseScopeWhere(tenantId, f)
   const [byStatus, late] = await Promise.all([
     prisma.accExpense.groupBy({ by: ['status'], where: base, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),
     prisma.accExpense.aggregate({ where: { ...base, ...lateWhere() }, _sum: { total: true, paidTotal: true }, _count: { _all: true } }),

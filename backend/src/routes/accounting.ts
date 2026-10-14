@@ -249,7 +249,10 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   // ─── Invoices (Sales) ─────────────────────────────────────────────────────
   fastify.get('/sales/stats', g, async (req) => {
     const q = (req.query as any) ?? {}
-    return svc.salesStats(tenantOf(req), dateStr(q.from), dateStr(q.to))
+    return svc.salesStats(tenantOf(req), {
+      from: dateStr(q.from), to: dateStr(q.to), customerId: str(q.customerId), saleChannel: str(q.saleChannel),
+      salesAgent: str(q.salesAgent), store: str(q.store), search: str(q.search),
+    })
   })
   fastify.get('/sales/next-number', g, async (req) => ({ invoiceNo: await svc.peekNextNumber(tenantOf(req), 'invoice') }))
   fastify.get('/sales', g, async (req) => {
@@ -257,7 +260,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const status = ['PAID', 'UNPAID', 'PARTIAL'].includes(q.status) ? q.status : undefined
     return svc.listSales(tenantOf(req), {
       from: q.from, to: q.to, status, late: q.late === '1' || q.late === 'true',
-      customerId: str(q.customerId), saleChannel: q.saleChannel, salesAgent: str(q.salesAgent), store: str(q.store), search: q.search,
+      customerId: str(q.customerId), saleChannel: q.saleChannel, salesAgent: str(q.salesAgent), store: str(q.store), search: str(q.search),
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
     })
   })
@@ -327,7 +330,10 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
   // ─── Purchases (Expenses) ─────────────────────────────────────────────────
   fastify.get('/expenses/stats', g, async (req) => {
     const q = (req.query as any) ?? {}
-    return svc.expensesStats(tenantOf(req), dateStr(q.from), dateStr(q.to))
+    return svc.expensesStats(tenantOf(req), {
+      from: dateStr(q.from), to: dateStr(q.to), country: str(q.country), vendorId: str(q.vendorId),
+      category: str(q.category), subcategory: str(q.subcategory), search: str(q.search),
+    })
   })
   fastify.get('/expenses/next-number', g, async (req) => ({ purchaseNo: await svc.peekNextNumber(tenantOf(req), 'purchase') }))
   fastify.get('/expenses', g, async (req) => {
@@ -335,7 +341,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
     const status = ['PAID', 'UNPAID', 'PARTIAL'].includes(q.status) ? q.status : undefined
     return svc.listExpenses(tenantOf(req), {
       from: q.from, to: q.to, status, late: q.late === '1' || q.late === 'true', country: q.country, vendorId: q.vendorId,
-      category: q.category, subcategory: q.subcategory, search: q.search,
+      category: q.category, subcategory: q.subcategory, search: str(q.search),
       page: Math.max(1, parseInt(q.page) || 1), pageSize: Math.min(200, Math.max(1, parseInt(q.pageSize) || 25)),
     })
   })
