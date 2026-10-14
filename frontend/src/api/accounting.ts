@@ -114,6 +114,10 @@ export function useCreateStore() {
 export function useSalesAgents() {
   return useQuery({ queryKey: ['acc', 'sales-agents'], queryFn: async () => (await api.get<AccSalesAgent[]>(`${BASE}/sales-agents`)).data, staleTime: 5 * 60_000 })
 }
+/** Sales list filter options: active agents + names found on invoices. */
+export function useSalesAgentNames() {
+  return useQuery({ queryKey: ['acc', 'sales', 'agent-names'], queryFn: async () => (await api.get<string[]>(`${BASE}/sales-agent-names`)).data, staleTime: 5 * 60_000 })
+}
 
 // ─── Invoices (Sales) ─────────────────────────────────────────────────────────
 export interface SaleFilters {

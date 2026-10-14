@@ -244,6 +244,7 @@ export default async function accountingRoutes(fastify: FastifyInstance) {
 
   // ─── Sales agents lookup ──────────────────────────────────────────────────
   fastify.get('/sales-agents', g, async (req) => svc.listSalesAgents(tenantOf(req)))
+  fastify.get('/sales-agent-names', g, async (req) => svc.listSalesAgentNames(tenantOf(req)))
 
   // ─── Invoices (Sales) ─────────────────────────────────────────────────────
   fastify.get('/sales/stats', g, async (req) => {

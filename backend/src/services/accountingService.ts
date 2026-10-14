@@ -271,13 +271,27 @@ export function createStore(tenantId: string, d: { name: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 // Sales agents (read-only lookup of dom SALES_AGENT users — no schema coupling)
 // ════════════════════════════════════════════════════════════════════════════
+// Only active agents — the same people Settings → Users lists. Removed logins stay on
+// their old invoices as a name snapshot (InvoiceForm shows them as "(removed)").
 export async function listSalesAgents(tenantId: string) {
   const users = await prisma.user.findMany({
-    where: { tenantId, role: 'SALES_AGENT' },
+    where: { tenantId, role: 'SALES_AGENT', isActive: true },
     select: { id: true, username: true },
     orderBy: { username: 'asc' },
   })
   return users
+}
+
+/** Sales list "Sales agent" filter: active agents + every agent name that is on a live
+ *  invoice (a removed agent, or a name with no agent login, is still filterable). */
+export async function listSalesAgentNames(tenantId: string) {
+  const [users, used] = await Promise.all([
+    listSalesAgents(tenantId),
+    prisma.accSale.findMany({ where: { tenantId, deletedAt: null, salesAgentName: { not: null } }, distinct: ['salesAgentName'], select: { salesAgentName: true } }),
+  ])
+  const names = new Set(users.map((u) => u.username))
+  for (const s of used) { const n = s.salesAgentName?.trim(); if (n) names.add(n) }
+  return [...names].sort((a, b) => a.localeCompare(b))
 }
 
 // ════════════════════════════════════════════════════════════════════════════

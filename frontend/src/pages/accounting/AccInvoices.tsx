@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { accBalance, accManilaToday, type AccSale } from '@dom/shared'
-import { useSales, useSalesStats, useCustomers, useSalesAgents, useStores, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
+import { useSales, useSalesStats, useCustomers, useSalesAgentNames, useStores, downloadInvoicePdf, fetchAllSales, money, type SaleFilters } from '../../api/accounting'
 import ExportButtons from '../../components/accounting/ExportButtons'
 import { exportCsv, exportName, exportXlsx } from '../../components/accounting/tableExport'
 import { saleColumns } from '../../components/accounting/exportColumns'
@@ -40,7 +40,7 @@ export default function AccInvoices() {
   // customer / agent / store filters narrow the table and the export, like Expenses.
   const { data: stats } = useSalesStats({ from: filters.from, to: filters.to })
   const { data: customers = [] } = useCustomers()
-  const { data: agents = [] } = useSalesAgents()
+  const { data: agents = [] } = useSalesAgentNames()
   const { data: stores = [] } = useStores()
   const sortedCustomers = [...customers].sort((a, b) => a.name.localeCompare(b.name))
   const activeFilters = [filters.search?.trim(), filters.customerId, filters.salesAgent, filters.store].filter(Boolean).length
@@ -109,7 +109,7 @@ export default function AccInvoices() {
               </select></div>
             <div className="acc-field"><label htmlFor="acc-sales-agent">Sales agent</label>
               <select id="acc-sales-agent" className={filters.salesAgent ? 'is-set' : ''} value={filters.salesAgent || ''} onChange={(e) => setFilters({ ...filters, salesAgent: e.target.value || undefined, page: 1 })}>
-                <option value="">All agents</option>{agents.map((a) => <option key={a.id} value={a.username}>{a.username}</option>)}<option value="none">Unassigned</option>
+                <option value="">All agents</option>{agents.map((a) => <option key={a} value={a}>{a}</option>)}<option value="none">Unassigned</option>
               </select></div>
             <div className="acc-field"><label htmlFor="acc-sales-store">Store</label>
               <select id="acc-sales-store" className={filters.store ? 'is-set' : ''} value={filters.store || ''} onChange={(e) => setFilters({ ...filters, store: e.target.value || undefined, page: 1 })}>
