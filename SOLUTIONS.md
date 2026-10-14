@@ -5,6 +5,22 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-14] Sales agent lists showed removed logins; an invoice-only agent could not be filtered (v2.104.0)
+
+### Problem
+Sales → Sales agent filter (and the New Invoice agent dropdown) listed agent1, agent2, agent3, Beah, test101 — users that Settings → Users no longer shows. Meanwhile Patrice, who is on 3 invoices, was missing from the filter.
+
+### Root cause
+`listSalesAgents` selected every user with `role = SALES_AGENT` and ignored `is_active`; Settings hides removed (inactive) users. The filter also used that login list, but invoices store the agent as a name snapshot (`acc_sales.sales_agent_name`), which can be a name with no SALES_AGENT login at all.
+
+### Fix
+`listSalesAgents` → `isActive: true` (form). New `GET /accounting/sales-agent-names` = active agents ∪ distinct agent names on live invoices (filter). InvoiceForm keeps a removed agent on an old invoice as a "(removed)" option instead of showing "None". Verified on prod (read-only): form 8 active agents, filter the same 8 + Patrice.
+
+### Rule
+A people picker must use the same "active" rule as Settings. A filter over a snapshot column must offer the values that are actually in that column, not only the current logins.
+
+---
+
 ## [2026-10-12] Expense with GCash / Bank Transfer payment could not be saved (v2.102.2)
 
 ### Problem
