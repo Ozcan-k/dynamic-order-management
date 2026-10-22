@@ -5,6 +5,26 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-23] Nothing was gzipped in production: app bundle reached phones at 1.8 MB (v2.105.1)
+
+### Problem
+While checking the v2.105.0 deploy: `curl -H "Accept-Encoding: gzip" https://domwarehouse.com/assets/index-*.js` came back
+without `Content-Encoding` (1,803,334 bytes). Inside the container (`docker exec dom_frontend wget --header=Accept-Encoding:gzip`)
+the same file was gzipped.
+
+### Root cause
+The host nginx (1.18, Ubuntu) proxies to `dom_frontend` over HTTP/1.0 (its `proxy_pass` default). The container's
+nginx only gzips HTTP/1.1 requests by default (`gzip_http_version 1.1`), so every proxied response went out uncompressed
+since the static-serve migration (v2.41.0).
+
+### Fix
+`gzip_http_version 1.0;` in `frontend/nginx.conf` (1.8 MB → ~477 KB for the bundle, wasm 967 → ~420 KB).
+
+### Rule
+After a change to compression or caching, check the headers through the public domain, not only inside the container.
+
+---
+
 ## [2026-10-23] Camera scan could not read Flash Express waybills (and missed others) (v2.105.0)
 
 ### Problem
