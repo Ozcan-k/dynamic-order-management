@@ -1,43 +1,14 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
-import { BrowserMultiFormatReader } from '@zxing/browser'
+import { useRef, useEffect, useState } from 'react'
 import { colors } from '../theme'
+import CameraOverlay from './scanner/CameraOverlay'
+import { useCameraScanner } from '../lib/scanner/useCameraScanner'
+import { playBeep, unlockAudio, vibrate } from '../lib/scanner/feedback'
 
 interface ScanInputProps {
   onScan: (trackingNumber: string) => void
   disabled?: boolean
   buttonLabel?: string
   enableCamera?: boolean
-}
-
-function playBeep(success: boolean) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    if (success) {
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08)
-      osc.type = 'sine'
-      gain.gain.setValueAtTime(0.35, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.2)
-    } else {
-      osc.frequency.setValueAtTime(300, ctx.currentTime)
-      osc.type = 'square'
-      gain.gain.setValueAtTime(0.2, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.3)
-    }
-  } catch {}
-}
-
-function vibrate(pattern: number | number[]) {
-  try { navigator.vibrate?.(pattern) } catch {}
 }
 
 const BarcodeIcon = () => (
@@ -64,76 +35,15 @@ export default function ScanInput({ onScan, disabled, buttonLabel, enableCamera 
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // ── Camera state ─────────────────────────────────────────────────────────────
-  const [cameraOpen, setCameraOpen] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<any>(null)
-  const didScanRef = useRef(false)
+  // ── Camera ───────────────────────────────────────────────────────────────────
+  const scanner = useCameraScanner({
+    onDetected: (code) => { playBeep(true); vibrate(100); onScan(code) },
+  })
+  const cameraError = scanner.error
+  const openCamera = () => { unlockAudio(); void scanner.open() }
 
   useEffect(() => {
     inputRef.current?.focus()
-  }, [])
-
-  // ── Camera: start reader when cameraOpen + stream ready ──────────────────────
-  useEffect(() => {
-    if (!cameraOpen) return
-    if (!videoRef.current || !streamRef.current) return
-    const video = videoRef.current
-    video.srcObject = streamRef.current
-    const reader = new BrowserMultiFormatReader()
-    video.play().then(() => {
-      reader.decodeFromStream(streamRef.current!, video, (result, _err, controls) => {
-        if (controls && !controlsRef.current) controlsRef.current = controls
-        if (result && !didScanRef.current) {
-          didScanRef.current = true
-          const code = result.getText()
-          stopCamera()
-          playBeep(true)
-          vibrate(100)
-          onScan(code)
-        }
-      }).then(controls => {
-        if (!controlsRef.current) controlsRef.current = controls
-      }).catch(() => {})
-    }).catch(() => {
-      setCameraError('Could not start video stream.')
-      setCameraOpen(false)
-    })
-    return () => { (reader as any).stopAsyncDecode?.() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOpen])
-
-  // ── Camera: cleanup on unmount ───────────────────────────────────────────────
-  const stopCamera = useCallback(() => {
-    controlsRef.current?.stop()
-    controlsRef.current = null
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    streamRef.current = null
-    setCameraOpen(false)
-    setCameraError(null)
-    didScanRef.current = false
-  }, [])
-
-  useEffect(() => () => stopCamera(), [stopCamera])
-
-  const openCamera = useCallback(async () => {
-    setCameraError(null)
-    didScanRef.current = false
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      streamRef.current = stream
-      setCameraOpen(true)
-    } catch (err: any) {
-      const msg =
-        err?.name === 'NotAllowedError' ? 'Camera permission denied. Please allow camera access.' :
-        err?.name === 'NotFoundError' ? 'No camera found on this device.' :
-        'Could not open camera.'
-      setCameraError(msg)
-    }
   }, [])
 
   // ── Text input handlers ──────────────────────────────────────────────────────
@@ -230,61 +140,7 @@ export default function ScanInput({ onScan, disabled, buttonLabel, enableCamera 
         </p>
       </div>
 
-      {/* Camera overlay — full screen, rendered via portal */}
-      {cameraOpen && createPortal(
-        <div style={{
-          position: 'fixed', inset: 0, background: '#000',
-          zIndex: 9999, display: 'flex', flexDirection: 'column',
-        }}>
-          {/* Header */}
-          <div style={{
-            padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'rgba(0,0,0,0.7)', flexShrink: 0,
-          }}>
-            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '16px' }}>Scan Barcode</span>
-            <button
-              onClick={stopCamera}
-              style={{
-                background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
-                borderRadius: '8px', color: '#f1f5f9', padding: '8px 16px',
-                fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-
-          {/* Video */}
-          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-            {/* Scan guide overlay */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <div style={{
-                width: '70%', maxWidth: '280px', aspectRatio: '3/2',
-                border: '2px solid rgba(59,130,246,0.8)',
-                borderRadius: '12px',
-                boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
-              }} />
-            </div>
-          </div>
-
-          {/* Hint */}
-          <div style={{
-            padding: '16px', background: 'rgba(0,0,0,0.7)', textAlign: 'center', flexShrink: 0,
-          }}>
-            <span style={{ color: '#94a3b8', fontSize: '14px' }}>Point the camera at the barcode</span>
-          </div>
-        </div>,
-        document.body
-      )}
+      <CameraOverlay scanner={scanner} color="#3b82f6" title="Scan Barcode" />
     </>
   )
 }

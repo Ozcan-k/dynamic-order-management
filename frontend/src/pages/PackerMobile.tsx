@@ -1,12 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../api/client'
 import PlatformBadge from '../components/shared/PlatformBadge'
 import DelayBadge from '../components/DelayBadge'
 import ScanCelebration from '../components/shared/ScanCelebration'
+import CameraOverlay from '../components/scanner/CameraOverlay'
+import { useCameraScanner } from '../lib/scanner/useCameraScanner'
+import { playBeep, unlockAudio } from '../lib/scanner/feedback'
 
 interface PackerOrder {
   id: string
@@ -28,29 +30,6 @@ function formatTime(iso?: string): string {
   } catch { return '' }
 }
 
-function playBeep(success: boolean) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain); gain.connect(ctx.destination)
-    if (success) {
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08)
-      osc.type = 'sine'
-      gain.gain.setValueAtTime(0.35, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2)
-    } else {
-      osc.frequency.setValueAtTime(300, ctx.currentTime)
-      osc.type = 'square'
-      gain.gain.setValueAtTime(0.2, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3)
-    }
-  } catch {}
-}
-
 export default function PackerMobile() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -68,14 +47,6 @@ export default function PackerMobile() {
     queryFn: () => api.get<{ orders: PackerOrder[] }>('/packer/orders').then(r => r.data),
     refetchInterval: 15_000,
   })
-
-  // Camera state
-  const [cameraOpen, setCameraOpen] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<any>(null)
-  const didScanRef = useRef(false)
 
   useEffect(() => {
     if (!errorMsg) return
@@ -110,49 +81,10 @@ export default function PackerMobile() {
 
   // ── Camera ──────────────────────────────────────────────────────────────────
 
-  const stopCamera = useCallback(() => {
-    controlsRef.current?.stop(); controlsRef.current = null
-    streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null
-    setCameraOpen(false); setCameraError(null); didScanRef.current = false
-  }, [])
-
-  useEffect(() => () => stopCamera(), [stopCamera])
-
-  useEffect(() => {
-    if (!cameraOpen) return
-    if (!videoRef.current || !streamRef.current) return
-    const video = videoRef.current
-    video.srcObject = streamRef.current
-    const reader = new BrowserMultiFormatReader()
-    video.play().then(() => {
-      reader.decodeFromStream(streamRef.current!, video, (result, _err, controls) => {
-        if (controls && !controlsRef.current) controlsRef.current = controls
-        if (result && !didScanRef.current) {
-          didScanRef.current = true
-          const code = result.getText()
-          stopCamera()
-          handleScan(code)
-        }
-      }).then(c => { if (!controlsRef.current) controlsRef.current = c }).catch(() => {})
-    }).catch(() => { setCameraError('Could not start video.'); setCameraOpen(false) })
-    return () => { (reader as any).stopAsyncDecode?.() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOpen])
-
-  const openCamera = useCallback(async () => {
-    setCameraError(null); didScanRef.current = false
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      streamRef.current = stream; setCameraOpen(true)
-    } catch (err: any) {
-      const msg = err?.name === 'NotAllowedError' ? 'Camera permission denied.'
-        : err?.name === 'NotFoundError' ? 'No camera found.'
-        : 'Could not open camera.'
-      setCameraError(msg)
-    }
-  }, [])
+  const scanner = useCameraScanner({ onDetected: (code) => handleScan(code) })
+  const cameraOpen = scanner.isOpen
+  const cameraError = scanner.error
+  const openCamera = () => { unlockAudio(); void scanner.open() }
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -485,31 +417,7 @@ export default function PackerMobile() {
       </div>
 
       {/* ── Camera overlay ── */}
-      {cameraOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, overflow: 'hidden' }}>
-          <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          {/* Scan frame */}
-          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -55%)', width: '86%', height: '240px', pointerEvents: 'none' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, width: 44, height: 44, borderTop: '4px solid #10b981', borderLeft: '4px solid #10b981', borderRadius: '4px 0 0 0' }} />
-            <div style={{ position: 'absolute', top: 0, right: 0, width: 44, height: 44, borderTop: '4px solid #10b981', borderRight: '4px solid #10b981', borderRadius: '0 4px 0 0' }} />
-            <div style={{ position: 'absolute', bottom: 0, left: 0, width: 44, height: 44, borderBottom: '4px solid #10b981', borderLeft: '4px solid #10b981', borderRadius: '0 0 0 4px' }} />
-            <div style={{ position: 'absolute', bottom: 0, right: 0, width: 44, height: 44, borderBottom: '4px solid #10b981', borderRight: '4px solid #10b981', borderRadius: '0 0 4px 0' }} />
-            <div style={{ position: 'absolute', top: '50%', left: '3%', right: '3%', height: '2px', background: 'linear-gradient(90deg, transparent, #10b981, transparent)', animation: 'scanline 1.5s ease-in-out infinite' }} />
-            <div style={{ position: 'absolute', inset: 0, boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }} />
-          </div>
-          <p style={{ position: 'absolute', top: '60%', left: 0, right: 0, textAlign: 'center', color: '#cbd5e1', fontSize: '15px', fontWeight: 600, margin: 0 }}>
-            Align barcode within the frame
-          </p>
-          <button onClick={stopCamera} style={{
-            position: 'absolute', bottom: '48px', left: '50%', transform: 'translateX(-50%)',
-            padding: '16px 64px', borderRadius: '14px',
-            border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.18)',
-            color: '#f87171', fontSize: '17px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-          }}>
-            Cancel
-          </button>
-        </div>
-      )}
+      <CameraOverlay scanner={scanner} color="#10b981" title="Packer Scan" />
 
       {/* ── Confirm bottom sheet ── */}
       {pendingOrder && (

@@ -1,46 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { BrowserMultiFormatReader } from '@zxing/browser'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+import CameraOverlay from '../components/scanner/CameraOverlay'
+import ScanCount from '../components/scanner/ScanCount'
+import { useCameraScanner } from '../lib/scanner/useCameraScanner'
+import { playBeep, unlockAudio, vibrate } from '../lib/scanner/feedback'
 
 type ScanMode = 'single' | 'bulk'
 
 interface BulkEntry {
   trackingNumber: string
   status: 'pending' | 'staged' | 'not_found' | 'error'
-}
-
-// ── Haptic + Audio feedback ─────────────────────────────────────────────────
-function playBeep(success: boolean) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    if (success) {
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08)
-      osc.type = 'sine'
-      gain.gain.setValueAtTime(0.35, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.2)
-    } else {
-      osc.frequency.setValueAtTime(300, ctx.currentTime)
-      osc.type = 'square'
-      gain.gain.setValueAtTime(0.2, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.3)
-    }
-  } catch {}
-}
-
-function vibrate(pattern: number | number[]) {
-  try { navigator.vibrate?.(pattern) } catch {}
 }
 
 export default function PickerAdminScan() {
@@ -57,12 +29,6 @@ export default function PickerAdminScan() {
   const [mode, setMode] = useState<ScanMode>('single')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
   const [bulkItems, setBulkItems] = useState<BulkEntry[]>([])
-  const [cameraOpen, setCameraOpen] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<any>(null)
-  const didSubmitRef = useRef(false)
 
   const singleMutation = useMutation({
     mutationFn: (tn: string) =>
@@ -145,55 +111,14 @@ export default function PickerAdminScan() {
     },
   })
 
-  const stopCamera = useCallback(() => {
-    controlsRef.current?.stop(); controlsRef.current = null
-    streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null
-    setCameraOpen(false); setCameraError(null); didSubmitRef.current = false
-  }, [])
-
-  useEffect(() => {
-    if (!cameraOpen) return
-    if (!videoRef.current || !streamRef.current) return
-    const video = videoRef.current
-    video.srcObject = streamRef.current
-    const reader = new BrowserMultiFormatReader()
-    video.play().then(() => {
-      reader.decodeFromStream(streamRef.current!, video, (result, _err, controls) => {
-        if (controls && !controlsRef.current) controlsRef.current = controls
-        if (result && !didSubmitRef.current) {
-          didSubmitRef.current = true
-          const code = result.getText()
-          stopCamera()
-          if (mode === 'single') {
-            singleMutation.mutate(code)
-          } else {
-            bulkValidateMutation.mutate(code)
-          }
-        }
-      }).then(controls => {
-        if (!controlsRef.current) controlsRef.current = controls
-      }).catch(() => {})
-    }).catch(() => { setCameraError('Could not start video stream.'); setCameraOpen(false) })
-    return () => { (reader as any).stopAsyncDecode?.() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOpen])
-
-  useEffect(() => () => stopCamera(), [stopCamera])
-
-  const openCamera = useCallback(async () => {
-    setCameraError(null); didSubmitRef.current = false
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      streamRef.current = stream; setCameraOpen(true)
-    } catch (err: any) {
-      const msg = err?.name === 'NotAllowedError' ? 'Camera permission denied. Please allow camera access.'
-        : err?.name === 'NotFoundError' ? 'No camera found on this device.'
-        : 'Could not open camera.'
-      setCameraError(msg)
-    }
-  }, [])
+  // Bulk mode keeps the camera open: every read is validated by the server right away.
+  const scanner = useCameraScanner({
+    continuous: mode === 'bulk',
+    onDetected: (code) => { if (mode === 'single') singleMutation.mutate(code); else bulkValidateMutation.mutate(code) },
+  })
+  const cameraOpen = scanner.isOpen
+  const cameraError = scanner.error
+  const openCamera = () => { unlockAudio(); void scanner.open() }
 
   const isPending = singleMutation.isPending || bulkMutation.isPending || bulkValidateMutation.isPending
 
@@ -265,27 +190,18 @@ export default function PickerAdminScan() {
         </div>
 
         {/* Camera overlay */}
-        {cameraOpen && (
-          <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100, overflow: 'hidden' }}>
-            <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            {/* Scan frame */}
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -55%)', width: '92%', height: '270px', pointerEvents: 'none' }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, width: 48, height: 48, borderTop: '5px solid #7c3aed', borderLeft: '5px solid #7c3aed', borderRadius: '5px 0 0 0' }} />
-              <div style={{ position: 'absolute', top: 0, right: 0, width: 48, height: 48, borderTop: '5px solid #7c3aed', borderRight: '5px solid #7c3aed', borderRadius: '0 5px 0 0' }} />
-              <div style={{ position: 'absolute', bottom: 0, left: 0, width: 48, height: 48, borderBottom: '5px solid #7c3aed', borderLeft: '5px solid #7c3aed', borderRadius: '0 0 0 5px' }} />
-              <div style={{ position: 'absolute', bottom: 0, right: 0, width: 48, height: 48, borderBottom: '5px solid #7c3aed', borderRight: '5px solid #7c3aed', borderRadius: '0 0 5px 0' }} />
-              <div style={{ position: 'absolute', top: '50%', left: '3%', right: '3%', height: '2px', background: 'linear-gradient(90deg, transparent, #7c3aed, transparent)', animation: 'scanline 1.5s ease-in-out infinite' }} />
-              <div style={{ position: 'absolute', inset: 0, boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)' }} />
+        <CameraOverlay
+          scanner={scanner}
+          color="#a78bfa"
+          title={mode === 'bulk' ? 'Bulk Scan' : 'Picker Admin Scan'}
+          closeLabel={mode === 'bulk' ? 'Done' : 'Cancel'}
+          status={mode === 'bulk' && (bulkItems.length > 0 || feedback) ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              {bulkItems.length > 0 && <ScanCount count={bulkItems.length} last={bulkItems[bulkItems.length - 1].trackingNumber} />}
+              {feedback && feedback.type !== 'success' && <span style={{ color: feedback.type === 'warning' ? '#fbbf24' : '#f87171', fontWeight: 700, fontSize: 14 }}>{feedback.message}</span>}
             </div>
-            {/* Label */}
-            <p style={{ position: 'absolute', top: '58%', left: 0, right: 0, textAlign: 'center', color: '#cbd5e1', fontSize: '16px', fontWeight: 600, margin: 0 }}>Align barcode within the frame</p>
-            {/* Cancel button */}
-            <button onClick={stopCamera} style={{ position: 'absolute', bottom: '48px', left: '50%', transform: 'translateX(-50%)', padding: '18px 72px', borderRadius: '16px', border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.18)', color: '#f87171', fontSize: '18px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              Cancel
-            </button>
-            <style>{`@keyframes scanline { 0%,100%{opacity:.3;transform:translateY(-40px)}50%{opacity:1;transform:translateY(40px)} }`}</style>
-          </div>
-        )}
+          ) : undefined}
+        />
 
         {/* Scan button */}
         <button

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { BrowserMultiFormatReader } from '@zxing/browser'
 import {
   ReturnCancelType,
   RETURN_CANCEL_TYPE_LABELS,
@@ -17,6 +15,9 @@ import { api } from '../api/client'
 import { disconnectSocket } from '../lib/socket'
 import { useCreateReturnCancel, type ReturnCancelRow } from '../api/returns'
 import StoreOptions from '../components/shared/StoreOptions'
+import CameraOverlay from '../components/scanner/CameraOverlay'
+import { useCameraScanner } from '../lib/scanner/useCameraScanner'
+import { getAudioContext } from '../lib/scanner/feedback'
 
 const CARRIERS = Object.values(Carrier)
 
@@ -28,7 +29,8 @@ const CARRIER_KEY = 'return-scan-carrier'
 
 function playBeep(success: boolean) {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain); gain.connect(ctx.destination)
@@ -81,14 +83,6 @@ export default function ReturnScanMobile() {
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<ReturnCancelRow[]>([])
 
-  // ── Camera ───────────────────────────────────────────────────────────────────
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<{ stop: () => void } | null>(null)
-  const lockedRef = useRef(false)
-  const [cameraOn, setCameraOn] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
-
   const waybillRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { localStorage.setItem(TYPE_KEY, type) }, [type])
@@ -122,66 +116,18 @@ export default function ReturnScanMobile() {
     setPending({ trackingNumber: wb, platform: plat })
   }, [selectorsReady, platform, platformTouched])
 
-  // ── Camera lifecycle (reads the waybill barcode as raw text) ─────────────────
-  const stopCamera = useCallback(() => {
-    controlsRef.current?.stop()
-    controlsRef.current = null
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    lockedRef.current = false
-    setCameraOn(false)
-  }, [])
+  // ── Camera (reads the waybill barcode as raw text; closes after one read) ─────
+  const scanner = useCameraScanner({
+    onDetected: (text) => { onWaybillChange(text); askConfirm(text) }, // askConfirm fires the beep + vibrate
+  })
+  const cameraError = scanner.error
 
-  const startCamera = useCallback(async () => {
-    setCameraError(null); setError(null)
+  const startCamera = useCallback(() => {
+    setError(null)
     if (!selectorsReady) { setError('Pick Type, Store and Courier first.'); return }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      streamRef.current = stream
-      setCameraOn(true)
-    } catch (err: unknown) {
-      const name = (err as { name?: string })?.name
-      setCameraError(
-        name === 'NotAllowedError' ? 'Camera permission denied. Please allow camera access.' :
-        name === 'NotFoundError' ? 'No camera found on this device.' :
-        'Could not open camera.',
-      )
-    }
-  }, [selectorsReady])
-
-  useEffect(() => {
-    if (!cameraOn || !videoRef.current || !streamRef.current) return
-    const video = videoRef.current
-    const stream = streamRef.current
-    video.srcObject = stream
-    const reader = new BrowserMultiFormatReader()
-
-    video.play().then(() => {
-      reader.decodeFromStream(stream, video, (result, _err, controls) => {
-        if (controls && !controlsRef.current) controlsRef.current = controls
-        if (!result || lockedRef.current) return
-        const text = result.getText().trim()
-        if (!text) return
-        lockedRef.current = true
-        onWaybillChange(text)
-        stopCamera()
-        askConfirm(text) // fires the scan beep + vibrate
-      }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
-        .catch(() => { /* noop */ })
-    }).catch(() => {
-      setCameraError('Could not start video stream.')
-      setCameraOn(false)
-    })
-
-    return () => {
-      try { (reader as unknown as { stopAsyncDecode?: () => void }).stopAsyncDecode?.() } catch { /* noop */ }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn])
-
-  useEffect(() => () => stopCamera(), [stopCamera])
+    getAudioContext()
+    void scanner.open()
+  }, [selectorsReady, scanner])
 
   async function confirmSave() {
     if (!pending || !type || !carrier) return
@@ -344,30 +290,8 @@ export default function ReturnScanMobile() {
           )}
       </main>
 
-      {/* Camera overlay — full screen via portal to document.body, so no ancestor
-          stacking/transform/overflow context can shrink or clip it (same proven
-          pattern as components/ScanInput.tsx). */}
-      {cameraOn && createPortal(
-        <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.7)', flexShrink: 0 }}>
-            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 16 }}>Scan Waybill</span>
-            <button
-              onClick={stopCamera}
-              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#f1f5f9', padding: '8px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-            >Cancel</button>
-          </div>
-          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ width: '78%', maxWidth: 320, aspectRatio: '3/2', border: '2px solid rgba(59,130,246,0.8)', borderRadius: 12, boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }} />
-            </div>
-          </div>
-          <div style={{ padding: 16, background: 'rgba(0,0,0,0.7)', textAlign: 'center', flexShrink: 0 }}>
-            <span style={{ color: '#94a3b8', fontSize: 14 }}>Point the camera at the waybill barcode</span>
-          </div>
-        </div>,
-        document.body,
-      )}
+      {/* Camera overlay — full screen via portal (CameraOverlay) so no ancestor can clip it. */}
+      <CameraOverlay scanner={scanner} color="#3b82f6" title="Scan Waybill" hint="Hold the waybill barcode inside the frame" />
 
       {/* Confirm sheet */}
       {pending && (

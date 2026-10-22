@@ -1,8 +1,9 @@
 # Dynamic Order Management System — Architecture Document
 
-> **Version:** 2.91.0  
-> **Date:** 2026-09-24  
-> **Status:** **v2.98.0 (test)** — **Outbound → Order History + Shopee Instant fix + Outbound redesign.** The Warehouse Report "Order Timeline" tab and `GET /reports/order-timeline` are gone; their replacement is `/outbound/history` backed by read-only `GET /dispatch/order-history?trackingNumber=` (`getOrderHistory`): Inbound (scanned by) → Picker → Packer (worker, assigned by, started, completed, duration, re-assignments) → Outbound (scanned out by, courier, source) plus the full timed event log; case-insensitive, archived orders included, external dispatch-only parcels answered too. **Bug:** the Outbound scanner mapped an order carrier of `SHOPEE_INSTANT` to `SPX` (substring "SHOPEE"), so Shopee Instant never appeared on the Outbound board/report. Fixed at the scanner (exact enum match) and in `createDispatchParcel` (in-house takes the order's carrier). History is corrected **at read time** without rewriting rows: `withEffectiveCarrier` re-labels SPX in-house parcels whose order is `SHOPEE_INSTANT` (board, report, list, history). **Access:** the Outbound GETs (board, stats, report, pipeline, old orders, order history) are now viewable by WAREHOUSE/INBOUND/PICKER/PACKER_ADMIN (`viewGuard`); scan, lookup, POST, list and DELETE stay ADMIN + OUTBOUND_ADMIN. New `styles/outbound.css` (`.ob-*`, `.oh-*`). No schema change.
+> **Version:** 2.105.0  
+> **Date:** 2026-10-23  
+> **Status:** **v2.105.0 (test)** — **Camera scanning rebuilt (Section 4 "Phone camera scanning").** All nine camera scan screens share one scanner (`lib/scanner/`, `components/scanner/`): the phone's `BarcodeDetector` first, then zxing-cpp WebAssembly (`zxing-wasm`) with rotating thresholds on the guide area. Flash Express labels the old `@zxing/browser` reader could not read at all now read in ~0.4–1 s; bigger guide, torch / zoom, bulk modes keep the camera open, one shared AudioContext. No backend or schema change.
+> **Previous status:** **v2.98.0 (test)** — **Outbound → Order History + Shopee Instant fix + Outbound redesign.** The Warehouse Report "Order Timeline" tab and `GET /reports/order-timeline` are gone; their replacement is `/outbound/history` backed by read-only `GET /dispatch/order-history?trackingNumber=` (`getOrderHistory`): Inbound (scanned by) → Picker → Packer (worker, assigned by, started, completed, duration, re-assignments) → Outbound (scanned out by, courier, source) plus the full timed event log; case-insensitive, archived orders included, external dispatch-only parcels answered too. **Bug:** the Outbound scanner mapped an order carrier of `SHOPEE_INSTANT` to `SPX` (substring "SHOPEE"), so Shopee Instant never appeared on the Outbound board/report. Fixed at the scanner (exact enum match) and in `createDispatchParcel` (in-house takes the order's carrier). History is corrected **at read time** without rewriting rows: `withEffectiveCarrier` re-labels SPX in-house parcels whose order is `SHOPEE_INSTANT` (board, report, list, history). **Access:** the Outbound GETs (board, stats, report, pipeline, old orders, order history) are now viewable by WAREHOUSE/INBOUND/PICKER/PACKER_ADMIN (`viewGuard`); scan, lookup, POST, list and DELETE stay ADMIN + OUTBOUND_ADMIN. New `styles/outbound.css` (`.ob-*`, `.oh-*`). No schema change.
 
 > **Previous status:** **v2.94.0 (test)** — **Marketing Report: monthly sales agent targets.** New additive table `sales_targets` (default set + per-agent overrides; no rows = shared `DEFAULT_SALES_TARGETS`: ₱300,000 sales · 150 online orders (direct + live) · 52 live hours · 30 videos (Video + Reel) · 60 photo posts · 100 inquiries). `services/salesTargetService.ts` computes monthly actuals read-only from the existing sales tables; `GET /marketing/targets?month=` (pace-to-date, month-end projection, status, team totals, 6-month history) and `GET|PUT /marketing/targets/settings` (ADMIN). UI: Marketing Report → Targets tab + ADMIN editor; agent page → This month's targets. Plan: `MARKETING_TARGETS.md`.
 >
@@ -245,6 +246,30 @@ Both barcode (CODE128) and QR code on the same waybill encode **identical data**
 | **Use case** | Main workstation inbound scanning |
 
 > HID scanners emulate a keyboard at the OS level. No SDK, no driver, no special integration — plug in and it works in any browser input field.
+
+### Phone camera scanning (v2.105.0)
+
+Every camera scan screen (Inbound / Picker Admin / Packer Admin handheld, Picker / Packer mobile, Outbound, Return & Cancel,
+Stock, and `ScanInput`'s camera button) uses **one** scanner: `frontend/src/lib/scanner/` (`useCameraScanner` hook,
+`decoder.ts`, `feedback.ts`) + `frontend/src/components/scanner/` (`CameraOverlay`, `ScanFrame`, `ScannerControls`,
+`ScanCount`). Never add a per-page camera / decoder copy again.
+
+- **Engines, per frame:** the phone's own `BarcodeDetector` (Google ML Kit on Android Chrome) when present, then
+  **zxing-cpp as WebAssembly** (`zxing-wasm` 3.1.5, `zxing_reader.wasm` ~970 KB / ~420 KB gzip, served from `/assets/`,
+  loaded only when a camera opens, never from a CDN). `@zxing/browser` is no longer used by any screen.
+- **Why:** Flash Express labels (thermal print) have narrow bars printed thinner than the spec. The old
+  `@zxing/browser` reader read **0** of them (photo + fake-camera tests, 2026-10-23). zxing-cpp rotates through
+  settings frame by frame (`ATTEMPTS`: fixed threshold at Otsu +20 / +40 / 0 / −20, local average, a 75 % / 60 % copy,
+  and once per round the whole picture); this reads the same labels in ~0.4–1 s.
+- **Region:** decoding reads the area of the on-screen guide (`ScanFrame`, ~96 % wide, 200–380 px tall; square for
+  stock QR) mapped onto the video (`object-fit: cover`), plus a margin.
+- **Camera:** 1920×1080 ideal, continuous focus when supported, torch and 1×/2×/3× zoom buttons when the camera has them.
+- **Accepting a read:** waybills: Code128 / Code39 / Code93 / ITF / EAN / UPC / QR / DataMatrix, 1D preferred over
+  matrix codes, at least 6 characters; formats without a mandatory check character (Code39, Code93, ITF) need the same
+  value twice within 1.5 s. Stock (`kind: 'qr'`): QR only. Bulk / continuous mode keeps the camera open and ignores the
+  same code for 2.5 s (Stock: 0.6 s).
+- **Sound:** one shared `AudioContext` (`feedback.ts`); a new context per beep made the beep go silent after a few dozen
+  scans on phones.
 
 ### Inbound Entry Flow Per Order
 

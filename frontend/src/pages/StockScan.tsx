@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useAuthStore } from '../stores/authStore'
+import ScanFrame from '../components/scanner/ScanFrame'
+import ScannerControls from '../components/scanner/ScannerControls'
+import { useCameraScanner } from '../lib/scanner/useCameraScanner'
+import { getAudioContext } from '../lib/scanner/feedback'
 import { api } from '../api/client'
 import { disconnectSocket } from '../lib/socket'
 import { useScanStock, lookupStockItem } from '../api/stock'
@@ -12,7 +15,8 @@ const RESULT_TOAST_MS = 2000
 
 function playBeep(success: boolean) {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain); gain.connect(ctx.destination)
@@ -121,9 +125,6 @@ export default function StockScan() {
   const setUser = useAuthStore((s) => s.setUser)
   const { data: warehouses = [] } = useWarehouses()
 
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const controlsRef = useRef<{ stop: () => void } | null>(null)
   const lockedRef = useRef(false)
   // Single-mode: after a scan resolves (success OR error), keep the ID so the
   // camera doesn't immediately re-detect the same QR (which is still in the
@@ -145,8 +146,6 @@ export default function StockScan() {
   const [warehouseId, setWarehouseId] = useState<string>(() => localStorage.getItem(WH_KEY) ?? '')
   const [showOpPicker, setShowOpPicker] = useState(false)
   const [showWhPicker, setShowWhPicker] = useState(false)
-  const [cameraOn, setCameraOn] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<ScanResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [debugRaw, setDebugRaw] = useState<string | null>(null)
@@ -219,47 +218,27 @@ export default function StockScan() {
 
   const ready = !!warehouseId
 
-  const stopCamera = useCallback(() => {
-    controlsRef.current?.stop()
-    controlsRef.current = null
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    lastResolvedIdRef.current = null
-    setCameraOn(false)
-  }, [])
+  // The camera stays open in both modes (the label QR is read again and again while in view): the guards below
+  // (lockedRef, pendingRef, lastResolvedIdRef) decide what a read does. Short repeat window so Cancel → rescan works.
+  const scanner = useCameraScanner({ kind: 'qr', continuous: true, minLength: 1, repeatMs: 600, onDetected: (text) => onCode(text) })
+  const cameraOn = scanner.isOpen
+  const cameraError = scanner.error
 
-  const startCamera = useCallback(async () => {
-    setCameraError(null); setErrorMessage(null)
+  const stopCamera = useCallback(() => {
+    lastResolvedIdRef.current = null
+    scanner.close()
+  }, [scanner])
+
+  const startCamera = useCallback(() => {
+    setErrorMessage(null)
     if (!opPicked) { setShowOpPicker(true); return }
     if (!warehouseId) { setShowWhPicker(true); return }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      streamRef.current = stream
-      setCameraOn(true)
-    } catch (err: unknown) {
-      const name = (err as { name?: string })?.name
-      setCameraError(
-        name === 'NotAllowedError' ? 'Camera permission denied. Please allow camera access.' :
-        name === 'NotFoundError' ? 'No camera found on this device.' :
-        'Could not open camera.',
-      )
-    }
-  }, [warehouseId, opPicked])
+    getAudioContext()
+    void scanner.open()
+  }, [warehouseId, opPicked, scanner])
 
-  useEffect(() => {
-    if (!cameraOn || !videoRef.current || !streamRef.current) return
-    const video = videoRef.current
-    const stream = streamRef.current
-    video.srcObject = stream
-    const reader = new BrowserMultiFormatReader()
-
-    video.play().then(() => {
-      reader.decodeFromStream(stream, video, (result, _err, controls) => {
-        if (controls && !controlsRef.current) controlsRef.current = controls
-        if (!result || lockedRef.current || pendingRef.current) return
-        const text = result.getText().trim()
+  function onCode(text: string) {
+        if (lockedRef.current || pendingRef.current) return
         setDebugRaw(text)
         const id = parseStockQr(text)
         if (!id) {
@@ -312,20 +291,7 @@ export default function StockScan() {
         lastResolvedIdRef.current = null
         playBeep(true); vibrate([80, 60, 140])
         setPendingScan({ id })
-      }).then((controls) => { if (!controlsRef.current) controlsRef.current = controls })
-        .catch(() => { /* noop */ })
-    }).catch(() => {
-      setCameraError('Could not start video stream.')
-      setCameraOn(false)
-    })
-
-    return () => {
-      try { (reader as unknown as { stopAsyncDecode?: () => void }).stopAsyncDecode?.() } catch { /* noop */ }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, warehouseId, operation, ready])
-
-  useEffect(() => () => stopCamera(), [stopCamera])
+  }
 
   function cancelScan() {
     // Cancel = operator decided not to commit this QR; allow them to scan
@@ -441,12 +407,11 @@ export default function StockScan() {
       >
         {cameraOn ? (
           <>
-            <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <video ref={scanner.videoRef} playsInline muted autoPlay style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
-            {/* Scan frame */}
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <div style={{ width: '78%', maxWidth: 320, aspectRatio: '1/1', border: `3px solid ${opMeta.color}d9`, borderRadius: 14, boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }} />
-            </div>
+            {/* Scan frame (square: stock labels are QR codes) */}
+            <ScanFrame ref={scanner.frameRef} color={opMeta.color} style={{ top: '46%', width: '84%', maxWidth: 440, height: 'auto', aspectRatio: '1 / 1' }} />
+            <ScannerControls scanner={scanner} style={{ top: 'auto', bottom: 'calc(45% + 12px)', right: 12, zIndex: 13 }} />
 
             {/* Floating top bar — close + Op + WH chips + Mode toggle */}
             <div style={{
