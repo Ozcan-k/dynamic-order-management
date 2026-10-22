@@ -5,6 +5,44 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-23] Camera scan could not read Flash Express waybills (and missed others) (v2.105.0)
+
+### Problem
+Handheld Inbound Scan (and every other camera scan screen) did nothing when pointed at Flash Express labels: the barcode
+was sharp and inside the frame (WhatsApp video + photos from the floor, 2026-10-21), no beep, no error. Some other labels
+failed too. Backend logs of that day were clean (1,044 handheld scans OK, 10 duplicates, no errors) — an unread barcode
+never reaches the server.
+
+### Root cause
+Decoding, not the camera. Flash labels are long Code128 symbols printed on thermal printers with the narrow bars thinner
+than the spec. `@zxing/browser` (`@zxing/library`, HybridBinarizer, no hints) read **0 of 30** photo crops; even the
+stronger zxing-cpp read none of the full photos with its default binarizer. A fixed threshold above Otsu (+20 / +40,
+which thickens the bars) and a 75 % copy of the picture made them readable: zxing-cpp **17 of 18**, `@zxing/library` 10 of 18.
+Every screen also had its own copy of the camera code: 1280×720, no format hints, a new `AudioContext` per beep (beep goes
+silent after a few dozen scans), bulk modes closing the camera after each read, a tiny decorative guide, and a cleanup
+call (`reader.stopAsyncDecode`) that does not exist in `@zxing/browser`.
+
+### Fix
+One shared scanner: `frontend/src/lib/scanner/` (`useCameraScanner`, `decoder.ts`, `feedback.ts`) +
+`frontend/src/components/scanner/` (`CameraOverlay`, `ScanFrame`, `ScannerControls`, `ScanCount`), used by all nine
+screens. Native `BarcodeDetector` first (Android Chrome), then `zxing-wasm` 3.1.5 (zxing-cpp) on the guide area with the
+settings rotating frame by frame (`ATTEMPTS`). 1920×1080 + continuous focus, torch / zoom buttons, bigger guide, bulk
+modes keep the camera open, minimum length 6 and a double read for formats without a check character, one AudioContext.
+`application/wasm` added to nginx `gzip_types` (970 KB → 420 KB). Test with Chromium's fake camera fed with the label
+photos (`--use-file-for-fake-video-capture=<file>.y4m`): old reader **0 / 20**, new **9 / 10** in 0.4–1.1 s (the miss: a
+deliberately tilted + blurred frame), stock QR 1 / 1.
+
+### Rules
+- Never add a per-page camera / decoder again — use `useCameraScanner` (+ `CameraOverlay`, or `ScanFrame` +
+  `ScannerControls` for a custom camera UI).
+- Test a camera change with real label photos through Chromium's fake camera before shipping; note the fake device
+  crops to the requested aspect ratio (a portrait 1080×1920 file became 1080×1080), so make the barcode fit the visible
+  part of the screen, as a person would.
+- The phone's `BarcodeDetector` cannot be tested on Windows Chrome — confirm on a handheld after deploy.
+- Bash heredocs eat backslashes in test scripts (`/\\/g` became `/\/g`): write such lines with the Edit tool.
+
+---
+
 ## [2026-10-14] Sales agent lists showed removed logins; an invoice-only agent could not be filtered (v2.104.0)
 
 ### Problem
