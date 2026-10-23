@@ -28,6 +28,7 @@ import MarketingReport from './pages/MarketingReport'
 import MarketingAgent from './pages/MarketingAgent'
 import IncidentReport from './pages/IncidentReport'
 import IncidentEmployeeReport from './pages/IncidentEmployeeReport'
+import AppUpdateNotice from './components/shared/AppUpdateNotice'
 import EmployeeSchedule from './pages/employeeSchedule/EmployeeSchedule'
 import ReturnCancel from './pages/ReturnCancel'
 import ReturnScanMobile from './pages/ReturnScanMobile'
@@ -129,6 +130,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AppUpdateNotice />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/scan" element={<ScanLogin />} />

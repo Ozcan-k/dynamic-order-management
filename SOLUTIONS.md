@@ -5,6 +5,58 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-23] "Flash still not read" after v2.105.0 — the phone ran the old build; sideways labels (v2.105.2)
+
+### Problem
+A floor video after the v2.105.0 deploy showed Flash waybills still not reading on the inbound handheld.
+
+### Root cause
+1. **The phone never loaded v2.105.0.** `docker logs dom_frontend` since the deploy: the inbound handheld (Android 10,
+   Chrome 156) made only API calls (`/orders/handheld-bulk-scan`, `/auth/login|logout`) — no page, no `/assets/index-*.js`,
+   no `zxing_reader-*.wasm` (every new-build camera fetches the wasm when it opens). The app had been open since before
+   the deploy; sign-out / sign-in are in-app navigations and never reload the code. Phones that did reload (picker admin,
+   packer, outbound) fetched the wasm.
+2. **Sideways phones.** The video shows the phone held sideways while the page stays portrait: the label appears rotated
+   90°, the long Flash barcode runs across the wide guide band and does not fit in it. Fake-camera test with rotated
+   labels: 1 / 5 read.
+
+### Fix
+- `components/shared/AppUpdateNotice.tsx` (mounted once in `App.tsx`): every 2 minutes and when the tab becomes visible
+  it fetches `/index.html` (no-store) and compares the `/assets/index-*.js` name with the one running. New build →
+  "A new version of the app is ready · Update now" bar; on `/scan` and `/login` (nothing to lose) it reloads by itself,
+  **at most once per new bundle** (`sessionStorage`), so a stale cache can never cause a reload loop. Tested on the
+  production build: fake new bundle → one reload, then the bar; no new bundle → no reload, no bar.
+- `decoder.ts`: a third area, `square` (same centre as the guide, as wide as the guide), interleaved with the guide
+  band (2 guide reads : 1 square read at ≤ 75 %), and two full-frame settings per round. Sideways 4 / 5, straight 5 / 5,
+  tilted 4 / 4, mostly under 1 s.
+
+### Rules
+- To know which build a phone runs, look for its `GET /assets/index-*.js` / `zxing_reader-*.wasm` in `docker logs dom_frontend`.
+- After a frontend deploy, handhelds pick it up through the update bar; tell the floor to tap "Update now" (or sign out:
+  `/scan` reloads by itself).
+
+---
+
+## [2026-10-23] Nothing was gzipped in production: app bundle reached phones at 1.8 MB (v2.105.1)
+
+### Problem
+While checking the v2.105.0 deploy: `curl -H "Accept-Encoding: gzip" https://domwarehouse.com/assets/index-*.js` came back
+without `Content-Encoding` (1,803,334 bytes). Inside the container (`docker exec dom_frontend wget --header=Accept-Encoding:gzip`)
+the same file was gzipped.
+
+### Root cause
+The host nginx (1.18, Ubuntu) proxies to `dom_frontend` over HTTP/1.0 (its `proxy_pass` default). The container's
+nginx only gzips HTTP/1.1 requests by default (`gzip_http_version 1.1`), so every proxied response went out uncompressed
+since the static-serve migration (v2.41.0).
+
+### Fix
+`gzip_http_version 1.0;` in `frontend/nginx.conf` (1.8 MB → ~477 KB for the bundle, wasm 967 → ~420 KB).
+
+### Rule
+After a change to compression or caching, check the headers through the public domain, not only inside the container.
+
+---
+
 ## [2026-10-23] Camera scan could not read Flash Express waybills (and missed others) (v2.105.0)
 
 ### Problem

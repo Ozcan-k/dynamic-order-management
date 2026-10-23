@@ -262,7 +262,10 @@ Stock, and `ScanInput`'s camera button) uses **one** scanner: `frontend/src/lib/
   settings frame by frame (`ATTEMPTS`: fixed threshold at Otsu +20 / +40 / 0 / −20, local average, a 75 % / 60 % copy,
   and once per round the whole picture); this reads the same labels in ~0.4–1 s.
 - **Region:** decoding reads the area of the on-screen guide (`ScanFrame`, ~96 % wide, 200–380 px tall; square for
-  stock QR) mapped onto the video (`object-fit: cover`), plus a margin.
+  stock QR) mapped onto the video (`object-fit: cover`), plus a margin; every third read uses a square on the same centre
+  as wide as the guide (phones held sideways show the label rotated 90°, v2.105.2), and twice per round the whole picture.
+- **Updates reach open phones (v2.105.2):** `components/shared/AppUpdateNotice.tsx` checks `/index.html` for a new bundle
+  every 2 minutes; "Update now" bar, automatic reload on `/scan` and `/login` (once per bundle).
 - **Camera:** 1920×1080 ideal, continuous focus when supported, torch and 1×/2×/3× zoom buttons when the camera has them.
 - **Accepting a read:** waybills: Code128 / Code39 / Code93 / ITF / EAN / UPC / QR / DataMatrix, 1D preferred over
   matrix codes, at least 6 characters; formats without a mandatory check character (Code39, Code93, ITF) need the same

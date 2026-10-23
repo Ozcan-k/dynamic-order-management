@@ -135,8 +135,12 @@ function thresholded(src: ImageData, offset: number): ImageData {
 // The zxing-cpp attempts rotate frame by frame (one per frame keeps each frame fast on a phone). From the 2026-10-23
 // label test: no single setting reads every Flash label, but each label has one that does — thicker bars (threshold
 // +20 / +40) and a 75 % copy of the picture (less JPEG / sensor noise on the bar edges) rescued most of them.
-type Attempt = { binarizer: 'LocalAverage' | 'FixedThreshold'; offset?: number; scale: number; full?: boolean }
-const ATTEMPTS: Attempt[] = [
+// Area: `guide` = the on-screen band; `square` = a square on the same centre as wide as the band, because people hold the
+// phone sideways (2026-10-23 floor video): the label then shows rotated 90°, its barcode runs across the band and does not
+// fit in it; `full` = the whole picture, in case the label is outside the guide.
+type Area = 'guide' | 'square' | 'full'
+type Attempt = { binarizer: 'LocalAverage' | 'FixedThreshold'; offset?: number; scale: number; area: Area }
+const SETTINGS: Omit<Attempt, 'area'>[] = [
   { binarizer: 'FixedThreshold', offset: 20, scale: 1 },
   { binarizer: 'FixedThreshold', offset: 20, scale: 0.75 },
   { binarizer: 'FixedThreshold', offset: 40, scale: 1 },
@@ -146,15 +150,34 @@ const ATTEMPTS: Attempt[] = [
   { binarizer: 'FixedThreshold', scale: 1 },
   { binarizer: 'FixedThreshold', offset: 20, scale: 0.6 },
   { binarizer: 'FixedThreshold', offset: -20, scale: 0.75 },
-  // the label may be held outside the guide: once per round, the whole picture
-  { binarizer: 'LocalAverage', scale: 1, full: true },
+]
+// Two guide reads, then one square read (at most 75 %: it has more pixels), frame by frame; twice per round the whole
+// picture. Straight labels keep their speed, sideways ones get every third frame.
+const ATTEMPTS: Attempt[] = [
+  ...SETTINGS.flatMap((s, i): Attempt[] =>
+    i % 2 === 0 ? [{ ...s, area: 'guide' }] : [{ ...s, area: 'guide' }, { ...SETTINGS[i - 1], scale: Math.min(0.75, SETTINGS[i - 1].scale), area: 'square' }, { ...s, scale: Math.min(0.75, s.scale), area: 'square' }]),
+  { binarizer: 'LocalAverage', scale: 1, area: 'full' },
+  { binarizer: 'FixedThreshold', offset: 20, scale: 0.75, area: 'full' },
 ]
 
+function areaOf(video: HTMLVideoElement, guide: Region, area: Area): Region {
+  const vw = video.videoWidth, vh = video.videoHeight
+  if (area === 'full') return { x: 0, y: 0, w: vw, h: vh }
+  if (area === 'guide') return guide
+  const side = Math.min(Math.max(guide.w, guide.h), vw, vh)
+  const cx = guide.x + guide.w / 2, cy = guide.y + guide.h / 2
+  const x = Math.round(Math.min(Math.max(0, cx - side / 2), vw - side))
+  const y = Math.round(Math.min(Math.max(0, cy - side / 2), vh - side))
+  return { x, y, w: Math.round(side), h: Math.round(side) }
+}
+
 const normalise = (format: string) => format.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Drop control characters (GS1 separators etc.) a symbol may carry around the tracking number. */
+const printable = (s: string) => Array.from(s).filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127).join('')
 
 function pick(results: { text: string; format: string }[], minLength: number): Detection | null {
   const ok = results
-    .map((r) => ({ text: r.text.replace(/[\u0000-\u001f\u007f]/g, '').trim(), format: normalise(r.format) }))
+    .map((r) => ({ text: printable(r.text).trim(), format: normalise(r.format) }))
     .filter((r) => r.text.length >= minLength)
   if (!ok.length) return null
   // labels carry several codes: prefer 1D (the waybill) over QR / DataMatrix, then the longest
@@ -170,8 +193,7 @@ export const needsConfirmation = (format: string) => format === 'code39' || form
 /** Decode one video frame. `attempt` grows by one per call so the zxing-cpp settings rotate (see ATTEMPTS). */
 export async function decodeFrame(video: HTMLVideoElement, region: Region, attempt: number, minLength: number, kind: ScanKind = 'waybill'): Promise<Detection | null> {
   const a = ATTEMPTS[attempt % ATTEMPTS.length]
-  const r = a.full ? { x: 0, y: 0, w: video.videoWidth, h: video.videoHeight } : region
-  const frame = drawRegion(video, r, a.scale)
+  const frame = drawRegion(video, areaOf(video, region, a.area), a.scale)
   if (!frame) return null
 
   const native = await nativeDetector(kind)
