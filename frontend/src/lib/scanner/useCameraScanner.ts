@@ -155,6 +155,8 @@ export function useCameraScanner({ onDetected, continuous = false, minLength = 6
       }
     })()
 
+    // runRef is a run counter, not a DOM ref: reading its latest value here is the point (stop only this run's loop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => { if (runRef.current === run) runRef.current++ }
   }, [isOpen, close])
 
