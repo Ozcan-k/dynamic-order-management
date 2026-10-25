@@ -675,6 +675,9 @@ model DispatchParcel {
   tenant    Tenant @relation(fields: [tenantId], references: [id])
   createdBy User   @relation("DispatchCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
+  // v2.106.1: one row per waybill. The find-then-insert check in createDispatchParcel let two
+  // scans in the same second both insert (seen once in prod, 2026-06-07).
+  @@unique([tenantId, trackingNumber], map: "dispatch_parcels_tenant_id_tracking_number_key")
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, carrier])
   @@map("dispatch_parcels")

@@ -91,6 +91,8 @@ interface PendingParcel {
   platform: Platform
   carrier: Carrier
   shopName: string
+  /** Scanned in External mode but it is one of our orders — saved as In-house. */
+  correctedFromExternal?: boolean
 }
 
 export default function OutboundScan() {
@@ -149,51 +151,56 @@ export default function OutboundScan() {
     if (!source) { setError('Pick the parcel source first.'); playBeep(false); vibrate([120, 60, 120]); return }
     if (!wb) { setError('Scan or enter a waybill number.'); playBeep(false); vibrate([120, 60, 120]); return }
 
-    if (isInHouse) {
-      // In-house: must match one of OUR orders. Look it up; block if missing.
-      setError(null); setLooking(true)
-      try {
-        const lookup = await lookupOrder(wb)
-        if (!lookup.found || !lookup.platform) {
-          setError(`Waybill ${wb} is not in our system. In-house parcels must already exist.`)
-          playBeep(false); vibrate([180, 100, 180, 100, 180])
-          return
-        }
-        if (!lookup.packerComplete) {
-          setError(`Waybill ${wb} is not packer-complete yet — the packer must scan it before it can be dispatched. Outbound cannot accept it.`)
-          playBeep(false); vibrate([180, 100, 180, 100, 180])
-          return
-        }
-        playBeep(true); vibrate([90, 50, 140])
-        setPending({
-          trackingNumber: wb,
-          source: DispatchSource.IN_HOUSE,
-          platform: lookup.platform,
-          carrier: resolveCarrier(lookup),
-          shopName: lookup.shopName || 'Unknown',
-        })
-      } catch {
-        setError('Lookup failed. Please try again.')
+    // External still looks the waybill up: one of our orders scanned with the source left on External
+    // (681 such parcels by 2026-10-24) is saved as In-house instead. The backend applies the same rule.
+    if (isExternal && !carrier) { setError('Pick the courier first.'); playBeep(false); vibrate([120, 60, 120]); return }
+    setError(null); setLooking(true)
+    let lookup: OrderLookupResult
+    try {
+      lookup = await lookupOrder(wb)
+    } catch {
+      setError('Lookup failed. Please try again.')
+      playBeep(false); vibrate([180, 100, 180, 100, 180])
+      setLooking(false)
+      return
+    }
+    setLooking(false)
+
+    if (isInHouse || lookup.found) {
+      // In-house: must match one of OUR orders. Block if missing.
+      if (!lookup.found || !lookup.platform) {
+        setError(`Waybill ${wb} is not in our system. In-house parcels must already exist.`)
         playBeep(false); vibrate([180, 100, 180, 100, 180])
-      } finally {
-        setLooking(false)
+        return
       }
+      if (!lookup.packerComplete) {
+        setError(`Waybill ${wb} is not packer-complete yet — the packer must scan it before it can be dispatched. Outbound cannot accept it.`)
+        playBeep(false); vibrate([180, 100, 180, 100, 180])
+        return
+      }
+      playBeep(true); vibrate([90, 50, 140])
+      setPending({
+        trackingNumber: wb,
+        source: DispatchSource.IN_HOUSE,
+        platform: lookup.platform,
+        carrier: resolveCarrier(lookup),
+        shopName: lookup.shopName || 'Unknown',
+        correctedFromExternal: isExternal,
+      })
       return
     }
 
     // External: platform + carrier are required, shop defaults to "Others".
-    if (!carrier) { setError('Pick the courier first.'); playBeep(false); vibrate([120, 60, 120]); return }
     const plat = platformTouched && platform ? platform : detectPlatform(wb)
-    setError(null)
     playBeep(true); vibrate([90, 50, 140])
     setPending({
       trackingNumber: wb,
       source: DispatchSource.EXTERNAL,
       platform: plat as Platform,
-      carrier,
+      carrier: carrier as Carrier,
       shopName: 'Others',
     })
-  }, [source, isInHouse, carrier, platform, platformTouched])
+  }, [source, isInHouse, isExternal, carrier, platform, platformTouched])
 
   // ── Camera (reads the waybill barcode as raw text; closes after one read) ─────
   const scanner = useCameraScanner({
@@ -375,6 +382,11 @@ export default function OutboundScan() {
               <div style={{ fontSize: 16, fontWeight: 800 }}>Confirm parcel</div>
               <div style={{ fontSize: 11, color: '#94a3b8' }}>Review before saving.</div>
             </div>
+            {pending.correctedFromExternal && (
+              <div style={{ background: 'rgba(59,130,246,0.14)', border: '1px solid rgba(59,130,246,0.5)', color: '#bfdbfe', padding: '10px 12px', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                This waybill is one of our orders, so it is saved as In-house, not External.
+              </div>
+            )}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Row label="Waybill" value={pending.trackingNumber} mono />
               <Row label="Source" value={DISPATCH_SOURCE_LABELS[pending.source]} valueColor={pending.source === DispatchSource.IN_HOUSE ? '#60a5fa' : '#fbbf24'} />
