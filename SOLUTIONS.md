@@ -5,6 +5,40 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-25] Outbound Report: long date range showed "No parcels dispatched in this range" and was slow (v2.106.2)
+
+### Problem
+Outbound Report with a longer custom range: the Couriers card said "No parcels dispatched in this range", the page
+was slow, and the Old Orders drill-down failed too.
+
+### Root cause
+`getDispatchReport`, `getOrderPipeline` and `getOldOrdersList` loaded every parcel of the range into Node, then
+passed all their order ids to one Prisma `id: { in: [...] }`. Prod does ~1,500 parcels a day, so past roughly a month
+the list exceeds Postgres' 32,767 bind-variable limit: `too many bind variables in prepared statement` (report) /
+`Query parameter limit exceeded` (old orders) → HTTP 500. The page treated the failed query as empty data.
+Reproduced locally with a prod-sized seed (144k orders, 180k parcels over 120 days):
+
+| range | report (old → new) | pipeline | old orders |
+|---|---|---|---|
+| 30 days | 661 ms → 57 ms | 2.2 s → 0.2 s | ERROR → 0.18 s |
+| 90 days | ERROR → 89 ms | 9.2 s → 0.5 s | ERROR → 0.37 s |
+| 120 days | ERROR → 92 ms | 8.9 s → 1.2 s | ERROR → 0.6 s |
+
+### Fix
+The three functions aggregate in Postgres (`$queryRaw`): report `GROUP BY` effective carrier (same SPX →
+Shopee Instant rule as `withEffectiveCarrier`), pipeline `count(DISTINCT order_id) FILTER (...)` + one count of
+scanned / backlog parcels, old orders one query with the backlog predicate and the last completed picker / packer.
+Same Manila bounds and the same "old order" rule. Results identical to the old code on every range where it worked
+(1 / 7 / 30 days, report + pipeline + old orders); 90 / 120-day totals match an independent SQL count. The report and
+old-orders pages now show "Could not load" on an error instead of "No parcels". No schema change.
+
+### Rules
+- Never collect ids of a date range into `in: [...]`: aggregate or join in SQL. Any list that grows with the range
+  will pass 32,767 parameters one day.
+- A failed query must not render as an empty state.
+
+---
+
 ## [2026-10-25] Our own orders recorded as External on Outbound Scan — 681 parcels (v2.106.0)
 
 ### Problem

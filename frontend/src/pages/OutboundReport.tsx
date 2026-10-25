@@ -58,7 +58,7 @@ export default function OutboundReport() {
   const isSingleDay = from === to
   const days = daysInclusive(from, to)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dispatch-report', from, to],
     queryFn: () => getDispatchReport(from, to),
   })
@@ -141,6 +141,12 @@ export default function OutboundReport() {
 
           {isLoading ? (
             <div className="ob-empty"><span className="spinner spinner-sm" />Loading report…</div>
+          ) : isError ? (
+            // A failed request is not an empty range (before v2.106.2 long ranges failed and read "No parcels").
+            <div className="ob-empty">
+              <div className="ob-empty-title">Could not load the report</div>
+              <button type="button" className="preset-btn" onClick={() => void refetch()}>Try again</button>
+            </div>
           ) : carriers.length === 0 ? (
             <div className="ob-empty">
               <div className="ob-empty-icon"><TruckIcon size={24} /></div>

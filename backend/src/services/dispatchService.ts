@@ -249,34 +249,32 @@ export async function getDispatchStats(tenantId: string, date?: string) {
 
 // ─── Historical report (per-carrier totals across a range) ────────────────────
 
+// Range reports aggregate in Postgres (v2.106.2). They used to load every parcel of the range and pass all
+// their order ids to one `IN (...)`: past ~30 days that broke Postgres' 32,767 bind-variable limit (the report
+// came back empty) and took seconds before that. Same Manila bounds as before.
+function dispatchRangeSql(from?: string, to?: string): Prisma.Sql {
+  return Prisma.sql`${from ? Prisma.sql`AND d.created_at >= ${new Date(from + 'T00:00:00+08:00')}` : Prisma.empty}
+    ${to ? Prisma.sql`AND d.created_at <= ${new Date(to + 'T23:59:59+08:00')}` : Prisma.empty}`
+}
+
+// Manila calendar day of a stored UTC timestamp (same as getManilaDateString).
+const manilaDay = (col: Prisma.Sql) => Prisma.sql`(${col} + interval '8 hours')::date`
+
 export async function getDispatchReport(tenantId: string, from?: string, to?: string) {
-  const createdAt: Prisma.DateTimeFilter = {
-    ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
-    ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
-  }
-  const where: Prisma.DispatchParcelWhereInput = {
-    tenantId,
-    ...(from || to ? { createdAt } : {}),
-  }
+  // Effective carrier = withEffectiveCarrier's rule (SPX in-house parcel of a SHOPEE_INSTANT order).
+  const rows = await prisma.$queryRaw<{ carrier: string; total: number; in_house: number }[]>`
+    SELECT CASE WHEN d.carrier = 'SPX' AND d.source = 'IN_HOUSE' AND o.carrier_name = 'SHOPEE_INSTANT'
+                THEN 'SHOPEE_INSTANT' ELSE d.carrier::text END AS carrier,
+           count(*)::int AS total,
+           (count(*) FILTER (WHERE d.source = 'IN_HOUSE'))::int AS in_house
+    FROM dispatch_parcels d
+    LEFT JOIN orders o ON o.id = d.order_id
+    WHERE d.tenant_id = ${tenantId} ${dispatchRangeSql(from, to)}
+    GROUP BY 1`
 
-  const parcels = await withEffectiveCarrier(await prisma.dispatchParcel.findMany({
-    where,
-    select: { carrier: true, source: true, orderId: true },
-  }))
-
-  const map = new Map<string, { total: number; inHouse: number; external: number }>()
-  for (const p of parcels) {
-    const carrier = p.carrier ?? 'OTHER'
-    if (!map.has(carrier)) map.set(carrier, { total: 0, inHouse: 0, external: 0 })
-    const row = map.get(carrier)!
-    row.total += 1
-    if (p.source === DispatchSource.IN_HOUSE) row.inHouse += 1
-    else row.external += 1
-  }
-
-  const carriers = Array.from(map.entries())
-    .map(([carrier, v]) => ({ carrier, ...v }))
-    .sort((a, b) => b.total - a.total)
+  const carriers = rows
+    .map((r) => ({ carrier: r.carrier, total: r.total, inHouse: r.in_house, external: r.total - r.in_house }))
+    .sort((a, b) => b.total - a.total || a.carrier.localeCompare(b.carrier))
 
   const totals = carriers.reduce(
     (acc, c) => ({ total: acc.total + c.total, inHouse: acc.inHouse + c.inHouse, external: acc.external + c.external }),
@@ -302,62 +300,40 @@ export async function getDispatchReport(tenantId: string, from?: string, to?: st
 // normal flow and are NOT counted here. A scanned parcel whose order is gone (archived
 // after 180 days) counts as old — archival means it was packed long ago.
 // Read-only; never touches the order pipeline.
+// A scanned in-house parcel is backlog ("old order") when its order was packer-completed on an earlier Manila
+// day than the scan, or the order is gone / has no packer-complete stamp. slaCompletedAt is stamped at the
+// PACKER_COMPLETE → OUTBOUND auto-advance, i.e. the moment the packer finished.
+const isOldOrderSql = Prisma.sql`(o.sla_completed_at IS NULL OR ${manilaDay(Prisma.sql`o.sla_completed_at`)} < ${manilaDay(Prisma.sql`d.created_at`)})`
+
 export async function getOrderPipeline(tenantId: string, from?: string, to?: string) {
-  const range: Prisma.DateTimeFilter = {
-    ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
-    ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
-  }
-  const hasRange = Boolean(from || to)
-  const base: Prisma.OrderStatusHistoryWhereInput = {
-    order: { tenantId },
-    ...(hasRange ? { changedAt: range } : {}),
-  }
+  const historyRange = Prisma.sql`${from ? Prisma.sql`AND h.changed_at >= ${new Date(from + 'T00:00:00+08:00')}` : Prisma.empty}
+    ${to ? Prisma.sql`AND h.changed_at <= ${new Date(to + 'T23:59:59+08:00')}` : Prisma.empty}`
 
-  const distinctOrders = async (toStatus: OrderStatus) => {
-    const rows = await prisma.orderStatusHistory.findMany({
-      where: { ...base, toStatus },
-      distinct: ['orderId'],
-      select: { orderId: true },
-    })
-    return rows.length
-  }
-
-  // In-house parcels actually scanned out in this range (drives "outbound").
-  const scannedParcels = await prisma.dispatchParcel.findMany({
-    where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
-    select: { createdAt: true, orderId: true },
-  })
-
-  // Resolve each scanned parcel's packer-complete day to split same-day vs backlog.
-  // slaCompletedAt is stamped at the PACKER_COMPLETE → OUTBOUND auto-advance, i.e. the
-  // moment the packer finished — the right "packed on" timestamp to compare against.
-  const orderIds = scannedParcels
-    .map((p) => p.orderId)
-    .filter((id): id is string => Boolean(id))
-  const completedOrders = orderIds.length
-    ? await prisma.order.findMany({
-        where: { id: { in: orderIds } },
-        select: { id: true, slaCompletedAt: true },
-      })
-    : []
-  const completedAtById = new Map(completedOrders.map((o) => [o.id, o.slaCompletedAt]))
-
-  let oldOrders = 0
-  for (const p of scannedParcels) {
-    const completedAt = p.orderId ? completedAtById.get(p.orderId) ?? null : null
-    const packedDay = completedAt ? getManilaDateString(completedAt) : null
-    const scanDay = getManilaDateString(p.createdAt)
-    // packed on an earlier day, or order archived/unknown → backlog "old order".
-    if (packedDay === null || packedDay < scanDay) oldOrders++
-  }
-  const outbound = scannedParcels.length
-
-  const [inbound, pickerComplete, packerComplete] = await Promise.all([
-    distinctOrders(OrderStatus.INBOUND),
-    distinctOrders(OrderStatus.PICKER_COMPLETE),
-    distinctOrders(OrderStatus.PACKER_COMPLETE),
+  const [[stages], [scanned]] = await Promise.all([
+    // Distinct orders that reached each warehouse stage in the range.
+    prisma.$queryRaw<{ inbound: number; picker_complete: number; packer_complete: number }[]>`
+      SELECT (count(DISTINCT h.order_id) FILTER (WHERE h.to_status = 'INBOUND'))::int         AS inbound,
+             (count(DISTINCT h.order_id) FILTER (WHERE h.to_status = 'PICKER_COMPLETE'))::int AS picker_complete,
+             (count(DISTINCT h.order_id) FILTER (WHERE h.to_status = 'PACKER_COMPLETE'))::int AS packer_complete
+      FROM order_status_history h
+      JOIN orders o ON o.id = h.order_id
+      WHERE o.tenant_id = ${tenantId}
+        AND h.to_status IN ('INBOUND', 'PICKER_COMPLETE', 'PACKER_COMPLETE') ${historyRange}`,
+    // In-house parcels actually scanned out in this range (drives "outbound"), and the backlog among them.
+    prisma.$queryRaw<{ outbound: number; old_orders: number }[]>`
+      SELECT count(*)::int AS outbound, (count(*) FILTER (WHERE ${isOldOrderSql}))::int AS old_orders
+      FROM dispatch_parcels d
+      LEFT JOIN orders o ON o.id = d.order_id
+      WHERE d.tenant_id = ${tenantId} AND d.source = 'IN_HOUSE' ${dispatchRangeSql(from, to)}`,
   ])
-  return { inbound, pickerComplete, packerComplete, outbound, oldOrders }
+
+  return {
+    inbound: stages.inbound,
+    pickerComplete: stages.picker_complete,
+    packerComplete: stages.packer_complete,
+    outbound: scanned.outbound,
+    oldOrders: scanned.old_orders,
+  }
 }
 
 // ─── Old-orders drill-down (backlog behind the funnel's "incl. N old orders") ──
@@ -380,64 +356,52 @@ export async function getOldOrdersList(
   from?: string,
   to?: string,
 ): Promise<OldOrderRow[]> {
-  const range: Prisma.DateTimeFilter = {
-    ...(from ? { gte: new Date(from + 'T00:00:00+08:00') } : {}),
-    ...(to ? { lte: new Date(to + 'T23:59:59+08:00') } : {}),
-  }
-  const hasRange = Boolean(from || to)
+  // Backlog parcels with their order, then the last completed picker / packer of just those orders.
+  const rows = await prisma.$queryRaw<{
+    tracking_number: string
+    scan_date: Date
+    order_id: string | null
+    inbound_date: Date | null
+    packer_complete_date: Date | null
+    picker: string | null
+    packer: string | null
+  }[]>`
+    WITH backlog AS (
+      SELECT d.tracking_number, d.created_at AS scan_date, o.id AS order_id,
+             o.created_at AS inbound_date, o.sla_completed_at AS packer_complete_date
+      FROM dispatch_parcels d
+      LEFT JOIN orders o ON o.id = d.order_id
+      WHERE d.tenant_id = ${tenantId} AND d.source = 'IN_HOUSE' ${dispatchRangeSql(from, to)}
+        AND ${isOldOrderSql}
+    ),
+    pk AS (
+      SELECT DISTINCT ON (a.order_id) a.order_id, u.username
+      FROM picker_assignments a JOIN users u ON u.id = a.picker_id
+      WHERE a.completed_at IS NOT NULL AND a.order_id IN (SELECT order_id FROM backlog)
+      ORDER BY a.order_id, a.completed_at DESC
+    ),
+    pa AS (
+      SELECT DISTINCT ON (a.order_id) a.order_id, u.username
+      FROM packer_assignments a JOIN users u ON u.id = a.packer_id
+      WHERE a.completed_at IS NOT NULL AND a.order_id IN (SELECT order_id FROM backlog)
+      ORDER BY a.order_id, a.completed_at DESC
+    )
+    SELECT b.tracking_number, b.scan_date, b.order_id, b.inbound_date, b.packer_complete_date,
+           pk.username AS picker, pa.username AS packer
+    FROM backlog b
+    LEFT JOIN pk ON pk.order_id = b.order_id
+    LEFT JOIN pa ON pa.order_id = b.order_id
+    ORDER BY b.scan_date DESC, b.tracking_number`
 
-  const scannedParcels = await prisma.dispatchParcel.findMany({
-    where: { tenantId, source: DispatchSource.IN_HOUSE, ...(hasRange ? { createdAt: range } : {}) },
-    select: { trackingNumber: true, createdAt: true, orderId: true },
-    orderBy: { createdAt: 'desc' },
-  })
-
-  const orderIds = scannedParcels
-    .map((p) => p.orderId)
-    .filter((id): id is string => Boolean(id))
-  const orders = orderIds.length
-    ? await prisma.order.findMany({
-        where: { id: { in: orderIds } },
-        select: {
-          id: true,
-          createdAt: true,
-          slaCompletedAt: true,
-          pickerAssignments: {
-            where: { completedAt: { not: null } },
-            orderBy: { completedAt: 'desc' },
-            take: 1,
-            select: { picker: { select: { username: true } } },
-          },
-          packerAssignments: {
-            where: { completedAt: { not: null } },
-            orderBy: { completedAt: 'desc' },
-            take: 1,
-            select: { packer: { select: { username: true } } },
-          },
-        },
-      })
-    : []
-  const orderById = new Map(orders.map((o) => [o.id, o]))
-
-  const rows: OldOrderRow[] = []
-  for (const p of scannedParcels) {
-    const order = p.orderId ? orderById.get(p.orderId) ?? null : null
-    const completedAt = order?.slaCompletedAt ?? null
-    const packedDay = completedAt ? getManilaDateString(completedAt) : null
-    const scanDay = getManilaDateString(p.createdAt)
-    // Same-day packed-and-scanned is the normal flow — only backlog belongs here.
-    if (packedDay !== null && packedDay >= scanDay) continue
-    rows.push({
-      trackingNumber: p.trackingNumber,
-      inboundDate: order?.createdAt ? order.createdAt.toISOString() : null,
-      packerCompleteDate: completedAt ? completedAt.toISOString() : null,
-      assignedPicker: order?.pickerAssignments[0]?.picker.username ?? null,
-      assignedPacker: order?.packerAssignments[0]?.packer.username ?? null,
-      scanDate: p.createdAt.toISOString(),
-      archived: order === null,
-    })
-  }
-  return rows
+  return rows.map((r) => ({
+    trackingNumber: r.tracking_number,
+    inboundDate: r.inbound_date ? r.inbound_date.toISOString() : null,
+    packerCompleteDate: r.packer_complete_date ? r.packer_complete_date.toISOString() : null,
+    assignedPicker: r.picker,
+    assignedPacker: r.packer,
+    scanDate: r.scan_date.toISOString(),
+    archived: r.order_id === null,
+  }))
 }
 
 // ─── Order history (Outbound → Order History; read-only) ─────────────────────
