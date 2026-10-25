@@ -19,7 +19,7 @@ export default function OldOrdersReport() {
   const from = params.get('from') ?? undefined
   const to = params.get('to') ?? undefined
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['old-orders', from, to],
     queryFn: () => getOldOrders(from, to),
   })
@@ -73,6 +73,8 @@ export default function OldOrdersReport() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>Loading…</td></tr>
+              ) : isError ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: '#dc2626' }}>Could not load the list. Please try again.</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>No old orders in this range.</td></tr>
               ) : (
