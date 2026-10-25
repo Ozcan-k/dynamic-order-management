@@ -5,6 +5,38 @@ When the same issue appears again, check here first.
 
 ---
 
+## [2026-10-25] Our own orders recorded as External on Outbound Scan — 681 parcels (v2.106.0)
+
+### Problem
+The floor noticed parcels that had been inbound-scanned (ours) being dispatched as **External**. Read-only prod query
+(EXTERNAL `dispatch_parcels` joined to `orders` on `upper(trim(tracking_number))`, archived orders included):
+**681 of 14,633** external rows are our orders — all inbound-scanned **before** the external scan, all `OUTBOUND`
+(packer-complete). 678 by one outbound operator, 3 by another; 488 on 2026-10-23, 75 on 06-07, 86 on 06-10, 22 on 07-25.
+The courier is wrong too: external rows store the operator's chosen courier (all 10-23 rows `SHOPEE_INSTANT`,
+while the orders are SPX / J&T / LEX / Flash…). Oldest order still in the DB 2026-04-26, first external 2026-06-01 —
+the whole external history was covered.
+
+### Root cause
+1. `OutboundScan` keeps the Parcel Source in `localStorage` (`outbound-scan-source`): once left on External it stays
+   External across days and sign-outs.
+2. External mode never looked the waybill up, and `createDispatchParcel` only checked orders for IN_HOUSE — so our
+   order went in as External / "Others" with no warning, and (one record per waybill) could never get its in-house row.
+
+### Fix
+External scans are looked up too. A match is treated as In-house: frontend confirm sheet shows "This waybill is one of
+our orders, so it is saved as In-house"; backend `createDispatchParcel` turns an EXTERNAL request with a matching
+order into IN_HOUSE with the order's platform / shop / courier (old open tabs are covered) and still requires
+packer-complete. True external parcels are unchanged. Local service test 7 / 7.
+
+### Rules
+- Any scan mode that records a waybill must check our `orders` first; a sticky selection must never be able to
+  mislabel our own parcels.
+- Find mislabels with the read-only query above (`dispatch_parcels.source = 'EXTERNAL'` × `orders`).
+- Same check found one waybill dispatched twice in the same minute (the duplicate guard is a find-then-insert
+  race) — see the follow-up data fix.
+
+---
+
 ## [2026-10-23] "Flash still not read" after v2.105.0 — the phone ran the old build; sideways labels (v2.105.2)
 
 ### Problem

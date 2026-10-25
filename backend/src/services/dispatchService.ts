@@ -147,23 +147,34 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
   })
   if (existing) throw new DuplicateDispatchError()
 
+  let source = input.source
   let shopName = EXTERNAL_SHOP
   let orderId: string | null = null
   let carrier = input.carrier
+  let platform = input.platform
 
-  if (input.source === DispatchSource.IN_HOUSE) {
+  // Is the parcel ours? Match archived orders too and case-insensitively — see lookupOrderForDispatch.
+  const order = await prisma.order.findFirst({
+    where: { tenantId: input.tenantId, trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, shopName: true, status: true, carrierName: true, platform: true },
+  })
+
+  // v2.106.0: one of our orders sent as EXTERNAL (sticky source left on External — 681 such rows
+  // by 2026-10-24) is recorded as IN_HOUSE with the order's own platform / shop / courier.
+  const correctedFromExternal = source === DispatchSource.EXTERNAL && !!order
+  if (correctedFromExternal) source = DispatchSource.IN_HOUSE
+
+  if (source === DispatchSource.IN_HOUSE) {
     // Re-verify the parcel really is ours (drives the "block it" error on the scanner).
-    // Match archived orders too and case-insensitively — see lookupOrderForDispatch.
-    const order = await prisma.order.findFirst({
-      where: { tenantId: input.tenantId, trackingNumber: { equals: trackingNumber, mode: 'insensitive' } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, shopName: true, status: true, carrierName: true },
-    })
     if (!order) throw new OrderNotFoundError()
     // The packer must have finished the parcel before it can leave on a courier.
     if (!DISPATCHABLE_STATUSES.includes(order.status)) throw new OrderNotPackerCompleteError()
     orderId = order.id
-    shopName = (input.shopName?.trim() || order.shopName || 'Unknown')
+    shopName = correctedFromExternal
+      ? (order.shopName || 'Unknown')
+      : (input.shopName?.trim() || order.shopName || 'Unknown')
+    if (correctedFromExternal) platform = order.platform as Platform
     // The order's carrier (picked at inbound) wins over the scanner's guess.
     if (isCarrier(order.carrierName)) carrier = order.carrierName
   }
@@ -174,8 +185,8 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
       tenantId: input.tenantId,
       createdById: input.createdById,
       trackingNumber,
-      source: input.source,
-      platform: input.platform,
+      source,
+      platform,
       carrier,
       shopName,
       orderId,
