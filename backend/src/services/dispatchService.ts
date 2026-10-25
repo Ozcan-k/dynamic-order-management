@@ -180,19 +180,25 @@ export async function createDispatchParcel(input: CreateDispatchInput) {
   }
   // EXTERNAL always rolls up under "Others" regardless of any supplied shop.
 
-  return prisma.dispatchParcel.create({
-    data: {
-      tenantId: input.tenantId,
-      createdById: input.createdById,
-      trackingNumber,
-      source,
-      platform,
-      carrier,
-      shopName,
-      orderId,
-    },
-    select: dispatchSelect,
-  })
+  try {
+    return await prisma.dispatchParcel.create({
+      data: {
+        tenantId: input.tenantId,
+        createdById: input.createdById,
+        trackingNumber,
+        source,
+        platform,
+        carrier,
+        shopName,
+        orderId,
+      },
+      select: dispatchSelect,
+    })
+  } catch (err) {
+    // A second scan of the same waybill that raced past the check above (unique index, v2.106.1).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new DuplicateDispatchError()
+    throw err
+  }
 }
 
 // ─── Grouped by carrier → shop (board, single day) ────────────────────────────
