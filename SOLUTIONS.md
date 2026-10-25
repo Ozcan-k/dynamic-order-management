@@ -36,6 +36,9 @@ packer-complete. True external parcels are unchanged. Local service test 7 / 7.
   race). v2.106.1 adds a unique index `dispatch_parcels (tenant_id, tracking_number)`; a racing second insert now
   gets P2002 → `DuplicateDispatchError` (409). **Deploy order:** remove the duplicate rows in prod first — `db push`
   cannot create the unique index while duplicates exist and the CD run fails.
+- **Applied in prod 2026-10-25** (before the v2.106.x deploy): backup `/root/dispatch_parcels-before-fix-20261025.dump`,
+  `UPDATE 681` (external → in-house with the order's platform / shop / courier), `DELETE 5` (later copies of 5 waybills
+  dispatched twice: 4 external, 1 in-house), checks 0 / 0, COMMIT. 680 parcels moved to in-house after the duplicate removal.
 - Prod data fix = read-only preview (counts) → table backup → one transaction that aborts unless the counts match
   the preview (`-v expected_fix= -v expected_dupes=`), then checks 0 external rows still ours and 0 duplicated waybills.
 
